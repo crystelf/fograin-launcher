@@ -1,0 +1,30 @@
+[package]
+name = "fograin"
+description = "Fograin Launcher desktop shell"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lib]
+name = "fograin_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+fg-core.workspace = true
+serde.workspace = true
+specta.workspace = true
+tauri.workspace = true
+tauri-specta.workspace = true
+time.workspace = true
+tracing.workspace = true
+tracing-appender.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+specta-typescript = "0.0.13"

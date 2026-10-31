@@ -1,0 +1,120 @@
+/*
+ * Design tokens for Fograin Launcher.
+ *
+ * Dark values are exported verbatim from the `fograin.pen` variables
+ * (2026-10-31). Android M3 values are exported from the same file.
+ * Light values come from the initial draft in docs/design.md §4.1.1;
+ * --text-2 / --text-3 were darkened slightly from the 60% / 30% alpha draft so
+ * body-size text clears 4.5:1 on --bg-base. They still need a design pass once
+ * light-mode screens exist in pen.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* Desktop surfaces and type */
+  --bg-base: #1c1c1e;
+  --bg-elevated: #242426;
+  --text-primary: #f2f2f3;
+  --text-secondary: #9b9b9e;
+  --text-tertiary: #6b6b6e;
+  --accent: #0a84ff;
+  --accent-soft: #4a80b8;
+  --hairline: #ffffff14;
+  --glass-fill: #ffffff0f;
+  --glass-stroke: #ffffff1a;
+  --glass: #ffffff14;
+  --glass-strong: #ffffff1f;
+  --glass-edge: #ffffff2e;
+  --text-1: #f5f5f7;
+  --text-2: #ebebf599;
+  --text-3: #ebebf55c;
+  --sep: #ffffff14;
+  --font-ui:
+    "Inter Variable", "Inter", "PingFang SC", "Microsoft YaHei UI",
+    "Noto Sans CJK SC", system-ui, sans-serif;
+
+  /* Android Material 3, dark */
+  --md-surface: #101410;
+  --md-surface-low: #181c19;
+  --md-surface-c: #1c201d;
+  --md-surface-high: #262a27;
+  --md-surface-highest: #313532;
+  --md-on-surface: #e2e4df;
+  --md-on-surface-var: #c0c9c1;
+  --md-outline: #8a938c;
+  --md-outline-var: #414942;
+  --md-primary: #8ed5ae;
+  --md-on-primary: #003824;
+  --md-primary-c: #005235;
+  --md-on-primary-c: #aaf2ca;
+  --md-secondary-c: #354c3d;
+  --md-on-secondary-c: #d0e9d8;
+  --md-tertiary-c: #2d4a56;
+  --md-on-tertiary-c: #c7e9f8;
+  --md-error: #ffb4ab;
+  --md-scrim: #101410cc;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-base: #f5f5f7;
+  --bg-elevated: #ffffff;
+  --text-primary: #1d1d1f;
+  --text-secondary: #515154;
+  --text-tertiary: #6e6e73;
+  --accent: #007aff;
+  --accent-soft: #4a80b8;
+  --hairline: #00000014;
+  --glass-fill: #ffffffb3;
+  --glass-stroke: #00000014;
+  --glass: #ffffffb3;
+  --glass-strong: #ffffffe6;
+  --glass-edge: #0000001f;
+  --text-1: #1d1d1f;
+  --text-2: #3c3c43;
+  --text-3: #6e6e73;
+  --sep: #0000001a;
+
+  /* Android Material 3, light, seeded from #8ed5ae */
+  --md-surface: #f7fbf7;
+  --md-surface-low: #f1f5f1;
+  --md-surface-c: #ebefeb;
+  --md-surface-high: #e5e9e5;
+  --md-surface-highest: #dfe3df;
+  --md-on-surface: #191c1a;
+  --md-on-surface-var: #414942;
+  --md-outline: #717970;
+  --md-outline-var: #c0c9c1;
+  --md-primary: #1b6b4a;
+  --md-on-primary: #ffffff;
+  --md-primary-c: #a6f2c9;
+  --md-on-primary-c: #002114;
+  --md-secondary-c: #b9ccbe;
+  --md-on-secondary-c: #252f27;
+  --md-tertiary-c: #c7e9f8;
+  --md-on-tertiary-c: #051f29;
+  --md-error: #ba1a1a;
+  --md-scrim: #101410cc;
+}
+
+:root[data-platform="android"] {
+  --bg-base: var(--md-surface);
+  --bg-elevated: var(--md-surface-low);
+  --text-primary: var(--md-on-surface);
+  --text-secondary: var(--md-on-surface-var);
+  --text-tertiary: var(--md-outline);
+  --text-1: var(--md-on-surface);
+  --text-2: var(--md-on-surface-var);
+  --text-3: var(--md-outline);
+  --accent: var(--md-primary);
+  --accent-soft: var(--md-primary-c);
+  --hairline: var(--md-outline-var);
+  --sep: var(--md-outline-var);
+  --glass: var(--md-surface-c);
+  --glass-strong: var(--md-surface-high);
+  --glass-fill: var(--md-surface-c);
+  --glass-stroke: var(--md-outline-var);
+  --glass-edge: var(--md-outline-var);
+}

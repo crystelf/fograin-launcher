@@ -1,0 +1,22 @@
+{
+  "name": "fograin-launcher",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@10.30.2",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @fograin/ui dev",
+    "build": "pnpm --filter @fograin/ui build",
+    "preview": "pnpm --filter @fograin/ui preview",
+    "typecheck": "pnpm --filter @fograin/ui typecheck",
+    "tauri": "tauri",
+    "bindings": "cargo test -p fograin export_bindings",
+    "check": "pnpm typecheck && cargo fmt --all -- --check && cargo clippy --workspace --all-targets --locked -- -D warnings"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.4"
+  }
+}

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <title>雾雨启动器</title>
+    <script>
+      // Rust injects __FOGRAIN_PLATFORM__ before any page script runs. Applying it
+      // here guarantees data-platform is set before the styles and React bundle
+      // load, without relying on documentElement existing in the init script.
+      const injectedPlatform = window.__FOGRAIN_PLATFORM__;
+      if (injectedPlatform) {
+        document.documentElement.dataset.platform = injectedPlatform;
+      }
+
+      // The theme follows the system until the launcher.toml-backed switch lands
+      // in M1.
+      document.documentElement.dataset.theme = window.matchMedia(
+        "(prefers-color-scheme: light)",
+      ).matches
+        ? "light"
+        : "dark";
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

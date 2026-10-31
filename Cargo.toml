@@ -1,0 +1,42 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "GPL-3.0-only"
+authors = ["Fograin Launcher contributors"]
+publish = false
+
+[workspace.dependencies]
+fg-auth = { path = "crates/fg-auth" }
+fg-content = { path = "crates/fg-content" }
+fg-core = { path = "crates/fg-core" }
+fg-diag = { path = "crates/fg-diag" }
+fg-game = { path = "crates/fg-game" }
+fg-java = { path = "crates/fg-java" }
+fg-loader = { path = "crates/fg-loader" }
+fg-net = { path = "crates/fg-net" }
+fg-task = { path = "crates/fg-task" }
+fg-world = { path = "crates/fg-world" }
+
+dirs = "7.0.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+specta = { version = "=2.0.0-rc.26", features = ["derive"] }
+tauri = "2.12.5"
+tauri-build = "2.7.4"
+tauri-specta = { version = "=2.0.0-rc.26", features = ["derive", "typescript"] }
+time = { version = "0.3.55", features = ["local-offset"] }
+tracing = "0.1.44"
+tracing-appender = "0.2.5"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
