@@ -5,8 +5,8 @@
 
 fn main() {
     println!(
-        "Fograin CLI {} - {} skin (M0 scaffold)",
+        "Fograin CLI {} - {} (workspace scaffold)",
         env!("CARGO_PKG_VERSION"),
-        fg_core::PlatformSkin::detect().label(),
+        fg_core::Platform::detect().label(),
     );
 }

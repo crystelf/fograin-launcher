@@ -1,19 +1,37 @@
 # Rust / Cargo
 /target
+**/target/
 **/*.rs.bk
 *.pdb
 **/mutants.out*/
 rustc-ice-*.txt
 
-# Node / pnpm
-node_modules/
-ui/dist/
-.vite/
-*.tsbuildinfo
+# Swift / Xcode
+**/.build/
+**/.swiftpm/
+**/DerivedData/
+**/*.xcodeproj/xcuserdata/
+**/*.xcworkspace/xcuserdata/
+*.xcuserstate
 
-# Generated Tauri artifacts
-src-tauri/gen/schemas/
-src-tauri/target/
+# C# / WinUI
+**/bin/
+**/obj/
+**/.vs/
+*.user
+*.suo
+
+# Android / Gradle
+**/.gradle/
+**/.kotlin/
+**/local.properties
+**/captures/
+*.iml
+**/build/
+
+# Local generated bindings
+# Generated FFI files are committed next to the clients; keep this section for
+# tool output only.
 
 # Local data and logs
 logs/

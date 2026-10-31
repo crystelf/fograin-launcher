@@ -2,22 +2,21 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-/// Visual skin selected by the host platform (§4.1 of `docs/design.md`).
+/// Host platform selected at compile time.
 ///
-/// The identifier is injected into the web view as
-/// `<html data-platform="…">` before the first paint, and is also returned by
-/// the `app_info` command.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
+/// The identifier is used by configuration, FFI callers and diagnostics. It no
+/// longer selects a CSS skin; each platform ships its own native client.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum PlatformSkin {
+pub enum Platform {
     Macos,
     Win11,
     Gnome,
     Android,
 }
 
-impl PlatformSkin {
-    /// Detects the skin for the platform this binary was compiled for.
+impl Platform {
+    /// Detects the host platform this binary was compiled for.
     #[must_use]
     pub const fn detect() -> Self {
         #[cfg(target_os = "macos")]
@@ -47,7 +46,7 @@ impl PlatformSkin {
         }
     }
 
-    /// Stable identifier used in `data-platform` and on the IPC wire.
+    /// Stable identifier used on the FFI wire and in configuration.
     #[must_use]
     pub const fn id(self) -> &'static str {
         match self {
@@ -58,7 +57,7 @@ impl PlatformSkin {
         }
     }
 
-    /// Human-readable skin name shown on the M0 status screen.
+    /// Human-readable platform name.
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
@@ -70,7 +69,7 @@ impl PlatformSkin {
     }
 }
 
-impl fmt::Display for PlatformSkin {
+impl fmt::Display for Platform {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.label())
     }
@@ -82,29 +81,29 @@ mod tests {
 
     #[test]
     fn wire_values_match_ids() {
-        for skin in [
-            PlatformSkin::Macos,
-            PlatformSkin::Win11,
-            PlatformSkin::Gnome,
-            PlatformSkin::Android,
+        for platform in [
+            Platform::Macos,
+            Platform::Win11,
+            Platform::Gnome,
+            Platform::Android,
         ] {
-            let json = serde_json::to_string(&skin).expect("skin should serialize");
-            assert_eq!(json, format!("\"{}\"", skin.id()));
+            let json = serde_json::to_string(&platform).expect("platform should serialize");
+            assert_eq!(json, format!("\"{}\"", platform.id()));
         }
     }
 
     #[test]
     fn detects_the_host_platform() {
         let expected = if cfg!(target_os = "macos") {
-            PlatformSkin::Macos
+            Platform::Macos
         } else if cfg!(target_os = "windows") {
-            PlatformSkin::Win11
+            Platform::Win11
         } else if cfg!(target_os = "android") {
-            PlatformSkin::Android
+            Platform::Android
         } else {
-            PlatformSkin::Gnome
+            Platform::Gnome
         };
 
-        assert_eq!(PlatformSkin::detect(), expected);
+        assert_eq!(Platform::detect(), expected);
     }
 }

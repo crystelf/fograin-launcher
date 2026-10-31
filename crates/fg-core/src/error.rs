@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 
 /// Coarse category of a launcher error.
 ///
-/// The frontend keys off [`Error::message_key`] for localized copy; `kind` is
-/// only used for branching and diagnostics.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
+/// UI clients key off [`Error::message_key`] for localized copy; `kind` is only
+/// used for branching and diagnostics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ErrorKind {
     Io,
@@ -26,7 +26,7 @@ pub enum ErrorKind {
 /// `message_key` is an i18n key, never user-facing prose. `detail` carries the
 /// technical cause for logs and the diagnostics bundle, and should not contain
 /// credentials or access tokens.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Error {
     pub kind: ErrorKind,

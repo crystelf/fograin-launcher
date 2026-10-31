@@ -1,7 +1,7 @@
 # 雾雨启动器（Fograin Launcher）设计文档
 
-> 状态：草案 v0.1 · 2025-10-31
-> 范围：Minecraft Java 版启动器，Tauri 2 + Rust，桌面三端（macOS / Windows / Linux）为第一阶段，Android 为第二阶段。
+> 状态：草案 v0.2 · 2026-10-31（原生 UI 架构）
+> 范围：Minecraft Java 版启动器，**Rust 核心 + 四个原生 UI 客户端**：macOS（SwiftUI + AppKit）、Windows（C# + WinUI 3）、Linux（Rust + GTK4/libadwaita）、Android（Kotlin + Compose）。桌面三端为第一阶段，Android 为第二阶段。
 
 ## 0. 目标与非目标
 
@@ -15,7 +15,7 @@
 - 账户：离线、LittleSkin、authlib-injector（Yggdrasil 外置登录）。
 - 服务器列表（收藏、局域网发现、状态 Ping）。
 - 国内网络友好：BMCLAPI 等镜像源、自动回退。
-- UI 严格按 `fograin.pen` 设计稿实现，四套平台皮肤：macOS、Windows 11、Linux GNOME、Android（Material 3）。
+- 以 `fograin.pen` 的布局、信息架构和视觉语言为参考，由四个平台原生客户端实现；**不做 WebView + CSS 皮肤**。平台原生控件、窗口行为和交互优先于逐像素复刻。
 
 非目标（第一阶段）
 
@@ -35,139 +35,144 @@
 
 - 所有协议级知识（Mojang 版本清单格式、Yggdrasil、Modrinth API）以官方文档 / wiki.vg / minecraft.wiki 为准，源码只作对照。
 - 内存自动分配、崩溃识别规则自研，规则数据独立成文件。
-- 本仓库保持 GPL-3.0。前端依赖须兼容 GPL-3.0（MIT / Apache-2.0 / BSD 均可）。
+- 本仓库保持 GPL-3.0。各平台 UI 依赖须兼容 GPL-3.0（MIT / Apache-2.0 / BSD 均可）。
 
 ## 2. 技术栈
 
 | 层 | 选型 | 说明 |
 | --- | --- | --- |
-| 外壳 | Tauri 2 | 桌面 + Android 共用 |
-| 后端 | Rust stable，tokio 多线程运行时 | 核心逻辑全部放在独立 crate，与 Tauri 解耦，可单测、可做 CLI |
+| 核心 | Rust stable，tokio 多线程运行时 | `fg-*` crate，包含下载、安装、Java、账户、实例、启动等全部业务逻辑 |
+| 边界 | `fg-ffi`：UniFFI + 稳定 C ABI | Swift/Kotlin 用 UniFFI，C# 用 P/Invoke；Linux Rust 可直接依赖 crate |
+| macOS UI | Swift + SwiftUI，AppKit 仅做窗口/材质/菜单桥 | 原生红绿灯、`NSVisualEffectView`、原生菜单与快捷键 |
+| Windows UI | C# + WinUI 3（Windows App SDK） | 原生标题栏、Mica、Snap Layout、`NavigationView` |
+| Linux UI | Rust + GTK4 + libadwaita | 原生 `Adw.HeaderBar`、Adwaita 控件、GApplication |
+| Android UI | Kotlin + Jetpack Compose + Material 3 | Compose 页面、`GameActivity` 独立进程 |
 | HTTP | reqwest + rustls | 关闭 native-tls，避免 Linux 上的 OpenSSL 依赖 |
 | 序列化 | serde / serde_json / toml | |
 | 压缩 | zip、flate2 | jar、natives、整合包、NBT(gzip) |
 | NBT | fastnbt | servers.dat、level.dat |
 | 哈希 | sha1、sha2、md-5、自实现 murmur2 | murmur2 用于 CurseForge 指纹 |
-| 日志 | tracing + tracing-appender | 滚动文件日志 |
-| 前端 | React 19 + TypeScript + Vite | 已定，见 §12 第 9 项 |
-| 样式 | Tailwind CSS v4 + CSS 变量主题 | 平台皮肤通过 `data-platform` 切换 |
-| 状态 / 路由 | Zustand、TanStack Router、TanStack Query | |
-| IPC 类型 | tauri-specta | 由 Rust 生成 TS 绑定，前后端类型一致 |
-| 3D 皮肤预览 | skinview3d（MIT） | 账户页“拖动旋转” |
+| 日志 | tracing + tracing-appender | 滚动文件日志；各原生 UI 通过 FFI 订阅日志/崩溃事件 |
+| 设计令牌 | `design/tokens.json` → 各平台常量 | 单一来源；不手写十六进制颜色 |
+| 3D 皮肤预览 | 各平台原生 3D API | macOS SceneKit、Windows D3D11、Linux `GtkGLArea`、Android GLES；待原型确认 |
 
-依赖版本在 M0 时用 `cargo add` / `pnpm add --save-exact` 锁定，并提交 `Cargo.lock`、`pnpm-lock.yaml`。
+依赖版本由 `Cargo.toml` 和 `Cargo.lock` 锁定；各原生 App 锁定自己的 SDK/Gradle/Windows App SDK 版本。
 
 ## 3. 总体架构
 
-```
+架构决策记录见 [ADR 0001](adr/0001-native-ui-clients.md)：Rust 核心 + 四个原生 UI 客户端。
+
+```text
 fograin-launcher/
-├─ Cargo.toml                 # workspace
+├─ Cargo.toml                 # Rust workspace：crates/* + bindings/fg-ffi
 ├─ crates/
-│  ├─ fg-core/                # 纯逻辑：模型、路径、配置、错误类型（无 IO 运行时依赖）
-│  ├─ fg-net/                 # HTTP 客户端、镜像规则、下载引擎、缓存仓库
-│  ├─ fg-task/                # 任务图调度、进度聚合、取消
-│  ├─ fg-game/                # 版本清单、version json、库/资源、安装器、启动参数
-│  ├─ fg-loader/              # Fabric / Quilt / Forge / NeoForge / OptiFine
-│  ├─ fg-java/                # Java 扫描、解析、Mojang/Adoptium/Zulu 运行时下载
-│  ├─ fg-auth/                # 离线、Yggdrasil、authlib-injector；（后续）Microsoft
-│  ├─ fg-content/             # Modrinth、CurseForge、本地模组解析、整合包
-│  ├─ fg-world/               # NBT：servers.dat、level.dat、世界备份
-│  ├─ fg-diag/                # 日志采集、崩溃分析规则引擎
-│  └─ fg-cli/                 # 调试用命令行（安装 / 启动 / 下载），CI 集成测试入口
-├─ src-tauri/                 # Tauri 应用：commands、events、插件注册、平台适配
-│  ├─ src/commands/*.rs
-│  ├─ src/platform/{macos,windows,linux,android}.rs
-│  ├─ gen/android/            # tauri android init 生成，含自写 Kotlin 插件
-│  └─ capabilities/*.json     # Tauri 2 权限
-├─ plugins/                   # 自写 Tauri 插件（见 §4）
-│  ├─ tauri-plugin-fg-native/ # 原生窗口材质、Dock/任务栏进度、通知
-│  └─ tauri-plugin-fg-android/# Android：游戏进程、存储、Keystore
-├─ ui/                        # 前端
-│  ├─ src/app/                # 路由、布局
-│  ├─ src/skins/{macos,win11,gnome,material}/  # 平台皮肤：外壳与组件变体
-│  ├─ src/features/           # 主页、实例库、实例详情、下载、Java、账户、设置、服务器、关于
-│  ├─ src/components/         # 跨平台基础组件（Button、List、Switch、Slider…）
-│  └─ src/ipc/                # tauri-specta 生成的绑定
-└─ docs/
+│  ├─ fg-core/                # 模型、路径、配置、错误（无 UI、无异步运行时）
+│  ├─ fg-net/                 # HTTP、镜像、下载引擎、缓存
+│  ├─ fg-task/                # 任务图、进度、取消、持久化
+│  ├─ fg-game/                # 版本清单、安装器、启动参数
+│  ├─ fg-loader/              # Fabric / Forge / NeoForge / OptiFine
+│  ├─ fg-java/                # Java 扫描、运行时下载
+│  ├─ fg-auth/                # 离线、Yggdrasil、authlib-injector
+│  ├─ fg-content/             # Modrinth、CurseForge、模组、整合包
+│  ├─ fg-world/               # NBT、服务器列表、世界备份
+│  ├─ fg-diag/                # 日志、崩溃分析
+│  └─ fg-cli/                 # 无 UI 的调试/CI 入口
+├─ bindings/
+│  ├─ fg-ffi/                 # C ABI / UniFFI 边界；唯一 UI 入口
+│  └─ README.md               # 契约与生成说明
+├─ apps/
+│  ├─ macos/                  # SwiftUI + AppKit；Swift Package / Xcode
+│  ├─ windows/                # C# + WinUI 3；.csproj
+│  ├─ linux/                  # Rust + GTK4/libadwaita；独立 Cargo workspace
+│  └─ android/                # Kotlin + Compose；Gradle
+├─ design/
+│  ├─ tokens.json             # 颜色/字号/间距/圆角/窗口尺寸
+│  ├─ assets/                 # 位图资源
+│  └─ screens/                # pen 导出参考
+├─ docs/
+└─ .github/workflows/
 ```
 
 分层原则：
 
-- `fg-*` crate 不依赖 Tauri。Tauri 层只做参数转换、事件推送、窗口与权限。
-- 所有长任务走 `fg-task`，返回 `TaskId`。前端通过事件 `task://progress` 订阅进度，通过 `cancel_task(id)` 取消。
-- 错误统一为 `fg_core::Error { kind, message_key, detail }`。前端按 `message_key` 做 i18n。
+- `fg-*` 不依赖任何 UI 框架。UI 只能通过 `fg-ffi` 调用；Linux GTK 客户端作为同一语言的特例，可以直接依赖 `fg-*`，但仍不得把 GTK 类型带入核心 crate。
+- 四个 UI 客户端**不共享 UI 代码**，只共享 Rust 核心、FFI 契约、设计令牌和测试夹具。
+- 每个客户端独立拥有自己的窗口、导航、列表、菜单、快捷键、无障碍和动画；不模拟其他平台的窗口控件。
+- 版本号、发布节奏和 i18n 资源可以统一；界面布局按平台适配。
 
-### 3.1 IPC 约定
+### 3.1 FFI 契约
 
-- Command：`snake_case`，按领域分组：`instance_*`、`download_*`、`java_*`、`account_*`、`launch_*`、`content_*`、`server_*`、`settings_*`。
-- Event：
-  - `task://progress { id, done, total, speed, stage }`，节流到 10Hz
-  - `task://state { id, state: queued|running|paused|done|failed|cancelled, error? }`
-  - `game://log { instance, line, level }`，批量推送，每 100ms 一批
-  - `game://exit { instance, code, crash? }`
-- 大数据（如模组列表上千项）走分页 command，不走事件。
-- 图标、缩略图走自定义协议 `fg://icon/<hash>`，Rust 端读缓存，避免 base64 走 IPC。
+- 操作按领域分组：`instance_*`、`download_*`、`java_*`、`account_*`、`launch_*`、`content_*`、`server_*`、`settings_*`。
+- 长任务返回 `TaskId`；进度通过每帧/节流回调推送，不在 UI 线程阻塞。
+- 事件：`task.progress`、`task.state`、`game.log`、`game.exit`。原生客户端把它们转成自己的状态容器。
+- 大列表（模组、资源、世界）分页返回；图标/缩略图通过缓存文件路径返回，不把二进制塞进 FFI。
+- 错误统一为 `fg_core::Error { kind, message_key, detail }`；UI 按 `message_key` 做本地化。
+- ABI 版本从 `fg_abi_version()` 读取；破坏性变更必须升版本，四个客户端同时升级。
+- 不把 UI 类型（颜色、字体、控件状态）放进 FFI。
 
 ## 4. 原生 UI 与平台适配
 
-设计稿 `fograin.pen` 有 54 个画面：桌面 3 套皮肤 × 13 个画面，Android 15 个画面。前端是同一套业务组件，按平台换「外壳 + 组件变体 + 设计令牌」。
+设计稿 `fograin.pen` 有 54 个画面：桌面 3 套布局 × 13 个画面，Android 15 个画面。它是布局与信息架构的参考，不是一套要在四个平台逐像素复制的 CSS。每个平台用原生控件实现同样的功能和视觉层级；具体控件形态允许不同。
 
 ### 4.1 设计令牌
 
-从 pen 文件变量导出为 `ui/src/skins/tokens.css`：
+`design/tokens.json` 是唯一来源，生成各平台常量：
 
-- 桌面暗色（macOS / Win11 / GNOME 共用基色）：`bg-base #1C1C1E`、`bg-elevated #242426`、`text-1/2/3`、`accent #0A84FF`、`glass*`、`sep`；字体 Inter，中文回退 PingFang SC / Microsoft YaHei UI / Noto Sans CJK SC。
-- Android Material 3：`md-*` 系列（primary `#8ED5AE` 绿色系）。
-- 皮肤切换：`<html data-platform="macos|win11|gnome|android">`，由 Rust 端在启动时注入；设置里允许手动覆盖，方便调试。
+- Swift：`GeneratedTokens.swift`
+- Kotlin：`Tokens.kt`
+- C#：`DesignTokens.cs`
+- Rust/GTK：`tokens.rs`
+
+内容：
+
+- 桌面暗色基色：`background #1F1F22`、`surface #242426`、`textPrimary #F5F5F7`、`textSecondary #EBEBF599`、`textTertiary #EBEBF55C`、`separator #FFFFFF14`。
+- 平台强调色：macOS `#0A84FF`、Windows 11 `#60CDFF`、GNOME `#3584E4`、Android M3 `#8ED5AE`（深色）/ `#1B6B4A`（浅色）。
+- 字体使用系统字体：SF Pro（macOS）、Segoe UI Variable（Windows）、Adwaita Sans（GNOME）、Roboto（Android）。品牌字可单独打包，但正文不再打包 Inter。
+- 浅色令牌仍是初稿，等 pen 补浅色画面后由四个平台共同更新。
 
 ### 4.1.1 深浅色主题
 
-- 设置项 `appearance.theme = "system" | "light" | "dark"`，默认 `system`。设置页「外观」分组提供三选一切换，Android 设置页「主题 · 跟随系统」同义。
-- 前端用 `<html data-theme="light|dark">` 切换两套 CSS 变量；业务组件只引用语义令牌（`--bg-base`、`--text-1`…），不写死颜色。
-- 跟随系统：启动时读 Tauri `getCurrentWindow().theme()`，并订阅 `onThemeChanged`；切换即时生效，不需要重启。
-- 手动切换时同时调用 `window.setTheme("light"|"dark")`，让原生部分跟着变：macOS 红绿灯与 Vibrancy 材质、Windows Mica 与标题栏按钮颜色、GNOME headerbar。选 `system` 时调用 `setTheme(null)` 交还系统。
-- 首帧防闪烁：Rust 端在创建窗口前读取 `launcher.toml`，把解析后的主题通过初始化脚本注入 `data-theme`，并设置窗口背景色。
-- Android：跟随系统时读 `Configuration.uiMode`；可选「动态取色」（Material You，Android 12+ 由 Kotlin 插件读系统色板生成 `md-*` 变量）。
-- 浅色令牌初稿（待设计补稿确认）：桌面 `bg-base #F5F5F7`、`bg-elevated #FFFFFF`、`text-1 #1D1D1F`、`text-2 #3C3C4399`、`text-3 #3C3C434D`、`sep #0000001A`、`glass #FFFFFFB3`、`accent #007AFF`；Android 由 M3 主色 `#8ED5AE` 的色板生成浅色方案（primary `#1B6B4A` 一档）。
-- 两套主题都需要过一遍文字与背景的对比度检查（正文至少 4.5:1）。
+- 设置项 `appearance.theme = "system" | "light" | "dark"`，默认 `system`。
+- 统一由 Rust 核心读取 `launcher.toml`，在创建窗口前通过 FFI 暴露给 UI；各客户端在首帧前设置 `colorScheme` / `RequestedTheme` / `AdwColorScheme`，避免闪烁。
+- 跟随系统：
+  - macOS：SwiftUI `@Environment(\.colorScheme)` + `NSApp.effectiveAppearance`。
+  - Windows：`Application.RequestedTheme` + `UISettings.ColorValuesChanged`。
+  - Linux：`AdwStyleManager` / `GtkSettings:gtk-application-prefer-dark-theme`。
+  - Android：`Configuration.uiMode` + `isSystemInDarkTheme()`；可选 Material You 动态色。
+- 手动切换时同时设置原生窗口外观（macOS `NSAppearance`、Windows `AppWindow`/DWM、GTK `AdwStyleManager`、Android `AppCompatDelegate`），不需要重启。
+- 原生窗口材质、红绿灯/标题栏、菜单都跟随主题，不再有 CSS 令牌同步。
 
-### 4.2 每个平台的原生能力与实现方式
+### 4.2 每个平台的原生能力
 
-| 能力 | macOS | Windows 11 | Linux GNOME | 方案 |
+| 能力 | macOS | Windows 11 | Linux GNOME | Android |
 | --- | --- | --- | --- | --- |
-| 窗口材质 | Vibrancy / macOS 26 Liquid Glass | Mica / Acrylic | 无系统模糊，CSS 模拟 | `window-vibrancy`（官方）；Liquid Glass 用社区 `tauri-plugin-liquid-glass`，私有 API，仅非 App Store 构建启用，低版本回退 Vibrancy |
-| 标题栏 | 透明标题栏 + 红绿灯内嵌侧栏 | 自绘标题栏 + Snap Layout | 自绘 headerbar（libadwaita 风格） | Tauri `titleBarStyle: Overlay`（mac）；Windows 用 `decorations:false` + 自绘按钮，Snap Layout 需在插件里处理 `WM_NCHITTEST` 返回 `HTMAXBUTTON`；Linux `decorations:false` |
-| 窗口拖拽区 | `data-tauri-drag-region` | 同左 | 同左，Wayland 需 `startDragging()` | Tauri 内置 |
-| 任务栏 / Dock 进度 | `NSDockTile` 进度 | `ITaskbarList3` | `com.canonical.Unity.LauncherEntry`（DBus，部分桌面支持） | 自写 `tauri-plugin-fg-native` |
-| 系统通知 | ✓ | ✓ | ✓ | 官方 `tauri-plugin-notification` |
-| 凭据存储 | 钥匙串 | Credential Manager | Secret Service（libsecret） | `keyring` crate；Linux 无 Secret Service 时降级为本地加密文件，并提示用户 |
-| 文件选择 / 拖放 | ✓ | ✓ | ✓（portal） | `tauri-plugin-dialog`；拖入 mod/整合包用 Tauri 窗口拖放事件 |
-| 在文件管理器中显示 | Finder | Explorer | xdg / FileManager1 DBus | `tauri-plugin-opener` 的 `reveal_item_in_dir` |
-| 单实例 | ✓ | ✓ | ✓ | `tauri-plugin-single-instance`，二次启动时把参数（如 `fograin://` 链接、整合包路径）转发给主进程 |
-| 深链接 | `fograin://` | 同 | 同 | `tauri-plugin-deep-link`，用于皮肤站「拖入 Yggdrasil 链接」、Modrinth 一键安装 |
-| 自动更新 | ✓ | ✓ | AppImage | `tauri-plugin-updater`，签名增量包（设计稿要求小于 5 MB） |
-| 开机/托盘 | 可选 | 可选 | 可选 | `tauri-plugin-autostart`、tray icon（Tauri 内置） |
-| GameMode | — | — | Feral GameMode | 启动时用 `gamemoderun` 包装命令，检测 `gamemoded` 是否存在 |
-| GPU 信息（主页「渲染」卡片） | Metal 设备名 | DXGI 适配器 | `glxinfo`/`/sys/class/drm` | `wgpu` 只做枚举太重，自写：mac `IOKit`/`system_profiler`，Win `DXGI`（windows crate），Linux 读 sysfs + `lspci` |
+| 窗口材质 | SwiftUI Material / `NSVisualEffectView` | WinUI 3 `MicaBackdrop` / Acrylic | libadwaita 表面；无系统模糊 | M3 surface / elevation |
+| 标题栏 | 原生 `NSWindow` 红绿灯；首版用原生标题栏，后续再评估内容延伸 | 原生 `AppWindowTitleBar`；需要时自定义 | `Adw.HeaderBar` | Material 3 `TopAppBar` |
+| 窗口拖拽 | 原生标题栏 + SwiftUI | 原生标题栏 | 原生 headerbar | 系统状态栏/手势 |
+| Dock/任务栏进度 | `NSDockTile` | `ITaskbarList3` | Unity LauncherEntry DBus（可用时） | 前台服务通知 |
+| 通知 | `UNUserNotificationCenter` | Windows App SDK AppNotification | `GNotification` / libnotify | `NotificationChannel` |
+| 凭据存储 | Keychain | Credential Manager | libsecret / Secret Service | Android Keystore |
+| 文件选择 | `NSOpenPanel` | WinUI FileOpenPicker / Win32 | GTK `FileDialog` / portal | SAF |
+| 单实例/深链接 | `NSApplicationDelegate` | AppInstance / 协议注册 | `GApplication` | Intent / deep link |
+| 自动更新 | Sparkle 或自建签名更新 | WinAppSDK/MSIX 或自建 | AppImage 自更新 / 包管理器 | APK 更新检查 |
+| GPU 信息 | Metal / IOKit | DXGI | sysfs / `lspci` | GLES / Vulkan 扩展 |
+| 游戏进程 | 子进程 | 子进程 | 子进程 | `:game` 独立进程 + JNI |
 
-### 4.3 需要自写的中间件
+### 4.3 平台适配代码
 
-`tauri-plugin-fg-native`（Rust，按 `cfg(target_os)` 分平台）：
+- macOS：`apps/macos/Sources/Fograin/Platform/`，AppKit 桥接（窗口、材质、Dock、菜单、文件面板）。
+- Windows：`apps/windows/Fograin.Windows/Platform/`，Win32/WinUI 互操作（Mica、任务栏、Snap Layout、文件选择）。
+- Linux：`apps/linux/src/platform/`，GTK/Adwaita、GApplication、libsecret、portal。
+- Android：`apps/android/app/src/main/java/com/fograin/launcher/platform/`，SAF、Keystore、通知、GameActivity。
+- 共享的纯 Rust 查询（内存、CPU、GPU 命令解析）可以放进 `fg-diag` 或后续 `fg-sys`；平台句柄不跨 FFI。
 
-1. Dock / 任务栏进度与角标（下载队列数，设计稿侧栏「下载 2」）。
-2. Windows Snap Layout 命中测试与自绘标题栏按钮区注册。
-3. 系统强调色与深浅色变化监听（Win `UISettings`、mac `NSApp.effectiveAppearance`、GNOME `org.gnome.desktop.interface`）。
-4. GPU / 内存 / CPU 架构查询（主页「运行环境」卡片），内存用 `sysinfo` crate。
-5. Windows 长路径与 `PROCESS_INFORMATION` 优先级设置（实例设置「进程优先级」）。
+### 4.4 原生 UI 差异
 
-`tauri-plugin-fg-android`（Kotlin + Rust，见 §11）。
-
-### 4.4 WebView 差异与注意事项
-
-- macOS WKWebView、Windows WebView2、Linux WebKitGTK 的 CSS 支持不同。`backdrop-filter` 在 WebKitGTK 上性能较差：GNOME 皮肤的毛玻璃改用半透明纯色，设计稿 GNOME 版本身也以实色为主。
-- Linux WebKitGTK 在部分 NVIDIA + Wayland 环境下会白屏，需要设置 `WEBKIT_DISABLE_DMABUF_RENDERER=1` 的回退开关（Rust 端启动前写入环境变量）。
-- 字体：前端打包 Inter 可变字体子集（拉丁）；中文使用系统字体，不打包。
-- 列表虚拟化：模组列表、资源列表用 `@tanstack/react-virtual`，避免上千行 DOM。
+- 不再有 WebView、CSS 皮肤、`data-platform`、Tailwind、React 组件库。
+- 图标使用平台原生集合：SF Symbols / Fluent Icons / Adwaita symbolic / Material Symbols。
+- 控件必须使用平台原生焦点、键盘、输入法、拖放和无障碍语义；不要用自绘控件模拟。
+- 布局允许因平台控件尺寸不同而调整，但页面层级、信息密度和操作路径保持一致。
+- 视觉验收：每个平台对关键页面截原生窗口图，与 pen 的布局参考比对；不要求像素级一致。
 
 ## 5. 数据目录与配置
 
@@ -411,7 +416,7 @@ Forge / NeoForge processors 要点（对照 HMCL `ForgeNewInstallTask`）：
    - Linux：可选 `gamemoderun` 包装，可选 `__NV_PRIME_RENDER_OFFLOAD=1` 等独显变量。
    - Windows：`CREATE_NO_WINDOW`，使用 `javaw` 或 `java`；设置进程优先级。
    - 包装命令与环境变量都可以在实例设置里自定义（高级）。
-8. 进程管理：stdout / stderr 逐行读取，识别 log4j XML 事件格式（`<log4j:Event>`）并转成结构化日志，批量推送 `game://log`。「启动时显示日志」时打开独立日志窗口（Tauri 多窗口）。
+8. 进程管理：stdout / stderr 逐行读取，识别 log4j XML 事件格式（`<log4j:Event>`）并转成结构化日志，批量推送 `game.log`。「启动时显示日志」时由各原生客户端打开独立日志窗口。
 9. 窗口行为：检测到游戏窗口出现（日志中出现 `Setting user:`、`LWJGL Version`，或首帧事件），再按设置隐藏 / 最小化启动器。游戏退出后恢复窗口。
 10. 退出处理：非 0 退出码或出现 `crash-reports/` 新文件时，运行崩溃分析（§10.4），弹出结果并提供「导出诊断包」（日志、崩溃报告、启动命令（令牌打码）、系统信息、模组列表）。
 11. 统计：累加 `play_seconds`，更新 `last_played`。
@@ -521,15 +526,15 @@ CurseForge（只通过 MCIM 镜像 `https://mod.mcimirror.top/curseforge/v1` 访
 6. 内存：低端设备 4–6 GB RAM，可分配给游戏的大约是物理内存的一半，且受系统 LMK 管理。
 7. 商店政策：Google Play 不允许下载并执行可执行代码（模组 jar 就属于这类），Pojav 系项目都选择 GitHub / 侧载分发。我们的 Android 版也建议只做 GitHub Release 与国内应用商店，见 §12。
 
-以上大部分属于 Pojav / Amethyst 的现成工作，自己重写几乎不现实。建议路线：复用它们的原生层（JRE、LWJGL 移植、渲染器 so），只把启动器 UI 和逻辑换成我们自己的 Tauri + Rust。许可上 Amethyst 为 LGPL-3.0（需确认具体组件），与 GPL-3.0 兼容。
+以上大部分属于 Pojav / Amethyst 的现成工作，自己重写几乎不现实。建议路线：复用它们的原生层（JRE、LWJGL 移植、渲染器 so），启动器 UI 用 Kotlin Compose，逻辑复用 Rust 核心。许可上 Amethyst 为 LGPL-3.0（需确认具体组件），与 GPL-3.0 兼容。
 
 ### 11.2 Android 架构
 
 ```
-Tauri 2 Android App（主进程 :main）
- ├─ WebView：Material 3 皮肤 UI（设计稿 15 个 Android 画面）
- ├─ Rust：fg-* crate 复用（下载、安装、模组、账户、配置）
- └─ tauri-plugin-fg-android（Kotlin）
+Kotlin Compose App（主进程 :main）
+ ├─ Jetpack Compose UI：Material 3（设计稿 15 个 Android 画面）
+ ├─ Rust：fg-* crate 复用（下载、安装、模组、账户、配置），经 UniFFI/JNI 调用
+ └─ Android 平台层（Kotlin）
      ├─ GameLauncherService：启动 :game 进程的 Activity，传入启动参数（Intent / 文件）
      ├─ StorageBridge：SAF 文件选择、导入导出整合包、分享
      ├─ KeystoreBridge：令牌加密存储（Android Keystore）
@@ -544,7 +549,7 @@ GameActivity（进程 :game，原生层复用 Amethyst）
 
 Rust 侧的差异点：
 
-- `fg-game::launch` 抽象出 `Launcher` trait：桌面实现 = 起子进程；Android 实现 = 生成启动描述 JSON（classpath、JVM 参数、游戏参数、渲染器、环境变量），交给 Kotlin 插件。
+- `fg-game::launch` 抽象出 `Launcher` trait：桌面实现 = 起子进程；Android 实现 = 生成启动描述 JSON（classpath、JVM 参数、游戏参数、渲染器、环境变量），交给 Android 平台层。
 - `fg-java`：Android 只用内置 JRE，不做扫描。版本映射 8 / 17 / 21 按需下载额外的 JRE 包（体积大，不全部打进 APK）。
 - 参数改写：替换 LWJGL 库路径、移除桌面 natives、注入 `-Dorg.lwjgl.opengl.libname=<renderer>.so`、设置 `POJAV_RENDERER` 一类环境变量（以复用组件的约定为准）。
 - 下载：设计稿「仅 Wi-Fi 下载」，用 `ConnectivityManager` 回调控制下载引擎暂停与恢复。
@@ -555,8 +560,8 @@ Rust 侧的差异点：
 | 步骤 | 内容 | 产出 / 验收 |
 | --- | --- | --- |
 | A0 | 评估：编译 Amethyst 跑通 1.21 原版；确定复用组件清单与许可；确定 minSdk 26、只出 arm64-v8a | 评估报告；许可清单 |
-| A1 | `tauri android init`；Material 3 皮肤外壳（底部导航、Large Top App Bar、FAB），对接现有 fg-* crate | 能浏览实例、下载原版文件 |
-| A2 | `tauri-plugin-fg-android` 骨架：Kotlin 插件注册、Rust ↔ Kotlin 调用、事件回传 | 双向调用 demo |
+| A1 | Compose 外壳（底部导航、Large Top App Bar、FAB），通过 UniFFI 对接现有 fg-* crate | 能浏览实例、下载原版文件 |
+| A2 | Android 平台层骨架：Kotlin ↔ Rust（UniFFI/JNI）调用、事件回传 | 双向调用 demo |
 | A3 | 内置 JRE 17 / 21：打包为可选下载资源，首次运行解压、校验、`chmod` | `java -version` 在设备上跑通 |
 | A4 | GameActivity：集成 LWJGL 移植与 gl4es / zink，启动原版 1.21.4 进入主菜单 | 主菜单可交互 |
 | A5 | 触控层：默认布局、编辑器、手柄映射、软键盘输入 | 能玩生存 |
@@ -564,7 +569,7 @@ Rust 侧的差异点：
 | A7 | 渲染器选择与 GPU 适配表（Adreno / Mali / Xclipse），崩溃回退策略 | 设置页「渲染器」选项 |
 | A8 | 账户（离线、外置）、整合包、世界备份、服务器；Keystore 存储 | 与桌面功能对齐（除 Java 管理页） |
 | A9 | 性能与发热：内存默认值、后台降级、前台服务通知、电池优化豁免引导 | 30 分钟稳定游玩 |
-| A10 | 分发：签名、GitHub Release、国内商店（如需要）、更新器（Tauri updater 不支持 Android，需自写 APK 更新检查） | 1.0 Android 预览版 |
+| A10 | 分发：签名、GitHub Release、国内商店（如需要）、自写 APK 更新检查 | 1.0 Android 预览版 |
 
 ## 12. 风险与待决问题
 
@@ -572,16 +577,16 @@ Rust 侧的差异点：
 2. CurseForge：已决定只走 MCIM 镜像，不申请也不内置 API Key。风险是依赖第三方服务的可用性与数据延迟；MCIM 停服时 CurseForge 搜索、安装、CurseForge 整合包导入、指纹识别都会不可用。需要时可再补自建代理方案。
 3. PCL 许可：`Plain Craft Launcher 2/` 目录不能作为实现参考，只用 PCL.Core。团队成员需要知道这一点。
 4. Apple 芯片旧版本：1.18 以下没有官方 arm64 natives，需要自带一套 LWJGL arm64 natives 做替换（HMCL、Prism 都有类似做法），否则只能用 x86_64 Java 走 Rosetta。
-5. Liquid Glass 私有 API：仅在非 App Store 分发的 macOS 构建中启用，并做运行时探测，失败时回退 Vibrancy。
+5. Liquid Glass 私有 API：仅在非 App Store 分发的 macOS 构建中启用，并做运行时探测，失败时回退 `NSVisualEffectView`。
 6. 签名与公证：macOS 需要 Developer ID 证书和公证；Windows 建议 EV / OV 代码签名，否则 SmartScreen 会拦截；Linux 出 AppImage、deb、rpm，Flatpak 可后续再做。
 7. Android 复用组件许可（JRE 构建、LWJGL 移植、渲染器）需逐项确认，A0 阶段输出清单。
 8. 中文模组名数据源：MC百科数据的使用许可未确认，第一阶段不内置。
-9. 前端框架：已定 React 19 + TypeScript + Vite。Tauri 的界面跑在 WebView 里，前端层不可省；React 的组件、虚拟列表、测试生态最全，适合 54 个画面 × 4 套皮肤的规模。
+9. UI 框架：已改为**四个原生客户端**——macOS SwiftUI/AppKit、Windows C#/WinUI 3、Linux Rust/GTK4、Android Kotlin/Compose。原 React/Tauri 方案不再使用，54 个画面按平台原生实现；后台核心仍是一套 Rust crate。
 10. 浅色主题：已决定支持「跟随系统 / 浅色 / 深色」（§4.1.1）。设计稿只有暗色，§4.1.1 的浅色令牌是初稿，需要在 pen 里补浅色画面后再定稿。
 
 ## 13. 页面与后端能力对照
 
-| 设计稿画面 | 主要 command / event | 依赖模块 |
+| 设计稿画面 | 主要 FFI 操作 / 事件 | 依赖模块 |
 | --- | --- | --- |
 | 主页 | `instance_list(recent)`、`launch_start`、`download_queue`、`system_info`、`news_list` | fg-game、fg-net、fg-native |
 | 实例库 | `instance_list(group_by=loader)`、`instance_create`、`instance_import` | fg-game、fg-content |
@@ -600,27 +605,30 @@ Rust 侧的差异点：
 
 每一步都应能单独合并、单独验证。「验收」是该步完成的判断标准。
 
-### M0 工程骨架（约 1 周）
+### M0 工程骨架与四端工作区（约 1 周）
 
-1. 初始化 Cargo workspace 与 `crates/*` 空 crate；配置 `rustfmt`、`clippy -D warnings`。
-2. `pnpm create tauri-app`，选 React + TS + Vite，前端目录移到 `ui/`；`src-tauri` 引用 workspace crate。
-3. 接入 tauri-specta，生成 `ui/src/ipc/bindings.ts`，写一个 `app_info` command 打通。
-4. 前端：Tailwind v4、路由、Zustand、TanStack Query；从 pen 导出设计令牌到 `tokens.css`。
-5. CI（GitHub Actions）：三平台 `cargo test` + `pnpm build` + `tauri build`（产物不签名）。
-6. 日志：tracing 写入 `logs/`；panic hook 写崩溃日志。
+1. Cargo workspace：`crates/fg-*` 与 `bindings/fg-ffi`；`cargo fmt`、`clippy -D warnings`、`test` 可用。
+2. 建立四个独立 App 工程：`apps/macos`（SwiftUI）、`apps/windows`（C#/WinUI 3）、`apps/linux`（Rust/GTK4，独立 Cargo workspace）、`apps/android`（Kotlin/Compose/Gradle）。
+3. `fg-ffi` 暴露 ABI 版本和健康检查；Swift/Kotlin/C# 各写一个调用 demo（只验证链接，不接业务）。
+4. 设计令牌 `design/tokens.json` 与生成脚本；四个 App 使用同一套颜色/字号/圆角。
+5. CI：Rust fmt/clippy/test；macOS `swift build`；Windows `dotnet build`；Linux `cargo build`；Android Compose 编译（SDK 就绪后）。
+6. 日志与崩溃：`fg-diag` 写数据目录；原生 UI 通过 FFI 订阅日志/崩溃事件；各平台写自己的崩溃报告入口。
+7. 删除旧 Tauri/React 工程与依赖，仓库只保留原生 App + Rust 核心。
 
-验收：三平台都能打包出一个空窗口，显示正确的平台皮肤名。
+验收：四个 App 都能启动一个空壳窗口；`fg-cli` 能跑核心单元测试；`fg_abi_version()` 在四个客户端中可调用。
 
-### M1 外壳与设计系统（约 2 周）
+### M1 四端原生外壳（约 3 周）
 
-1. 实现三套桌面外壳：macOS（透明标题栏、红绿灯、侧栏 Vibrancy）、Win11（自绘标题栏、Mica）、GNOME（headerbar）。
-2. `tauri-plugin-fg-native` 第一版：窗口材质、主题色监听、Snap Layout。
-3. 深浅色主题：两套令牌、跟随系统 / 手动切换、原生窗口同步、首帧防闪烁（§4.1.1）。
-3. 基础组件：Button、IconButton、SegmentedControl、Switch、Slider、TextField、Select、ListRow、Badge、Progress、ContentDialog、Toast，每个组件三种皮肤变体。
-4. 侧栏导航与全部页面的空路由；搜索框（⌘K / Ctrl+F）。
-5. 用静态假数据还原设计稿的主页与实例库，与 pen 截图比对。
+1. macOS：SwiftUI `NavigationSplitView` + AppKit 窗口桥；原生红绿灯、Vibrancy、原生菜单/快捷键、`NSOpenPanel`。
+2. Windows：C#/WinUI 3 `NavigationView`；原生 `AppWindowTitleBar`、Mica、Snap Layout、文件选择。
+3. Linux：GTK4/libadwaita `Adw.HeaderBar`、侧栏与内容分栏；原生文件对话框、Secret Service。
+4. Android：Compose `Scaffold` + `NavigationBar`、`TopAppBar`；主题和动态取色；后续接 `GameActivity` 骨架。
+5. 共享主题：跟随系统 / 浅色 / 深色，Rust 读取配置，各客户端首帧设置原生外观（§4.1.1）。
+6. 每端用静态假数据做主页 + 实例库两个页面；不要求像素一致，要求原生控件和窗口行为。
 
-验收：三平台的主页与实例库静态页面和设计稿基本一致。
+验收：四个 App 启动后都有正确的原生窗口边框/标题栏/主题；主页和实例库可导航；macOS 红绿灯、Windows Snap Layout、Linux headerbar、Android 返回手势均正常。
+
+> M2–M7 主要修改 Rust 核心，不依赖 UI 框架；四个原生客户端可以在这些里程碑中并行/延后接入。
 
 ### M2 网络与下载引擎（约 2 周）
 
@@ -650,7 +658,7 @@ Rust 侧的差异点：
 
 1. 实例 CRUD、`instance.toml`、全局与实例设置继承。
 2. 新建实例向导（版本选择、加载器、内存），对应设计稿 Android「新建实例」的同等字段。
-3. 主页、实例库、实例详情 · 游戏设置页接真实数据。
+3. 主页、实例库、实例详情 · 游戏设置页接真实数据；四个客户端分别接线，macOS 先行，其余平台复用 FFI 契约。
 4. 资源补全与启动前校验。
 5. 下载页「下载队列」面板与侧栏角标、Dock / 任务栏进度。
 6. 外部 `.minecraft` 目录导入。
@@ -728,6 +736,10 @@ Rust 侧的差异点：
 - 单元测试：version json 合并、rules、参数构建、镜像替换、murmur2、NBT 解析、崩溃规则。样本放在 `crates/*/tests/fixtures/`。
 - 集成测试：`wiremock` 模拟 Mojang、BMCLAPI、Modrinth、Yggdrasil；下载引擎的故障注入。
 - 端到端：`fg-cli` 在 CI 三平台上安装并启动（Linux 用 `xvfb-run`），检查日志关键行。
-- 前端：Vitest + Testing Library 测组件；Playwright（WebDriver，`tauri-driver`，仅 Windows / Linux）测关键流程。
-- 视觉对照：关键页面截图与 pen 导出图人工比对，每个里程碑一次。
-
+- FFI：为 `fg-ffi` 维护一套跨语言契约测试；Swift/Kotlin/C# 各有最小调用测试，防止 ABI 漂移。
+- 原生 UI：
+  - macOS：Swift Testing/XCTest + Xcode UI test（关键导航）。
+  - Windows：xUnit + WinUI UI test（Windows App SDK）。
+  - Linux：GTK 单元测试 + 手工/at-spi 冒烟测试。
+  - Android：Compose UI test + `GameActivity` 启动冒烟测试。
+- 视觉对照：每个平台截原生窗口图，与 pen 的布局参考人工比对；每个里程碑一次。

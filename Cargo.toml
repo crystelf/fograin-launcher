@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "src-tauri"]
+members = ["crates/*", "bindings/fg-ffi"]
+exclude = ["apps/linux"]
 
 [workspace.package]
 version = "0.1.0"
@@ -25,11 +26,8 @@ fg-world = { path = "crates/fg-world" }
 dirs = "7.0.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-specta = { version = "=2.0.0-rc.26", features = ["derive"] }
-tauri = "2.12.5"
-tauri-build = "2.7.4"
-tauri-specta = { version = "=2.0.0-rc.26", features = ["derive", "typescript"] }
 time = { version = "0.3.55", features = ["local-offset"] }
+toml = "1.1.8"
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

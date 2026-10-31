@@ -1,0 +1,16 @@
+[package]
+name = "fograin-linux"
+description = "Native GTK4/libadwaita client for Fograin Launcher"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "GPL-3.0-only"
+authors = ["Fograin Launcher contributors"]
+publish = false
+
+[workspace]
+
+[dependencies]
+fg-core = { path = "../../crates/fg-core" }
+gtk = { package = "gtk4", version = "0.9", features = ["v4_12"] }
+libadwaita = { version = "0.7", features = ["v1_5"] }
