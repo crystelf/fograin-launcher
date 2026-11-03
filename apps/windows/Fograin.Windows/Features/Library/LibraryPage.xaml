@@ -1,0 +1,535 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Fograin.Windows.Features.Library.LibraryPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:models="using:Fograin.Windows.Models"
+    mc:Ignorable="d"
+    Background="Transparent">
+
+    <Grid Padding="36,28" RowSpacing="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Page header -->
+        <Grid Height="60">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel VerticalAlignment="Bottom" Spacing="2">
+                <TextBlock Text="实例库" Style="{StaticResource TitleTextBlockStyle}" />
+                <TextBlock
+                    Text="{x:Bind ViewModel.PageCaption}"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+
+            <StackPanel
+                Grid.Column="1"
+                Orientation="Horizontal"
+                Spacing="4"
+                VerticalAlignment="Bottom">
+                <Button Style="{StaticResource AccentButtonStyle}" Height="32" Padding="12,0" FontSize="13">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <SymbolIcon
+                            Symbol="Add"
+                            FontSize="14"
+                            Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                        <TextBlock
+                            Text="新建实例"
+                            FontSize="13"
+                            Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                    </StackPanel>
+                </Button>
+                <Button Style="{StaticResource FograinCommandButtonStyle}" Click="ImportPackage_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <SymbolIcon Symbol="Upload" FontSize="14" />
+                        <TextBlock Text="导入整合包" FontSize="13" />
+                    </StackPanel>
+                </Button>
+                <Button Style="{StaticResource FograinCommandButtonStyle}" Click="GameDirectory_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <SymbolIcon Symbol="Folder" FontSize="14" />
+                        <TextBlock Text="游戏目录" FontSize="13" />
+                    </StackPanel>
+                </Button>
+                <Rectangle
+                    Width="1"
+                    Height="20"
+                    Margin="8,0"
+                    Fill="{ThemeResource DividerStrokeColorDefaultBrush}"
+                    VerticalAlignment="Center" />
+                <ComboBox Width="128" Height="32" SelectedIndex="0" ToolTipService.ToolTip="排序方式">
+                    <ComboBoxItem Content="上次游玩" />
+                    <ComboBoxItem Content="名称" />
+                    <ComboBoxItem Content="占用空间" />
+                </ComboBox>
+                <Border
+                    Background="{ThemeResource ControlFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="4"
+                    Padding="2"
+                    Height="32">
+                    <StackPanel Orientation="Horizontal">
+                        <ToggleButton
+                            Width="30"
+                            Height="26"
+                            Padding="0"
+                            CornerRadius="3"
+                            ToolTipService.ToolTip="网格视图">
+                            <SymbolIcon Symbol="AllApps" FontSize="14" />
+                        </ToggleButton>
+                        <ToggleButton
+                            Width="30"
+                            Height="26"
+                            Padding="0"
+                            CornerRadius="3"
+                            IsChecked="True"
+                            ToolTipService.ToolTip="列表视图">
+                            <SymbolIcon Symbol="List" FontSize="14" />
+                        </ToggleButton>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Grid>
+
+        <Grid Grid.Row="1" ColumnSpacing="20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="320" />
+            </Grid.ColumnDefinitions>
+
+            <Grid RowSpacing="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Grid Height="28">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <TextBlock Text="全部实例" FontSize="14" FontWeight="SemiBold" />
+                        <Border
+                            Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                            CornerRadius="9"
+                            Height="18"
+                            Padding="7,0"
+                            VerticalAlignment="Center">
+                            <TextBlock
+                                Text="8"
+                                FontSize="11"
+                                VerticalAlignment="Center"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </Border>
+                    </StackPanel>
+                    <DropDownButton
+                        Content="按加载器分组"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Center"
+                        Height="28"
+                        Padding="8,0"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        FontSize="12"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </Grid>
+
+                <Grid Grid.Row="1" Height="26" Padding="12,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="28" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="80" />
+                        <ColumnDefinition Width="56" />
+                        <ColumnDefinition Width="64" />
+                        <ColumnDefinition Width="80" />
+                        <ColumnDefinition Width="28" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock
+                        Grid.Column="1"
+                        Text="名称"
+                        FontSize="11"
+                        FontWeight="SemiBold"
+                        VerticalAlignment="Center"
+                        Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                    <TextBlock
+                        Grid.Column="2"
+                        Text="版本"
+                        FontSize="11"
+                        FontWeight="SemiBold"
+                        VerticalAlignment="Center"
+                        Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                    <TextBlock
+                        Grid.Column="3"
+                        Text="模组"
+                        FontSize="11"
+                        FontWeight="SemiBold"
+                        VerticalAlignment="Center"
+                        Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                    <TextBlock
+                        Grid.Column="4"
+                        Text="大小"
+                        FontSize="11"
+                        FontWeight="SemiBold"
+                        VerticalAlignment="Center"
+                        Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                    <TextBlock
+                        Grid.Column="5"
+                        Text="上次游玩"
+                        FontSize="11"
+                        FontWeight="SemiBold"
+                        VerticalAlignment="Center"
+                        Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                </Grid>
+
+                <ListView
+                    x:Name="LibraryList"
+                    Grid.Row="2"
+                    SelectionMode="Single"
+                    SelectionChanged="LibraryList_SelectionChanged"
+                    ItemContainerStyle="{StaticResource FograinLibraryRowStyle}">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="models:Instance">
+                            <Grid Height="44" Padding="12,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="28" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="80" />
+                                    <ColumnDefinition Width="56" />
+                                    <ColumnDefinition Width="64" />
+                                    <ColumnDefinition Width="80" />
+                                    <ColumnDefinition Width="28" />
+                                </Grid.ColumnDefinitions>
+
+                                <Border
+                                    Width="28"
+                                    Height="28"
+                                    CornerRadius="4"
+                                    Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                    VerticalAlignment="Center">
+                                    <SymbolIcon
+                                        Symbol="{x:Bind Icon}"
+                                        FontSize="14"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </Border>
+
+                                <StackPanel
+                                    Grid.Column="1"
+                                    Orientation="Horizontal"
+                                    Spacing="6"
+                                    VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind Name}" FontSize="14" />
+                                    <FontIcon
+                                        Glyph="&#xE735;"
+                                        FontSize="10"
+                                        VerticalAlignment="Center"
+                                        Visibility="{x:Bind FavoriteVisibility}"
+                                        Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                </StackPanel>
+
+                                <TextBlock
+                                    Grid.Column="2"
+                                    Text="{x:Bind MinecraftVersion}"
+                                    FontSize="12"
+                                    VerticalAlignment="Center"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <TextBlock
+                                    Grid.Column="3"
+                                    Text="{x:Bind ModCountText}"
+                                    FontSize="12"
+                                    VerticalAlignment="Center"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <TextBlock
+                                    Grid.Column="4"
+                                    Text="{x:Bind SizeText}"
+                                    FontSize="12"
+                                    VerticalAlignment="Center"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <TextBlock
+                                    Grid.Column="5"
+                                    Text="{x:Bind LastPlayedText}"
+                                    FontSize="12"
+                                    VerticalAlignment="Center"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+                                <Button
+                                    Grid.Column="6"
+                                    Style="{StaticResource FograinIconButtonStyle}"
+                                    Width="28"
+                                    Height="28"
+                                    ToolTipService.ToolTip="更多">
+                                    <SymbolIcon Symbol="More" FontSize="14" />
+                                </Button>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+
+                    <ListView.GroupStyle>
+                        <GroupStyle>
+                            <GroupStyle.HeaderTemplate>
+                                <DataTemplate x:DataType="models:InstanceGroup">
+                                    <StackPanel
+                                        Orientation="Horizontal"
+                                        Spacing="8"
+                                        Height="28"
+                                        Padding="12,4">
+                                        <FontIcon
+                                            Glyph="&#xE70D;"
+                                            FontSize="12"
+                                            VerticalAlignment="Center"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock
+                                            Text="{x:Bind Loader}"
+                                            FontSize="13"
+                                            FontWeight="SemiBold"
+                                            VerticalAlignment="Center" />
+                                        <Border
+                                            Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                            CornerRadius="8"
+                                            Height="16"
+                                            Padding="6,0"
+                                            VerticalAlignment="Center">
+                                            <TextBlock
+                                                Text="{x:Bind TotalText}"
+                                                FontSize="10"
+                                                VerticalAlignment="Center"
+                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        </Border>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </GroupStyle.HeaderTemplate>
+                        </GroupStyle>
+                    </ListView.GroupStyle>
+                </ListView>
+
+                <TextBlock
+                    Grid.Row="3"
+                    Margin="12,8,0,0"
+                    Text="双击列表项进入实例管理"
+                    FontSize="11"
+                    Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+            </Grid>
+
+            <!-- Quick preview: native controls only; selection drives the content. -->
+            <Border
+                Grid.Column="1"
+                Style="{StaticResource FograinCardStyle}"
+                VerticalAlignment="Top">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="150" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <Grid>
+                        <Image Source="ms-appx:///Assets/hero-forest.jpg" Stretch="UniformToFill" />
+                        <Border
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Top"
+                            Margin="12"
+                            Padding="9,4"
+                            CornerRadius="4"
+                            Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Ellipse
+                                    Width="6"
+                                    Height="6"
+                                    VerticalAlignment="Center"
+                                    Fill="{ThemeResource SystemFillColorSuccessBrush}" />
+                                <TextBlock Text="已就绪" FontSize="11" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <StackPanel Grid.Row="1" Padding="16" Spacing="12">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock
+                                Text="{x:Bind ViewModel.SelectedInstance.Name, Mode=OneWay}"
+                                Style="{StaticResource SubtitleTextBlockStyle}"
+                                TextTrimming="CharacterEllipsis"
+                                VerticalAlignment="Center" />
+                            <Button
+                                Grid.Column="1"
+                                HorizontalAlignment="Right"
+                                Style="{StaticResource FograinIconButtonStyle}"
+                                Width="28"
+                                Height="28"
+                                Visibility="{x:Bind ViewModel.SelectedInstance.FavoriteVisibility, Mode=OneWay}"
+                                ToolTipService.ToolTip="收藏">
+                                <FontIcon
+                                    Glyph="&#xE735;"
+                                    FontSize="14"
+                                    Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                            </Button>
+                        </Grid>
+
+                        <TextBlock
+                            Text="{x:Bind ViewModel.SelectedInstance.Subtitle, Mode=OneWay}"
+                            FontSize="12"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Ellipse
+                                Width="6"
+                                Height="6"
+                                VerticalAlignment="Center"
+                                Fill="{ThemeResource SystemFillColorSuccessBrush}" />
+                            <TextBlock
+                                Text="{x:Bind ViewModel.SelectedInstance.StatusDetail, Mode=OneWay}"
+                                FontSize="11"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+
+                        <Grid ColumnSpacing="8" Height="34">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="34" />
+                                <ColumnDefinition Width="34" />
+                            </Grid.ColumnDefinitions>
+                            <Button Style="{StaticResource AccentButtonStyle}" Height="34" HorizontalAlignment="Stretch">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <SymbolIcon
+                                        Symbol="Play"
+                                        FontSize="14"
+                                        Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                                    <TextBlock
+                                        Text="开始游戏"
+                                        FontSize="13"
+                                        Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                                </StackPanel>
+                            </Button>
+                            <Button
+                                Grid.Column="1"
+                                Style="{StaticResource FograinIconButtonStyle}"
+                                Width="34"
+                                Height="34"
+                                Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                ToolTipService.ToolTip="实例设置">
+                                <SymbolIcon Symbol="Setting" FontSize="15" />
+                            </Button>
+                            <Button
+                                Grid.Column="2"
+                                Style="{StaticResource FograinIconButtonStyle}"
+                                Width="34"
+                                Height="34"
+                                Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                ToolTipService.ToolTip="打开实例目录">
+                                <SymbolIcon Symbol="Folder" FontSize="15" />
+                            </Button>
+                        </Grid>
+
+                        <Rectangle Height="1" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                        <Grid RowSpacing="6">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="68" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Text="模组" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock
+                                Grid.Column="1"
+                                Text="{x:Bind ViewModel.SelectedInstance.ModsDetail, Mode=OneWay}"
+                                FontSize="12"
+                                TextTrimming="CharacterEllipsis" />
+
+                            <TextBlock Grid.Row="1" Text="资源包" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock
+                                Grid.Row="1"
+                                Grid.Column="1"
+                                Text="{x:Bind ViewModel.SelectedInstance.ResourcePacksText, Mode=OneWay}"
+                                FontSize="12" />
+
+                            <TextBlock Grid.Row="2" Text="光影" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock
+                                Grid.Row="2"
+                                Grid.Column="1"
+                                Text="{x:Bind ViewModel.SelectedInstance.ShadersText, Mode=OneWay}"
+                                FontSize="12" />
+
+                            <TextBlock Grid.Row="3" Text="世界" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock
+                                Grid.Row="3"
+                                Grid.Column="1"
+                                Text="{x:Bind ViewModel.SelectedInstance.WorldsText, Mode=OneWay}"
+                                FontSize="12" />
+
+                            <TextBlock Grid.Row="4" Text="占用空间" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock
+                                Grid.Row="4"
+                                Grid.Column="1"
+                                Text="{x:Bind ViewModel.SelectedInstance.SizeText, Mode=OneWay}"
+                                FontSize="12" />
+
+                            <TextBlock Grid.Row="5" Text="游玩时长" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock
+                                Grid.Row="5"
+                                Grid.Column="1"
+                                Text="{x:Bind ViewModel.SelectedInstance.PlayTimeText, Mode=OneWay}"
+                                FontSize="12" />
+                        </Grid>
+
+                        <Border
+                            Background="{ThemeResource SystemFillColorAttentionBackgroundBrush}"
+                            CornerRadius="6"
+                            Padding="10,9"
+                            Visibility="{x:Bind ViewModel.SelectedInstance.UpdateVisibility, Mode=OneWay}">
+                            <Grid ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <SymbolIcon
+                                    Symbol="Refresh"
+                                    FontSize="16"
+                                    VerticalAlignment="Center"
+                                    Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock
+                                        Text="{x:Bind ViewModel.SelectedInstance.UpdateTitle, Mode=OneWay}"
+                                        FontSize="12"
+                                        FontWeight="SemiBold" />
+                                    <TextBlock
+                                        Text="{x:Bind ViewModel.SelectedInstance.UpdateDetail, Mode=OneWay}"
+                                        FontSize="11"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                                <Button
+                                    Grid.Column="2"
+                                    Content="更新"
+                                    Style="{StaticResource FograinSmallButtonStyle}"
+                                    VerticalAlignment="Center" />
+                            </Grid>
+                        </Border>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</Page>

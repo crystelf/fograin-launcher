@@ -18,9 +18,18 @@ them.
 
 ## Current state
 
-`fg-ffi` only exports `fg_abi_version()`. The real command surface is added
-after the four shells are approved. Generated bindings will live next to each
-client:
+`fg-ffi` exports:
+
+- `fg_abi_version()` — C ABI version.
+- `fg_settings_snapshot()` — JSON settings snapshot (`abiVersion`, `appVersion`,
+  `platform`, `theme`, `dataRoot`, `configPath`, optional `configError`).
+- `fg_settings_set_theme(theme)` — writes `appearance.theme` through the Rust
+  config layer and returns a JSON result (`ok`, `theme`, `snapshot`, `error`).
+- `fg_string_free(value)` — releases strings returned by the core.
+
+All strings are owned by the caller and released with `fg_string_free`. The real
+command surface grows after the four shells are approved. Generated bindings
+will live next to each client:
 
 ```text
 apps/macos/Sources/Fograin/Generated/

@@ -1,3 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">雾雨启动器</string>
+
+    <string name="nav_home">主页</string>
+    <string name="nav_library">实例</string>
+    <string name="nav_downloads">下载</string>
+    <string name="nav_settings">设置</string>
+
+    <string name="home_greeting_format">%1$s，%2$s</string>
+    <string name="greeting_morning">早上好</string>
+    <string name="greeting_noon">中午好</string>
+    <string name="greeting_afternoon">下午好</string>
+    <string name="greeting_evening">晚上好</string>
+    <string name="home_last_played">上次游玩 %1$s · %2$s</string>
+    <string name="home_recent">最近游玩</string>
+    <string name="home_see_all">全部</string>
+    <string name="home_start_game">开始游戏</string>
+    <string name="home_status_ready">已就绪</string>
+    <string name="home_switch_instance">切换实例</string>
+    <string name="home_switch_to">切换到 %1$s</string>
+    <string name="home_spec_memory">%1$d GB</string>
+    <string name="home_spec_java">Java %1$d</string>
+    <string name="home_account">账户 %1$s</string>
+    <string name="home_notifications">通知</string>
+
+    <string name="library_title">实例</string>
+    <string name="library_summary">%1$d 个实例 · 共 %2$s</string>
+    <string name="library_search">搜索实例</string>
+    <string name="library_close_search">关闭搜索</string>
+    <string name="library_clear_search">清除搜索</string>
+    <string name="library_sort">排序</string>
+    <string name="library_more">更多操作</string>
+    <string name="library_update">可更新</string>
+    <string name="library_empty_search_title">没有匹配的实例</string>
+    <string name="library_empty_search_body">换个关键词，或清除筛选条件再试一次。</string>
+    <string name="library_empty_scope_title">这里还没有实例</string>
+    <string name="library_empty_scope_body">新建一个实例，或切换其他筛选条件。</string>
+    <string name="library_create">新建实例</string>
+    <string name="library_menu_launch">启动游戏</string>
+    <string name="library_menu_settings">实例设置</string>
+    <string name="library_menu_open_folder">打开实例目录</string>
+
+    <string name="downloads_title">下载</string>
+    <string name="downloads_empty_title">暂无下载任务</string>
+    <string name="downloads_empty_body">下载引擎接入后，这里会显示原版、模组和整合包的进度。</string>
+
+    <string name="settings_title">设置</string>
+    <string name="settings_appearance">外观</string>
+    <string name="settings_dynamic_color">动态取色</string>
+    <string name="settings_dynamic_color_supporting">使用壁纸生成的 Material You 配色（Android 12+）</string>
+    <string name="settings_dynamic_color_unsupported">需要 Android 12 或更高版本</string>
+    <string name="settings_local_note">主题设置暂存于本机；接入 Rust 核心后会改为读取 launcher.toml。</string>
+    <string name="settings_about">关于</string>
+    <string name="settings_version">版本</string>
+
+    <string name="stub_launch">启动流程将在 M3 接入</string>
+    <string name="stub_servers">服务器页将在 M9 接入</string>
+    <string name="stub_account">账户页将在 M7 接入</string>
+    <string name="stub_create_instance">新建实例向导将在 M4 接入</string>
+    <string name="stub_instance_settings">实例设置将在 M4 接入</string>
+    <string name="stub_open_folder">打开实例目录将在 M4 接入</string>
 </resources>

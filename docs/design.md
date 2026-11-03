@@ -112,7 +112,14 @@ fograin-launcher/
 
 ## 4. 原生 UI 与平台适配
 
-设计稿 `fograin.pen` 有 54 个画面：桌面 3 套布局 × 13 个画面，Android 15 个画面。它是布局与信息架构的参考，不是一套要在四个平台逐像素复制的 CSS。每个平台用原生控件实现同样的功能和视觉层级；具体控件形态允许不同。
+设计稿 `fograin.pen` 有 54 个画面：桌面 3 套布局 × 13 个画面，Android 15 个画面。它只回答两件事：**这个页面有哪些元素**，以及**这些元素如何分组、排序**。它不是像素稿，不是控件规范，也不是要在四个平台复刻的 CSS。
+
+- 控件一律使用平台原生实现。macOS 使用 `NSToolbar`、`NSSearchField`、`NSSegmentedControl`、`NSMenu`、`NSButton`、`Table`/`List` 等；Windows 使用 WinUI 3 对应控件；Linux 使用 GTK4/libadwaita；Android 使用 Material 3。
+- 不要用自绘胶囊、玻璃块或假按钮去模仿 pen 的视觉。原生控件的尺寸、材质、焦点环、键盘行为、输入法和无障碍语义优先于笔稿像素。
+- 页面层级、信息密度和操作路径保持一致；控件外观按平台调整。视觉验收看关键页面截图，不要求像素一致。
+- pen 中的 `Glass Group`、`Search Field` 等图层名只描述功能位置，不规定实现方式。例如 macOS 顶部搜索用原生搜索框，视图切换用原生 segmented control，排序用原生菜单。
+- 只有在平台控件无法表达某个内容型视觉（例如封面图、状态胶囊、实例图标）时才自绘，并且不把自绘结果伪装成系统控件。
+- macOS 客户端最低 macOS 14。顶部动作组使用原生 `NSToolbarItemGroup` 胶囊（26/27 由系统渲染 Liquid Glass，14/15 渲染原生分组胶囊）；通过 `#if compiler(>=6.2)` 与 `#available(macOS 26.0, *)` 双重判断，旧 Xcode/SDK 也能构建；Liquid Glass 分支需要 Xcode 26+（Swift 6.2）才会编译进二进制。
 
 ### 4.1 设计令牌
 
@@ -619,7 +626,7 @@ Rust 侧的差异点：
 
 ### M1 四端原生外壳（约 3 周）
 
-1. macOS：SwiftUI `NavigationSplitView` + AppKit 窗口桥；原生红绿灯、Vibrancy、原生菜单/快捷键、`NSOpenPanel`。
+1. macOS：SwiftUI `NavigationSplitView` + AppKit 窗口桥；原生红绿灯、Vibrancy、原生菜单/快捷键、`NSOpenPanel`。顶部操作放在原生 `NSToolbar` 中：原生搜索框、segmented control、菜单与图标按钮，不使用自绘玻璃胶囊。
 2. Windows：C#/WinUI 3 `NavigationView`；原生 `AppWindowTitleBar`、Mica、Snap Layout、文件选择。
 3. Linux：GTK4/libadwaita `Adw.HeaderBar`、侧栏与内容分栏；原生文件对话框、Secret Service。
 4. Android：Compose `Scaffold` + `NavigationBar`、`TopAppBar`；主题和动态取色；后续接 `GameActivity` 骨架。

@@ -1,6 +1,8 @@
 # Design sources
 
-`fograin.pen` stays the visual source of truth. This folder holds the assets
+`fograin.pen` is the page and element reference, not a control specification.
+It says which elements a screen contains and how they are grouped; each native
+client implements them with its platform controls. This folder holds the assets
 and tokens that survive the native-UI rewrite.
 
 - `tokens.json` — shared colors, type scale, spacing, radii and window chrome

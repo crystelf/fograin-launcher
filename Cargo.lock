@@ -63,6 +63,8 @@ name = "fg-ffi"
 version = "0.1.0"
 dependencies = [
  "fg-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

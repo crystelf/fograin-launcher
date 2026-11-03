@@ -1,70 +1,66 @@
-//! Native GNOME client. GTK4 + libadwaita; no WebView, no CSS skin layer.
+//! Native GNOME client for Fograin Launcher: GTK4 + libadwaita.
+//!
+//! The M1 shell owns the window, navigation, theme and static fixtures. The
+//! Rust core (`fg-*`) is linked directly, as the design allows for the Linux
+//! client; business logic arrives in M3/M4.
+
+mod app;
+mod design;
+mod dev;
+mod events;
+mod models;
+mod navigation;
+mod pages;
+mod platform;
+mod widgets;
 
 use adw::prelude::*;
-use gtk::prelude::*;
+use gtk::glib;
 
 const APP_ID: &str = "com.fograin.launcher";
 
-fn main() -> gtk::glib::ExitCode {
-    let app = adw::Application::builder().application_id(APP_ID).build();
-    app.connect_activate(build_ui);
-    app.run()
+fn main() -> glib::ExitCode {
+    let screenshot = dev::requested();
+    let application = adw::Application::builder().application_id(APP_ID).build();
+
+    application.connect_startup(|_| {
+        design::install_icon_theme();
+        design::install_stylesheet();
+        // Before the first window exists, so there is no light/dark flash.
+        platform::theme::apply_saved();
+    });
+
+    application.connect_activate(move |application| {
+        if let Some(window) = application.active_window() {
+            window.present();
+            return;
+        }
+
+        app::build_ui(application);
+        let Some(window) = application.active_window() else {
+            return;
+        };
+
+        if let Some(path) = screenshot.clone() {
+            dev::apply_overrides(&window);
+            if let Ok(window) = window.downcast::<adw::ApplicationWindow>() {
+                dev::schedule_screenshot(&window, path);
+            }
+        }
+    });
+
+    install_accelerators(&application);
+    application.run()
 }
 
-fn build_ui(app: &adw::Application) {
-    let header = adw::HeaderBar::new();
-    let title = gtk::Label::new(Some("主页"));
-    title.add_css_class("title");
-    header.set_title_widget(Some(&title));
-    header.pack_start(&gtk::Button::from_icon_name("list-add-symbolic"));
-
-    let sidebar = gtk::ListBox::new();
-    sidebar.add_css_class("navigation-sidebar");
-    for (label, icon) in [
-        ("主页", "go-home-symbolic"),
-        ("实例库", "view-grid-symbolic"),
-        ("服务器", "network-server-symbolic"),
-        ("下载", "folder-download-symbolic"),
-        ("Java 运行时", "applications-utilities-symbolic"),
-        ("账户", "avatar-default-symbolic"),
-        ("设置", "emblem-system-symbolic"),
-    ] {
-        let row = adw::ActionRow::builder().title(label).build();
-        row.add_prefix(&gtk::Image::from_icon_name(icon));
-        sidebar.append(&row);
+fn install_accelerators(application: &adw::Application) {
+    for (index, section) in navigation::Section::ALL.iter().enumerate() {
+        let accelerator = format!("<Control>{}", index + 1);
+        application.set_accels_for_action(section.action_name(), &[accelerator.as_str()]);
     }
-
-    let sidebar_scroller = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .child(&sidebar)
-        .build();
-    sidebar_scroller.set_size_request(240, -1);
-
-    let placeholder = adw::StatusPage::builder()
-        .title("原生 GTK4 外壳已就绪")
-        .description("这一页之后会换成原生主页布局；不再使用 WebView 或 CSS 皮肤。")
-        .icon_name("applications-system-symbolic")
-        .build();
-    placeholder.set_hexpand(true);
-    placeholder.set_vexpand(true);
-
-    let split = gtk::Paned::new(gtk::Orientation::Horizontal);
-    split.set_start_child(Some(&sidebar_scroller));
-    split.set_end_child(Some(&placeholder));
-    split.set_position(240);
-    split.set_resize_start_child(false);
-    split.set_shrink_start_child(false);
-
-    let toolbar = adw::ToolbarView::new();
-    toolbar.add_top_bar(&header);
-    toolbar.set_content(Some(&split));
-
-    let window = adw::ApplicationWindow::builder()
-        .application(app)
-        .title("雾雨启动器")
-        .default_width(1400)
-        .default_height(880)
-        .content(&toolbar)
-        .build();
-    window.present();
+    application.set_accels_for_action("app.goto-settings", &["<Control>comma"]);
+    application.set_accels_for_action("app.focus-search", &["<Control>f"]);
+    application.set_accels_for_action("app.import-instance", &["<Control>i"]);
+    application.set_accels_for_action("app.show-about", &["F1"]);
+    application.set_accels_for_action("app.quit", &["<Control>q"]);
 }

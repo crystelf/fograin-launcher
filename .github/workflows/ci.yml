@@ -33,7 +33,11 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
-      - run: swift build --package-path apps/macos
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: ./scripts/build-macos.sh --test
 
   windows:
     name: Windows WinUI 3

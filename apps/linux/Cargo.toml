@@ -7,10 +7,14 @@ rust-version = "1.90"
 license = "GPL-3.0-only"
 authors = ["Fograin Launcher contributors"]
 publish = false
+build = "build.rs"
 
 [workspace]
 
 [dependencies]
+adw = { package = "libadwaita", version = "0.7", features = ["v1_5"] }
 fg-core = { path = "../../crates/fg-core" }
 gtk = { package = "gtk4", version = "0.9", features = ["v4_12"] }
-libadwaita = { version = "0.7", features = ["v1_5"] }
+
+[build-dependencies]
+serde_json = "1.0"
