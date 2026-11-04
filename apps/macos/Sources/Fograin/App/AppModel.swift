@@ -173,8 +173,15 @@ final class AppModel: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in
-                self?.systemAppearanceChanged()
+            // `queue: .main` already delivers on the main thread, so the handler
+            // can take the main actor in place. A nested
+            // `Task { @MainActor in ... }` would capture the *weak storage* of
+            // `self`, which Swift 5.x rejects with "reference to captured var
+            // 'self' in concurrently-executing code"; the binding below turns
+            // `self` into an immutable, strongly-held local first.
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                self.systemAppearanceChanged()
             }
         }
     }
@@ -257,9 +264,12 @@ final class AppModel: ObservableObject {
             message: "选择一个现有的 .minecraft 目录。M4 会把它登记为外部游戏目录，不迁移文件。",
             prompt: "选择目录"
         ) { [weak self] url in
-            guard let url else { return }
-            Task { @MainActor in
-                self?.showNotice(
+            // Same rule as `observeSystemAppearance()`: bind `self` and the URL
+            // to immutable locals before entering main-actor code so no weak
+            // capture var crosses into a concurrently-executing closure.
+            guard let url, let self else { return }
+            MainActor.assumeIsolated {
+                self.showNotice(
                     "已选择“\(url.lastPathComponent)”。导入将在 M4 接入。",
                     symbol: "folder.badge.plus",
                     tone: .success

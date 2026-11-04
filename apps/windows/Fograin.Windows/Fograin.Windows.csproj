@@ -20,7 +20,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.7.*" />
+    <!-- Pinned: the WinUI XAML compiler ships inside this package, so a
+         floating `1.7.*` lets a servicing release change the build without a
+         commit here. Bump deliberately. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.7.260224002" />
   </ItemGroup>
 
   <ItemGroup>

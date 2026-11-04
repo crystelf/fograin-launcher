@@ -39,6 +39,19 @@ Requires Windows 10 1809+ and the .NET 8 SDK. Windows 11 is the M1 target
 dotnet build apps/windows/Fograin.Windows/Fograin.Windows.csproj -c Debug -p:Platform=x64
 ```
 
+If the build stops with only `MSB3073 ... XamlCompiler.exe ... exited with code
+1`, `dotnet build` is hiding the XAML diagnostics: it runs the WinUI XAML
+compiler out of process and reports nothing but the exit code. Build with the
+Visual Studio MSBuild in that case — it runs the same compiler in process and
+prints the actual XAML error:
+
+```powershell
+msbuild apps/windows/Fograin.Windows/Fograin.Windows.csproj /restore /p:Configuration=Debug /p:Platform=x64
+```
+
+CI uses the same MSBuild invocation (`.github/workflows/ci.yml`) and uploads
+`obj/**/output.json` plus a binlog when the job fails.
+
 The project is unpackaged (`WindowsPackageType=None`) with a self-contained
 Windows App SDK; MSIX packaging is a later release step.
 
