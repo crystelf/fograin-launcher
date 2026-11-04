@@ -28,12 +28,15 @@
             HorizontalAlignment="Center"
             VerticalAlignment="Center"
             Spacing="12">
-            <SymbolIcon
-                x:Name="PageIcon"
-                Symbol="Page"
-                FontSize="40"
-                HorizontalAlignment="Center"
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <Viewbox
+                Width="40"
+                Height="40"
+                HorizontalAlignment="Center">
+                <SymbolIcon
+                    x:Name="PageIcon"
+                    Symbol="Page"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </Viewbox>
             <TextBlock
                 Text="M1 原型外壳"
                 HorizontalAlignment="Center"

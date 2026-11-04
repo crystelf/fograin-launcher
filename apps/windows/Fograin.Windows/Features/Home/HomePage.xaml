@@ -37,19 +37,25 @@
                 VerticalAlignment="Bottom">
                 <Button Style="{StaticResource FograinSubtleCommandButtonStyle}">
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <SymbolIcon Symbol="Add" FontSize="14" />
+                        <Viewbox Width="14" Height="14">
+                            <SymbolIcon Symbol="Add" />
+                        </Viewbox>
                         <TextBlock Text="新建实例" FontSize="13" />
                     </StackPanel>
                 </Button>
                 <Button Style="{StaticResource FograinSubtleCommandButtonStyle}" Click="ImportPackage_Click">
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <SymbolIcon Symbol="Upload" FontSize="14" />
+                        <Viewbox Width="14" Height="14">
+                            <SymbolIcon Symbol="Upload" />
+                        </Viewbox>
                         <TextBlock Text="导入整合包" FontSize="13" />
                     </StackPanel>
                 </Button>
                 <Button Style="{StaticResource FograinSubtleCommandButtonStyle}" Click="GameDirectory_Click">
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <SymbolIcon Symbol="Folder" FontSize="14" />
+                        <Viewbox Width="14" Height="14">
+                            <SymbolIcon Symbol="Folder" />
+                        </Viewbox>
                         <TextBlock Text="游戏目录" FontSize="13" />
                     </StackPanel>
                 </Button>
@@ -60,7 +66,9 @@
                     Fill="{ThemeResource DividerStrokeColorDefaultBrush}"
                     VerticalAlignment="Center" />
                 <Button Style="{StaticResource FograinIconButtonStyle}" ToolTipService.ToolTip="更多">
-                    <SymbolIcon Symbol="More" FontSize="14" />
+                    <Viewbox Width="14" Height="14">
+                        <SymbolIcon Symbol="More" />
+                    </Viewbox>
                 </Button>
             </StackPanel>
         </Grid>
@@ -97,10 +105,11 @@
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                 BorderThickness="1">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <SymbolIcon
-                                        Symbol="Accept"
-                                        FontSize="12"
-                                        Foreground="{ThemeResource SystemFillColorSuccessBrush}" />
+                                    <Viewbox Width="12" Height="12">
+                                        <SymbolIcon
+                                            Symbol="Accept"
+                                            Foreground="{ThemeResource SystemFillColorSuccessBrush}" />
+                                    </Viewbox>
                                     <TextBlock Text="已就绪 · 资源校验完成" FontSize="12" />
                                 </StackPanel>
                             </Border>
@@ -150,11 +159,14 @@
                                                 Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                         </StackPanel>
                                         <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                                            <SymbolIcon
-                                                Symbol="AllApps"
-                                                FontSize="14"
-                                                VerticalAlignment="Center"
-                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                            <Viewbox
+                                                Width="14"
+                                                Height="14"
+                                                VerticalAlignment="Center">
+                                                <SymbolIcon
+                                                    Symbol="AllApps"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                            </Viewbox>
                                             <TextBlock
                                                 Text="{x:Bind ViewModel.Current.LoaderLabel}"
                                                 FontSize="12"
@@ -162,11 +174,14 @@
                                                 Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                         </StackPanel>
                                         <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                                            <SymbolIcon
-                                                Symbol="Library"
-                                                FontSize="14"
-                                                VerticalAlignment="Center"
-                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                            <Viewbox
+                                                Width="14"
+                                                Height="14"
+                                                VerticalAlignment="Center">
+                                                <SymbolIcon
+                                                    Symbol="Library"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                            </Viewbox>
                                             <TextBlock
                                                 Text="{x:Bind ViewModel.Current.ModsLabel}"
                                                 FontSize="12"
@@ -198,7 +213,9 @@
                                     BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
                                     BorderThickness="1"
                                     ToolTipService.ToolTip="实例设置">
-                                    <SymbolIcon Symbol="Setting" FontSize="16" />
+                                    <Viewbox Width="16" Height="16">
+                                        <SymbolIcon Symbol="Setting" />
+                                    </Viewbox>
                                 </Button>
 
                                 <Button
@@ -209,10 +226,11 @@
                                     VerticalAlignment="Center"
                                     ToolTipService.ToolTip="启动当前实例">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <SymbolIcon
-                                            Symbol="Play"
-                                            FontSize="16"
-                                            Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                                        <Viewbox Width="16" Height="16">
+                                            <SymbolIcon
+                                                Symbol="Play"
+                                                Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                                        </Viewbox>
                                         <TextBlock
                                             Text="开始游戏"
                                             FontWeight="SemiBold"
@@ -270,10 +288,11 @@
                                         CornerRadius="4"
                                         Background="{ThemeResource SubtleFillColorSecondaryBrush}"
                                         VerticalAlignment="Center">
-                                        <SymbolIcon
-                                            Symbol="{x:Bind Icon}"
-                                            FontSize="16"
-                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <Viewbox Width="16" Height="16">
+                                            <SymbolIcon
+                                                Symbol="{x:Bind Icon}"
+                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        </Viewbox>
                                     </Border>
 
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
@@ -295,14 +314,18 @@
                                         Grid.Column="3"
                                         Style="{StaticResource FograinIconButtonStyle}"
                                         ToolTipService.ToolTip="开始游戏">
-                                        <SymbolIcon Symbol="Play" FontSize="14" />
+                                        <Viewbox Width="14" Height="14">
+                                            <SymbolIcon Symbol="Play" />
+                                        </Viewbox>
                                     </Button>
 
                                     <Button
                                         Grid.Column="4"
                                         Style="{StaticResource FograinIconButtonStyle}"
                                         ToolTipService.ToolTip="更多">
-                                        <SymbolIcon Symbol="More" FontSize="14" />
+                                        <Viewbox Width="14" Height="14">
+                                            <SymbolIcon Symbol="More" />
+                                        </Viewbox>
                                     </Button>
                                 </Grid>
                             </DataTemplate>
@@ -329,11 +352,14 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <SymbolIcon
-                                Symbol="Download"
-                                FontSize="16"
-                                VerticalAlignment="Center"
-                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <Viewbox
+                                Width="16"
+                                Height="16"
+                                VerticalAlignment="Center">
+                                <SymbolIcon
+                                    Symbol="Download"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </Viewbox>
                             <TextBlock
                                 Grid.Column="1"
                                 Text="下载队列"
@@ -384,11 +410,14 @@
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <SymbolIcon
-                                Symbol="Repair"
-                                FontSize="16"
-                                VerticalAlignment="Center"
-                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <Viewbox
+                                Width="16"
+                                Height="16"
+                                VerticalAlignment="Center">
+                                <SymbolIcon
+                                    Symbol="Repair"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </Viewbox>
                             <TextBlock
                                 Grid.Column="1"
                                 Text="运行环境"
@@ -420,11 +449,14 @@
                                             Text="{x:Bind Value}"
                                             FontSize="12"
                                             HorizontalAlignment="Right" />
-                                        <SymbolIcon
-                                            Grid.Column="2"
-                                            Symbol="Accept"
-                                            FontSize="12"
-                                            Foreground="{ThemeResource SystemFillColorSuccessBrush}" />
+                                        <Viewbox
+                                            Width="12"
+                                            Height="12"
+                                            Grid.Column="2">
+                                            <SymbolIcon
+                                                Symbol="Accept"
+                                                Foreground="{ThemeResource SystemFillColorSuccessBrush}" />
+                                        </Viewbox>
                                     </Grid>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
@@ -439,11 +471,14 @@
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <SymbolIcon
-                                Symbol="Page"
-                                FontSize="16"
-                                VerticalAlignment="Center"
-                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <Viewbox
+                                Width="16"
+                                Height="16"
+                                VerticalAlignment="Center">
+                                <SymbolIcon
+                                    Symbol="Page"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </Viewbox>
                             <TextBlock
                                 Grid.Column="1"
                                 Text="版本动态"

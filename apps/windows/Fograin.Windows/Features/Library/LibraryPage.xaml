@@ -37,10 +37,11 @@
                 VerticalAlignment="Bottom">
                 <Button Style="{StaticResource AccentButtonStyle}" Height="32" Padding="12,0" FontSize="13">
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <SymbolIcon
-                            Symbol="Add"
-                            FontSize="14"
-                            Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                        <Viewbox Width="14" Height="14">
+                            <SymbolIcon
+                                Symbol="Add"
+                                Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                        </Viewbox>
                         <TextBlock
                             Text="新建实例"
                             FontSize="13"
@@ -49,13 +50,17 @@
                 </Button>
                 <Button Style="{StaticResource FograinCommandButtonStyle}" Click="ImportPackage_Click">
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <SymbolIcon Symbol="Upload" FontSize="14" />
+                        <Viewbox Width="14" Height="14">
+                            <SymbolIcon Symbol="Upload" />
+                        </Viewbox>
                         <TextBlock Text="导入整合包" FontSize="13" />
                     </StackPanel>
                 </Button>
                 <Button Style="{StaticResource FograinCommandButtonStyle}" Click="GameDirectory_Click">
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <SymbolIcon Symbol="Folder" FontSize="14" />
+                        <Viewbox Width="14" Height="14">
+                            <SymbolIcon Symbol="Folder" />
+                        </Viewbox>
                         <TextBlock Text="游戏目录" FontSize="13" />
                     </StackPanel>
                 </Button>
@@ -84,7 +89,9 @@
                             Padding="0"
                             CornerRadius="3"
                             ToolTipService.ToolTip="网格视图">
-                            <SymbolIcon Symbol="AllApps" FontSize="14" />
+                            <Viewbox Width="14" Height="14">
+                                <SymbolIcon Symbol="AllApps" />
+                            </Viewbox>
                         </ToggleButton>
                         <ToggleButton
                             Width="30"
@@ -93,7 +100,9 @@
                             CornerRadius="3"
                             IsChecked="True"
                             ToolTipService.ToolTip="列表视图">
-                            <SymbolIcon Symbol="List" FontSize="14" />
+                            <Viewbox Width="14" Height="14">
+                                <SymbolIcon Symbol="List" />
+                            </Viewbox>
                         </ToggleButton>
                     </StackPanel>
                 </Border>
@@ -214,10 +223,11 @@
                                     CornerRadius="4"
                                     Background="{ThemeResource SubtleFillColorSecondaryBrush}"
                                     VerticalAlignment="Center">
-                                    <SymbolIcon
-                                        Symbol="{x:Bind Icon}"
-                                        FontSize="14"
-                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <Viewbox Width="14" Height="14">
+                                        <SymbolIcon
+                                            Symbol="{x:Bind Icon}"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </Viewbox>
                                 </Border>
 
                                 <StackPanel
@@ -265,7 +275,9 @@
                                     Width="28"
                                     Height="28"
                                     ToolTipService.ToolTip="更多">
-                                    <SymbolIcon Symbol="More" FontSize="14" />
+                                    <Viewbox Width="14" Height="14">
+                                        <SymbolIcon Symbol="More" />
+                                    </Viewbox>
                                 </Button>
                             </Grid>
                         </DataTemplate>
@@ -401,10 +413,11 @@
                             </Grid.ColumnDefinitions>
                             <Button Style="{StaticResource AccentButtonStyle}" Height="34" HorizontalAlignment="Stretch">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <SymbolIcon
-                                        Symbol="Play"
-                                        FontSize="14"
-                                        Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                                    <Viewbox Width="14" Height="14">
+                                        <SymbolIcon
+                                            Symbol="Play"
+                                            Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                                    </Viewbox>
                                     <TextBlock
                                         Text="开始游戏"
                                         FontSize="13"
@@ -420,7 +433,9 @@
                                 BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
                                 BorderThickness="1"
                                 ToolTipService.ToolTip="实例设置">
-                                <SymbolIcon Symbol="Setting" FontSize="15" />
+                                <Viewbox Width="15" Height="15">
+                                    <SymbolIcon Symbol="Setting" />
+                                </Viewbox>
                             </Button>
                             <Button
                                 Grid.Column="2"
@@ -431,7 +446,9 @@
                                 BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
                                 BorderThickness="1"
                                 ToolTipService.ToolTip="打开实例目录">
-                                <SymbolIcon Symbol="Folder" FontSize="15" />
+                                <Viewbox Width="15" Height="15">
+                                    <SymbolIcon Symbol="Folder" />
+                                </Viewbox>
                             </Button>
                         </Grid>
 
@@ -505,11 +522,14 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <SymbolIcon
-                                    Symbol="Refresh"
-                                    FontSize="16"
-                                    VerticalAlignment="Center"
-                                    Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                <Viewbox
+                                    Width="16"
+                                    Height="16"
+                                    VerticalAlignment="Center">
+                                    <SymbolIcon
+                                        Symbol="Refresh"
+                                        Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                </Viewbox>
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                     <TextBlock
                                         Text="{x:Bind ViewModel.SelectedInstance.UpdateTitle, Mode=OneWay}"

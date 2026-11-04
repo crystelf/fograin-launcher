@@ -89,4 +89,8 @@ the P/Invoke wiring is visible without opening a debugger.
 - Colors and type come from WinUI theme resources (and `design/tokens.json`
   when a value is not part of the Fluent ramp); the accent is the user's
   system accent.
+- `SymbolIcon` has no `FontSize` (it derives from `IconElement :
+  FrameworkElement`, not `Control`). To size one, wrap it in a `Viewbox` with
+  the target `Width`/`Height`; `FontIcon` is the alternative when the glyph is
+  a literal.
 - UI code is English; user-visible strings stay in Simplified Chinese for now.
