@@ -9,3 +9,13 @@ authors.workspace = true
 publish.workspace = true
 
 [dependencies]
+fg-core.workspace = true
+
+dirs.workspace = true
+glob.workspace = true
+serde.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

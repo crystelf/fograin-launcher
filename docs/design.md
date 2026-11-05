@@ -663,6 +663,8 @@ Rust 侧的差异点：
 
 验收：三平台用离线账户启动 1.8.9、1.12.2、1.16.5、1.20.1、1.21.4 原版进入主菜单。
 
+> 已实现（2026-11-05）：`crates/fg-game`、`crates/fg-java`、`crates/fg-auth` 与 `fg-cli install/launch`，取舍见 [ADR 0003](adr/0003-install-launch.md)。macOS 上已真实安装并启动 1.8.9、1.12.2、1.16.5、1.20.1、1.21.4 进入主菜单；1.8.9–1.16.5 需要 Java 8（Apple Silicon 上还需 x86_64 / Rosetta；M6 补自动安装），Windows/Linux 真实启动留待 CI `xvfb-run` 或手测。`fg-cli` 的 `--dry-run` 与 `wiremock` 集成测试覆盖了安装/启动全链路。
+
 ### M4 实例管理与界面接线（约 2 周）
 
 1. 实例 CRUD、`instance.toml`、全局与实例设置继承。

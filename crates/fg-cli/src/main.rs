@@ -1,17 +1,23 @@
 //! Headless debug and CI entry point for the Fograin core.
 //!
-//! M2 ships the download tooling from §14:
+//! M2 shipped the download tooling; M3 adds the install/launch path from §14:
 //!
 //! ```text
-//! fg-cli download <url>      # download one file through the engine
-//! fg-cli mirror <url>        # show the candidate list for a URL
-//! fg-cli assets <version>    # download every asset object of a version
-//! fg-cli probe <url>...      # HEAD-probe sources and update health data
+//! fg-cli versions                 # cached version manifest
+//! fg-cli install <version>        # install vanilla + create an instance
+//! fg-cli launch <instance>        # offline launch, streaming the game log
+//! fg-cli java list                # discover JDKs
+//! fg-cli java match <version>     # show the selected JDK for a version
+//! fg-cli instance list            # installed instances
+//! fg-cli download <url>           # download one file through the engine
+//! fg-cli mirror <url>             # show the candidate list for a URL
+//! fg-cli assets <version>         # download every asset object of a version
+//! fg-cli probe <url>...           # HEAD-probe sources and update health data
 //! ```
 
 use std::{
     collections::{BTreeMap, HashSet},
-    io::Write as _,
+    io::{IsTerminal as _, Write as _},
     path::PathBuf,
     sync::{
         Arc,
@@ -21,11 +27,25 @@ use std::{
 };
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use fg_core::{DownloadSource, Result, ThemePreference, config, paths};
+use fg_auth::OfflineAccount;
+use fg_core::{DownloadSource, Error, ErrorKind, Result, ThemePreference, config, paths};
+use fg_game::install::{FileKind, InstallPlan, Installer, category_counts};
+use fg_game::instance::Instance;
+use fg_game::launch::{
+    GameEvent, GameProcess, LaunchOptions, LaunchPlan, LogStream, cleanup_launch_artifacts,
+    needs_x86_64_java,
+};
+use fg_game::layout::{Layout, validate_id};
+use fg_game::resolver::VersionResolver;
+use fg_game::rules::RuleContext;
+use fg_java::{
+    JavaArch, JavaRuntime, JavaScanner, JavaSource, JavaWarning, normalize_home, select,
+};
 use fg_net::{
     Candidate, Client, ContentCache, DownloadCtx, DownloadOptions, DownloadRequest, Downloader,
     MirrorTable, Priority, ProgressSink, Region,
 };
+use fg_task::{Control, GraphReport, NodeState, RunOptions, TaskGraph};
 use serde::Deserialize;
 
 const VERSION_MANIFEST_URL: &str =
@@ -36,7 +56,7 @@ const ASSET_ROOT: &str = "https://resources.download.minecraft.net";
 #[command(
     name = "fg-cli",
     version,
-    about = "Fograin Launcher debug CLI (download engine, M2)"
+    about = "Fograin Launcher debug CLI (install, launch, downloads)"
 )]
 struct Cli {
     /// Launcher data root. Defaults to the platform data directory or $FOGRAIN_HOME.
@@ -107,6 +127,16 @@ enum Command {
     Assets(AssetsArgs),
     /// HEAD-probe URLs and record their health.
     Probe(ProbeArgs),
+    /// List the cached version manifest.
+    Versions(VersionsArgs),
+    /// Install a vanilla version and create an instance.
+    Install(InstallArgs),
+    /// Launch an installed instance with an offline account.
+    Launch(LaunchArgs),
+    /// Discover installed Java runtimes.
+    Java(JavaArgs),
+    /// Inspect installed instances.
+    Instance(InstanceArgs),
 }
 
 #[derive(Debug, Args)]
@@ -172,6 +202,157 @@ struct AssetsArgs {
     /// Resolve the manifest and print the plan without downloading.
     #[arg(long)]
     dry_run: bool,
+}
+
+#[derive(Debug, Args)]
+struct VersionsArgs {
+    /// Number of versions to print (newest first).
+    #[arg(long, default_value_t = 20)]
+    limit: usize,
+
+    /// Emit JSON instead of a table.
+    #[arg(long)]
+    json: bool,
+
+    /// Bypass the manifest cache.
+    #[arg(long)]
+    refresh: bool,
+
+    /// Filter by version type.
+    #[arg(long, value_enum)]
+    kind: Option<VersionKindArg>,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum VersionKindArg {
+    Release,
+    Snapshot,
+    OldBeta,
+    OldAlpha,
+}
+
+impl VersionKindArg {
+    fn matches(self, value: &str) -> bool {
+        match self {
+            Self::Release => value == "release",
+            Self::Snapshot => value == "snapshot",
+            Self::OldBeta => value == "old_beta",
+            Self::OldAlpha => value == "old_alpha",
+        }
+    }
+}
+
+#[derive(Debug, Args)]
+struct InstallArgs {
+    /// Version id, e.g. 1.21.4.
+    version: String,
+
+    /// Instance id; defaults to the version id.
+    #[arg(long)]
+    id: Option<String>,
+
+    /// Bypass cached version metadata and asset indexes.
+    #[arg(long)]
+    refresh: bool,
+
+    /// Print the plan without downloading.
+    #[arg(long)]
+    dry_run: bool,
+
+    /// Verify every installed file's SHA-1 after the download.
+    #[arg(long)]
+    strict: bool,
+
+    /// Install shared files only; do not create an instance.
+    #[arg(long)]
+    no_instance: bool,
+}
+
+#[derive(Debug, Args)]
+struct LaunchArgs {
+    /// Instance id from `fg-cli instance list`.
+    instance: String,
+
+    /// Offline player name.
+    #[arg(long, default_value = "Steve")]
+    username: String,
+
+    /// Explicit Java home (overrides discovery and instance overrides).
+    #[arg(long)]
+    java: Option<PathBuf>,
+
+    /// Print the command and exit without spawning the game.
+    #[arg(long)]
+    dry_run: bool,
+
+    /// Emit the launch plan as JSON.
+    #[arg(long)]
+    json: bool,
+
+    /// Extra JVM argument; may be repeated.
+    #[arg(long = "jvm-arg")]
+    jvm_args: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+struct JavaArgs {
+    #[command(subcommand)]
+    command: JavaCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum JavaCommand {
+    /// List discovered runtimes.
+    List(JavaListArgs),
+    /// Show the runtime selected for a version.
+    Match(JavaMatchArgs),
+}
+
+#[derive(Debug, Args)]
+struct JavaListArgs {
+    /// Probe JDKs that have no `release` file with `java -XshowSettings`.
+    #[arg(long)]
+    no_probe: bool,
+
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct JavaMatchArgs {
+    /// Installed version id.
+    version: String,
+
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct InstanceArgs {
+    #[command(subcommand)]
+    command: InstanceCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum InstanceCommand {
+    /// List instances.
+    List(InstanceListArgs),
+    /// Show one instance.
+    Show(InstanceShowArgs),
+}
+
+#[derive(Debug, Args)]
+struct InstanceListArgs {
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct InstanceShowArgs {
+    id: String,
+
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -254,6 +435,55 @@ async fn main() -> Result<()> {
             .await
         }
         Command::Probe(args) => command_probe(&root, cli.rate_limit_kib, args).await,
+        Command::Versions(args) => {
+            command_versions(
+                &root,
+                &table,
+                source,
+                region,
+                cli.concurrency,
+                cli.rate_limit_kib,
+                args,
+            )
+            .await
+        }
+        Command::Install(args) => {
+            command_install(
+                &root,
+                &table,
+                source,
+                region,
+                cli.concurrency,
+                cli.rate_limit_kib,
+                args,
+            )
+            .await
+        }
+        Command::Launch(args) => {
+            command_launch(
+                &root,
+                &table,
+                source,
+                region,
+                cli.concurrency,
+                cli.rate_limit_kib,
+                args,
+            )
+            .await
+        }
+        Command::Java(args) => {
+            command_java(
+                &root,
+                &table,
+                source,
+                region,
+                cli.concurrency,
+                cli.rate_limit_kib,
+                args,
+            )
+            .await
+        }
+        Command::Instance(args) => command_instance(&root, args),
     }
 }
 
@@ -677,4 +907,756 @@ fn human_bytes(bytes: u64) -> String {
     } else {
         format!("{value:.1} {}", UNITS[unit])
     }
+}
+
+// ---------------------------------------------------------------------------
+// M3: install and launch
+// ---------------------------------------------------------------------------
+
+fn data_layout(root: &std::path::Path) -> Layout {
+    Layout::new(root)
+}
+
+fn build_shared(
+    root: &std::path::Path,
+    table: &MirrorTable,
+    source: DownloadSource,
+    region: Region,
+    concurrency: Option<usize>,
+    rate_limit_kib: u64,
+) -> Result<(Layout, Arc<Downloader>, VersionResolver)> {
+    let layout = data_layout(root);
+    layout.ensure_base_dirs()?;
+    let downloader = Arc::new(build_downloader(
+        root,
+        concurrency,
+        rate_limit_kib,
+        false,
+        None,
+        None,
+        16,
+    )?);
+    let resolver = VersionResolver::new(
+        downloader.clone(),
+        layout.clone(),
+        table.clone(),
+        source,
+        region,
+    );
+    Ok((layout, downloader, resolver))
+}
+
+async fn command_versions(
+    root: &std::path::Path,
+    table: &MirrorTable,
+    source: DownloadSource,
+    region: Region,
+    concurrency: Option<usize>,
+    rate_limit_kib: u64,
+    args: VersionsArgs,
+) -> Result<()> {
+    let (_layout, _downloader, resolver) =
+        build_shared(root, table, source, region, concurrency, rate_limit_kib)?;
+    let manifest = resolver.manifest(args.refresh).await?;
+
+    let versions: Vec<&fg_game::version::VersionSummary> = manifest
+        .versions
+        .iter()
+        .filter(|version| {
+            args.kind
+                .is_none_or(|kind| kind.matches(&version.version_type))
+        })
+        .take(args.limit)
+        .collect();
+
+    if args.json {
+        let latest = serde_json::json!({
+            "release": manifest.latest.release,
+            "snapshot": manifest.latest.snapshot,
+        });
+        let payload = serde_json::json!({
+            "latest": latest,
+            "versions": versions,
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&payload).map_err(json_error)?
+        );
+        return Ok(());
+    }
+
+    println!(
+        "latest release {} · snapshot {}",
+        manifest.latest.release, manifest.latest.snapshot
+    );
+    println!("{:<20} {:<10} {:<10} url", "id", "type", "released");
+    for version in versions {
+        println!(
+            "{:<20} {:<10} {:<10} {}",
+            version.id,
+            version.version_type,
+            version
+                .release_time
+                .as_deref()
+                .map(|value| value.get(..10).unwrap_or(value))
+                .unwrap_or("-"),
+            version.url
+        );
+    }
+    Ok(())
+}
+
+async fn command_install(
+    root: &std::path::Path,
+    table: &MirrorTable,
+    source: DownloadSource,
+    region: Region,
+    concurrency: Option<usize>,
+    rate_limit_kib: u64,
+    args: InstallArgs,
+) -> Result<()> {
+    let (layout, downloader, resolver) =
+        build_shared(root, table, source, region, concurrency, rate_limit_kib)?;
+    let instance_id = args.id.clone().unwrap_or_else(|| args.version.clone());
+    validate_id(&instance_id)?;
+
+    let mut instance = if args.dry_run || args.no_instance {
+        None
+    } else {
+        let instance = Instance::load_or_create(&layout, &instance_id, &args.version)?;
+        if instance.minecraft != args.version {
+            return Err(Error::with_detail(
+                ErrorKind::Conflict,
+                "error.instance.version_mismatch",
+                format!(
+                    "instance {} is for {}, not {}",
+                    instance.id, instance.minecraft, args.version
+                ),
+            ));
+        }
+        instance.create_layout(&layout)?;
+        Some(instance)
+    };
+
+    let installer = Installer::new(
+        downloader,
+        resolver,
+        layout.clone(),
+        table.clone(),
+        source,
+        region,
+        RuleContext::current(),
+    );
+    println!(
+        "planning {}{}",
+        args.version,
+        instance
+            .as_ref()
+            .map(|instance| format!(" for instance {}", instance.id))
+            .unwrap_or_default()
+    );
+    let plan = installer
+        .plan(
+            &args.version,
+            args.refresh,
+            instance.as_ref().map(|instance| instance.id.as_str()),
+        )
+        .await?;
+    println!("  java {} · main {}", plan.java_major, plan.main_class);
+
+    for (kind, count, bytes) in category_counts(&plan) {
+        println!(
+            "  {:<10} {:>5} files  {:>10}",
+            file_kind_label(kind),
+            count,
+            human_bytes(bytes)
+        );
+    }
+    println!(
+        "  {:<10} {:>5} files  {:>10}",
+        "total",
+        plan.files.len(),
+        human_bytes(plan.total_bytes)
+    );
+    let missing = plan.missing(layout.root(), args.strict);
+    println!("  {} already present", plan.files.len() - missing.len());
+
+    if args.dry_run {
+        for file in missing.iter().take(20) {
+            println!("  missing {} ({:?})", file.path.display(), file.kind);
+        }
+        if missing.len() > 20 {
+            println!("  … {} more", missing.len() - 20);
+        }
+        return Ok(());
+    }
+
+    plan.save(&layout)?;
+    let graph = Arc::new(installer.graph(&plan));
+    let reporter = spawn_graph_reporter(graph.clone());
+    let report = run_graph_interruptible(graph).await?;
+    reporter.abort();
+    eprintln!();
+
+    if !report.is_success() {
+        if report.interrupted.is_some() {
+            println!("install interrupted; run the same command again to resume");
+            return Ok(());
+        }
+        let detail = report
+            .failed
+            .first()
+            .map(|(node, error)| format!("{node}: {error}"))
+            .unwrap_or_else(|| "install did not finish".to_string());
+        return Err(Error::with_detail(
+            ErrorKind::Internal,
+            "error.install.failed",
+            detail,
+        ));
+    }
+
+    if args.strict {
+        let missing = plan.missing(layout.root(), true);
+        if !missing.is_empty() {
+            return Err(Error::with_detail(
+                ErrorKind::Io,
+                "error.install.verify",
+                format!("{} files failed verification", missing.len()),
+            ));
+        }
+    }
+    InstallPlan::remove(&layout, &args.version);
+    println!(
+        "installed {} in {:.1}s",
+        args.version,
+        report.elapsed.as_secs_f64()
+    );
+    println!("  client   {}", layout.version_jar(&args.version).display());
+    println!("  libraries {}", layout.libraries().display());
+    println!("  assets    {}", layout.assets().display());
+    if let Some(instance) = &mut instance {
+        instance.save(&layout)?;
+        println!(
+            "  instance  {}",
+            layout.instance_file(&instance.id).display()
+        );
+        println!("launch it with: fg-cli launch {}", instance.id);
+    }
+    Ok(())
+}
+
+async fn command_launch(
+    root: &std::path::Path,
+    table: &MirrorTable,
+    source: DownloadSource,
+    region: Region,
+    concurrency: Option<usize>,
+    rate_limit_kib: u64,
+    args: LaunchArgs,
+) -> Result<()> {
+    let (layout, _downloader, resolver) =
+        build_shared(root, table, source, region, concurrency, rate_limit_kib)?;
+    let mut instance = Instance::load(&layout, &args.instance)?;
+    if !instance.loader.is_vanilla() {
+        return Err(Error::with_detail(
+            ErrorKind::Unsupported,
+            "error.launch.loader_unsupported",
+            format!("loader {:?} is an M5 feature", instance.loader.kind),
+        ));
+    }
+
+    let resolved = resolver
+        .resolve_local(&instance.minecraft)
+        .map_err(|error| {
+            if error.kind == ErrorKind::NotFound {
+                Error::with_detail(
+                    ErrorKind::NotFound,
+                    "error.launch.not_installed",
+                    format!(
+                        "{} is not installed; run `fg-cli install {}`",
+                        instance.minecraft, instance.minecraft
+                    ),
+                )
+            } else {
+                error
+            }
+        })?;
+
+    let runtimes = scan_java(&layout, true).await;
+    let java = pick_java(&instance, &resolved, &args, &runtimes)?;
+    let account = OfflineAccount::new(&args.username)?;
+
+    let plan = LaunchPlan::build(
+        &layout,
+        &instance,
+        &resolved,
+        &java,
+        &account,
+        &LaunchOptions {
+            extra_jvm_args: args.jvm_args.clone(),
+            ..LaunchOptions::default()
+        },
+    )
+    .map_err(|error| {
+        if error.kind == ErrorKind::NotFound {
+            Error::with_detail(
+                error.kind,
+                "error.launch.incomplete",
+                format!(
+                    "{}; run `fg-cli install {}` first",
+                    error.detail.unwrap_or_default(),
+                    instance.minecraft
+                ),
+            )
+        } else {
+            error
+        }
+    })?;
+
+    if args.json {
+        let payload = serde_json::json!({
+            "program": plan.program,
+            "args": plan.args,
+            "cwd": plan.cwd,
+            "mainClass": plan.main_class,
+            "classpath": plan.classpath,
+            "natives": plan.natives_dir,
+            "assetIndex": plan.asset_index,
+            "logConfig": plan.log_config,
+            "features": plan.features,
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&payload).map_err(json_error)?
+        );
+        return Ok(());
+    }
+
+    println!("instance  {} ({})", instance.id, instance.minecraft);
+    println!(
+        "java      {} ({} {})",
+        java.executable.display(),
+        java.version
+            .as_ref()
+            .map_or_else(|| "?".to_string(), |version| version.full.clone()),
+        java.arch
+    );
+    println!("account   {} ({})", account.name(), account.uuid());
+    println!("natives   {}", plan.natives_dir.display());
+    if let Some(log_config) = &plan.log_config {
+        println!("log4j     {}", log_config.display());
+    }
+
+    if args.dry_run {
+        println!("command   {}", plan.display());
+        return Ok(());
+    }
+
+    let process = GameProcess::spawn(&plan)?;
+    println!(
+        "started   pid {} · log {}",
+        process
+            .pid()
+            .map_or_else(|| "?".to_string(), |pid| pid.to_string()),
+        process.log_file().display()
+    );
+    let mut events = process.subscribe();
+    let wait = process.wait();
+    tokio::pin!(wait);
+    let mut events_open = true;
+    let exit = loop {
+        tokio::select! {
+            event = events.recv(), if events_open => {
+                match event {
+                    Ok(GameEvent::Line { stream, text, .. }) => {
+                        if stream == LogStream::Stdout {
+                            println!("{text}");
+                        } else {
+                            eprintln!("{text}");
+                        }
+                    }
+                    Ok(GameEvent::WindowReady) => {
+                        eprintln!("[fograin] game window is ready");
+                    }
+                    Ok(GameEvent::Started { .. } | GameEvent::Exited { .. }) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        eprintln!("[fograin] skipped {skipped} log lines");
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        events_open = false;
+                    }
+                }
+            }
+            result = &mut wait => break result?,
+        }
+    };
+
+    // Keep argfiles/pathing jars until the JVM has finished reading them.
+    cleanup_launch_artifacts(&plan);
+    let seconds = exit.duration.as_secs();
+    instance.record_session(seconds);
+    instance.save(&layout)?;
+    println!(
+        "exited    code {} after {}s · log {}",
+        exit.code
+            .map_or_else(|| "signal".to_string(), |code| code.to_string()),
+        seconds,
+        exit.log_file.display()
+    );
+    if !exit.success {
+        return Err(Error::with_detail(
+            ErrorKind::Internal,
+            "error.launch.exit_code",
+            format!("game exited with {:?}", exit.code),
+        ));
+    }
+    Ok(())
+}
+
+fn pick_java(
+    instance: &Instance,
+    resolved: &fg_game::version::ResolvedVersion,
+    args: &LaunchArgs,
+    runtimes: &[JavaRuntime],
+) -> Result<JavaRuntime> {
+    let explicit = args
+        .java
+        .clone()
+        .or_else(|| instance.java().map(std::path::Path::to_path_buf));
+    if let Some(path) = explicit {
+        let home = if path.is_dir() {
+            normalize_home(&path)
+        } else {
+            path.parent()
+                .and_then(|bin| bin.parent())
+                .map(|home| normalize_home(home).unwrap_or_else(|| home.to_path_buf()))
+        }
+        .ok_or_else(|| {
+            Error::with_detail(
+                ErrorKind::NotFound,
+                "error.java.not_found",
+                format!("{} does not contain bin/java", path.display()),
+            )
+        })?;
+        let runtime =
+            JavaRuntime::from_home(home.clone(), JavaSource::ExtraRoot).ok_or_else(|| {
+                Error::with_detail(
+                    ErrorKind::NotFound,
+                    "error.java.not_found",
+                    format!("{} does not contain bin/java", home.display()),
+                )
+            })?;
+        if runtime
+            .major()
+            .is_some_and(|major| major < resolved.java_major)
+        {
+            eprintln!(
+                "warning: Java {} is older than the recommended Java {} for {}",
+                runtime.major().unwrap_or(0),
+                resolved.java_major,
+                resolved.base_id
+            );
+        }
+        return Ok(runtime);
+    }
+
+    let legacy_natives = cfg!(target_os = "macos")
+        && JavaArch::host() == JavaArch::Arm64
+        && needs_x86_64_java(&resolved.base_id);
+    let (candidates, host_arch) = if legacy_natives {
+        let x64: Vec<JavaRuntime> = runtimes
+            .iter()
+            .filter(|runtime| runtime.arch == JavaArch::X86_64)
+            .cloned()
+            .collect();
+        if x64.is_empty() {
+            eprintln!(
+                "warning: {} has only x86_64 LWJGL natives on Apple Silicon; install an x86_64 Java 8 under Rosetta",
+                resolved.base_id
+            );
+            (runtimes.to_vec(), JavaArch::Arm64)
+        } else {
+            eprintln!(
+                "warning: {} has only x86_64 LWJGL natives; running under Rosetta",
+                resolved.base_id
+            );
+            (x64, JavaArch::X86_64)
+        }
+    } else {
+        (runtimes.to_vec(), JavaArch::host())
+    };
+
+    let selected = select(&candidates, resolved.java_major, host_arch)?;
+    for warning in &selected.warnings {
+        eprintln!("warning: {}", java_warning(warning));
+    }
+    Ok(selected.runtime)
+}
+
+fn java_warning(warning: &JavaWarning) -> String {
+    match warning {
+        JavaWarning::TooNew { found, required } => {
+            format!(
+                "Java {found} selected, version {} recommends Java {required}",
+                "game"
+            )
+        }
+        JavaWarning::ArchMismatch { runtime, host } => {
+            format!("runtime arch {runtime} differs from host arch {host}")
+        }
+        JavaWarning::UnknownVersion => "runtime version is unknown".to_string(),
+    }
+}
+
+async fn scan_java(layout: &Layout, probe: bool) -> Vec<JavaRuntime> {
+    let scanner = JavaScanner::new().with_extra_root(layout.runtimes());
+    if probe {
+        scanner.scan_probing(Duration::from_secs(5)).await
+    } else {
+        scanner.scan()
+    }
+}
+
+async fn command_java(
+    root: &std::path::Path,
+    table: &MirrorTable,
+    source: DownloadSource,
+    region: Region,
+    concurrency: Option<usize>,
+    rate_limit_kib: u64,
+    args: JavaArgs,
+) -> Result<()> {
+    let (layout, _downloader, resolver) =
+        build_shared(root, table, source, region, concurrency, rate_limit_kib)?;
+    match args.command {
+        JavaCommand::List(args) => {
+            let runtimes = scan_java(&layout, !args.no_probe).await;
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&runtimes).map_err(json_error)?
+                );
+                return Ok(());
+            }
+            if runtimes.is_empty() {
+                println!("no Java runtime found");
+                return Ok(());
+            }
+            println!(
+                "{:<8} {:<8} {:<10} {:<20} home",
+                "version", "arch", "source", "vendor"
+            );
+            for runtime in runtimes {
+                println!(
+                    "{:<8} {:<8} {:<10} {:<20} {}",
+                    runtime
+                        .version
+                        .as_ref()
+                        .map_or_else(|| "?".to_string(), |version| version.full.clone()),
+                    runtime.arch,
+                    runtime.source.label(),
+                    runtime.vendor.as_deref().unwrap_or("-"),
+                    runtime.home.display()
+                );
+            }
+        }
+        JavaCommand::Match(args) => {
+            let resolved = resolver.resolve_local(&args.version)?;
+            let runtimes = scan_java(&layout, true).await;
+            let selected = select(&runtimes, resolved.java_major, JavaArch::host())?;
+            if args.json {
+                let payload = serde_json::json!({
+                    "required": resolved.java_major,
+                    "exact": selected.exact,
+                    "runtime": selected.runtime,
+                    "warnings": selected.warnings.iter().map(java_warning).collect::<Vec<_>>(),
+                });
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&payload).map_err(json_error)?
+                );
+                return Ok(());
+            }
+            println!(
+                "{} requires Java {}; selected {} ({} {})",
+                args.version,
+                resolved.java_major,
+                selected.runtime.home.display(),
+                selected
+                    .runtime
+                    .version
+                    .as_ref()
+                    .map_or_else(|| "?".to_string(), |version| version.full.clone()),
+                selected.runtime.arch
+            );
+            for warning in &selected.warnings {
+                println!("warning: {}", java_warning(warning));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn command_instance(root: &std::path::Path, args: InstanceArgs) -> Result<()> {
+    let layout = data_layout(root);
+    match args.command {
+        InstanceCommand::List(args) => {
+            let mut instances = Vec::new();
+            if let Ok(entries) = std::fs::read_dir(layout.instances()) {
+                for entry in entries.flatten() {
+                    let id = entry.file_name().to_string_lossy().to_string();
+                    match Instance::load(&layout, &id) {
+                        Ok(instance) => instances.push(instance),
+                        Err(error) => eprintln!("skip {id}: {error}"),
+                    }
+                }
+            }
+            instances.sort_by(|left, right| left.id.cmp(&right.id));
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&instances).map_err(json_error)?
+                );
+                return Ok(());
+            }
+            if instances.is_empty() {
+                println!("no instances; run `fg-cli install <version>`");
+                return Ok(());
+            }
+            println!(
+                "{:<18} {:<12} {:<10} last played",
+                "id", "minecraft", "played"
+            );
+            for instance in instances {
+                println!(
+                    "{:<18} {:<12} {:<10} {}",
+                    instance.id,
+                    instance.minecraft,
+                    format_duration(instance.meta.play_seconds),
+                    instance.meta.last_played.as_deref().unwrap_or("-")
+                );
+            }
+        }
+        InstanceCommand::Show(args) => {
+            let instance = Instance::load(&layout, &args.id)?;
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&instance).map_err(json_error)?
+                );
+                return Ok(());
+            }
+            println!("id          {}", instance.id);
+            println!("name        {}", instance.name);
+            println!("minecraft   {}", instance.minecraft);
+            println!("loader      {}", instance.loader.kind);
+            println!("game dir    {}", instance.game_dir(&layout).display());
+            println!(
+                "java        {}",
+                instance
+                    .java()
+                    .map_or_else(|| "auto".to_string(), |path| path.display().to_string())
+            );
+            println!("memory      {} MiB", instance.memory_mb());
+            println!(
+                "resolution  {}",
+                instance.resolution().map_or_else(
+                    || "default".to_string(),
+                    |(width, height)| format!("{width}x{height}")
+                )
+            );
+            println!(
+                "playtime    {}",
+                format_duration(instance.meta.play_seconds)
+            );
+            println!(
+                "last played {}",
+                instance.meta.last_played.as_deref().unwrap_or("-")
+            );
+        }
+    }
+    Ok(())
+}
+
+fn spawn_graph_reporter(graph: Arc<TaskGraph>) -> tokio::task::JoinHandle<()> {
+    let interactive = std::io::stderr().is_terminal();
+    tokio::spawn(async move {
+        let period = if interactive {
+            Duration::from_millis(500)
+        } else {
+            Duration::from_secs(5)
+        };
+        let mut interval = tokio::time::interval(period);
+        loop {
+            interval.tick().await;
+            let progress = graph.progress();
+            let running: Vec<&str> = progress
+                .nodes
+                .iter()
+                .filter(|node| node.state == NodeState::Running)
+                .map(|node| node.name.as_str())
+                .collect();
+            let line = format!(
+                "{:5.1}%  {:>10}/s  {:<40}",
+                progress.fraction * 100.0,
+                human_bytes(progress.speed.max(0.0) as u64),
+                running.join(", ")
+            );
+            if interactive {
+                eprint!("\r  {line}");
+                let _ = std::io::stderr().flush();
+            } else {
+                eprintln!("  {line}");
+            }
+        }
+    })
+}
+
+async fn run_graph_interruptible(graph: Arc<TaskGraph>) -> Result<GraphReport> {
+    let control = Control::new();
+    let options = RunOptions::default();
+    let run = graph.run(&control, &options);
+    tokio::pin!(run);
+    loop {
+        tokio::select! {
+            report = &mut run => return Ok(report),
+            signal = tokio::signal::ctrl_c() => {
+                signal.map_err(|error| {
+                    Error::with_detail(ErrorKind::Io, "error.cli.signal", error.to_string())
+                })?;
+                eprintln!("\n  cancelling; unfinished downloads keep their .part files");
+                control.cancel();
+            }
+        }
+    }
+}
+
+fn file_kind_label(kind: FileKind) -> &'static str {
+    match kind {
+        FileKind::Client => "client",
+        FileKind::Library => "libraries",
+        FileKind::Asset => "assets",
+        FileKind::AssetIndex => "asset index",
+        FileKind::LogConfig => "logging",
+    }
+}
+
+fn format_duration(seconds: u64) -> String {
+    if seconds == 0 {
+        return "-".to_string();
+    }
+    if seconds < 60 {
+        return format!("{seconds}s");
+    }
+    let hours = seconds / 3600;
+    let minutes = (seconds % 3600) / 60;
+    if hours > 0 {
+        format!("{hours}h{minutes:02}m")
+    } else {
+        format!("{minutes}m")
+    }
+}
+
+fn json_error(error: serde_json::Error) -> Error {
+    Error::with_detail(ErrorKind::Internal, "error.cli.json", error.to_string())
 }
