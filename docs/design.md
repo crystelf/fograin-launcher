@@ -647,6 +647,8 @@ Rust 侧的差异点：
 6. `fg-task`：任务图、进度聚合、取消、暂停、持久化。
 7. `fg-cli download <url>` 用于手测；用本地 mock 服务器（`wiremock`）做集成测试：断线、416、哈希错误、全部候选失败。
 
+> 已实现（2026-11-04）：`crates/fg-net`、`crates/fg-task`，取舍见 [ADR 0002](adr/0002-download-engine.md)。`fg-cli assets <version>` 是第 7 步与验收的手测入口。
+
 验收：并发下载 1.21.4 的全部 assets（约 4000 个文件）不报错；中途断网恢复后可以续传。
 
 ### M3 原版安装与启动（约 2 周）

@@ -1,0 +1,118 @@
+# Mirror rules for Fograin Launcher (§6.1).
+#
+# Each `[[rule]]` matches every URL that starts with `source` and derives mirror
+# URLs by replacing that prefix. `{bmcl}` expands to the BMCLAPI root, which can
+# be overridden with FOGRAIN_BMCLAPI or a copied table at <data root>/cache/mirrors.toml.
+#
+# Fields:
+#   source   – official URL prefix (required, matched in file order)
+#   mirror   – primary domestic mirror prefix
+#   fallback – second mirror candidate, tried after `mirror`
+#   official – when false the official URL is never offered (CurseForge has no
+#              public API key, so §12 only allows the MCIM mirror)
+#
+# Order matters: put the most specific prefix first.
+version = 1
+bmclapi = "https://bmclapi2.bangbang93.com"
+
+[[rule]]
+source = "https://launchermeta.mojang.com"
+mirror = "{bmcl}"
+
+[[rule]]
+source = "https://piston-meta.mojang.com"
+mirror = "{bmcl}"
+
+[[rule]]
+source = "https://piston-data.mojang.com"
+mirror = "{bmcl}"
+
+[[rule]]
+source = "https://launcher.mojang.com"
+mirror = "{bmcl}"
+
+[[rule]]
+source = "https://resources.download.minecraft.net"
+mirror = "{bmcl}/assets"
+
+[[rule]]
+source = "https://libraries.minecraft.net"
+mirror = "{bmcl}/libraries"
+
+[[rule]]
+source = "https://maven.minecraftforge.net"
+mirror = "{bmcl}/maven"
+
+[[rule]]
+source = "https://files.minecraftforge.net/maven"
+mirror = "{bmcl}/maven"
+
+[[rule]]
+source = "http://files.minecraftforge.net/maven"
+mirror = "{bmcl}/maven"
+
+# NeoForge publishes under a release repository; the Forge CDN is a second
+# fallback that works without BMCLAPI (§6.1).
+[[rule]]
+source = "https://maven.neoforged.net/releases/"
+mirror = "{bmcl}/maven/"
+fallback = "https://neoforged.forgecdn.net/"
+
+[[rule]]
+source = "https://meta.fabricmc.net"
+mirror = "{bmcl}/fabric-meta"
+
+[[rule]]
+source = "https://maven.fabricmc.net"
+mirror = "{bmcl}/maven"
+
+# Quilt's meta endpoint mirror is listed in §6.1 as "needs verification".
+[[rule]]
+source = "https://meta.quiltmc.org"
+mirror = "{bmcl}/quilt-meta"
+
+[[rule]]
+source = "https://maven.quiltmc.org"
+mirror = "{bmcl}/maven"
+
+[[rule]]
+source = "http://dl.liteloader.com/versions"
+mirror = "{bmcl}/maven"
+
+[[rule]]
+source = "https://dl.liteloader.com/versions"
+mirror = "{bmcl}/maven"
+
+[[rule]]
+source = "https://authlib-injector.yushi.moe"
+mirror = "{bmcl}/mirrors/authlib-injector"
+
+[[rule]]
+source = "https://repo1.maven.org/maven2"
+mirror = "https://mirrors.cloud.tencent.com/nexus/repository/maven-public"
+
+[[rule]]
+source = "https://repo.maven.apache.org/maven2"
+mirror = "https://mirrors.cloud.tencent.com/nexus/repository/maven-public"
+
+# Modrinth keeps the official API as a candidate; MCIM is the mirror (§6.1).
+[[rule]]
+source = "https://api.modrinth.com"
+mirror = "https://mod.mcimirror.top/modrinth"
+fallback = "https://mod.mcimirror.top"
+
+[[rule]]
+source = "https://cdn.modrinth.com"
+mirror = "https://mod.mcimirror.top"
+
+# CurseForge is MCIM-only: no built-in API key, no direct official access (§12).
+[[rule]]
+source = "https://api.curseforge.com"
+mirror = "https://mod.mcimirror.top/curseforge"
+fallback = "https://mod.mcimirror.top"
+official = false
+
+[[rule]]
+source = "https://edge.forgecdn.net"
+mirror = "https://mod.mcimirror.top"
+official = false

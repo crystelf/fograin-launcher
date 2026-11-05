@@ -12,6 +12,8 @@ pub mod error;
 pub mod paths;
 pub mod platform;
 
-pub use config::{LauncherConfig, ResolvedTheme, ThemePreference};
+pub use config::{
+    DownloadConfig, DownloadSource, LauncherConfig, NetworkConfig, ResolvedTheme, ThemePreference,
+};
 pub use error::{Error, ErrorKind, Result};
 pub use platform::Platform;
