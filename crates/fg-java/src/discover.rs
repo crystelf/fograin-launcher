@@ -12,8 +12,6 @@ use std::{
     time::Duration,
 };
 
-use glob::glob;
-
 use crate::runtime::{JavaRuntime, JavaSource, executable_in};
 
 /// Options for [`JavaScanner`].
@@ -233,7 +231,7 @@ fn macos_candidates() -> Vec<(PathBuf, JavaSource)> {
         "/opt/homebrew/Cellar/openjdk*/*/libexec/openjdk.jdk/Contents/Home",
         "/usr/local/Cellar/openjdk*/*/libexec/openjdk.jdk/Contents/Home",
     ] {
-        if let Ok(paths) = glob(pattern) {
+        if let Ok(paths) = glob::glob(pattern) {
             for path in paths.flatten() {
                 candidates.push((path, JavaSource::Homebrew));
             }
@@ -277,11 +275,11 @@ fn linux_candidates() -> Vec<(PathBuf, JavaSource)> {
             }
         }
     }
-    if let Some(home) = dirs::home_dir() {
-        if let Ok(entries) = std::fs::read_dir(home.join(".sdkman/candidates/java")) {
-            for entry in entries.flatten() {
-                candidates.push((entry.path(), JavaSource::Sdkman));
-            }
+    if let Some(home) = dirs::home_dir()
+        && let Ok(entries) = std::fs::read_dir(home.join(".sdkman/candidates/java"))
+    {
+        for entry in entries.flatten() {
+            candidates.push((entry.path(), JavaSource::Sdkman));
         }
     }
     candidates
@@ -303,10 +301,10 @@ fn windows_candidates() -> Vec<(PathBuf, JavaSource)> {
         {
             let text = String::from_utf8_lossy(&output.stdout);
             for line in text.lines() {
-                if let Some((name, value)) = line.split_once("REG_SZ") {
-                    if name.trim().eq_ignore_ascii_case("JavaHome") {
-                        candidates.push((PathBuf::from(value.trim()), JavaSource::WindowsRegistry));
-                    }
+                if let Some((name, value)) = line.split_once("REG_SZ")
+                    && name.trim().eq_ignore_ascii_case("JavaHome")
+                {
+                    candidates.push((PathBuf::from(value.trim()), JavaSource::WindowsRegistry));
                 }
             }
         }
@@ -341,11 +339,11 @@ fn windows_candidates() -> Vec<(PathBuf, JavaSource)> {
             .join("Packages")
             .join("Microsoft.4297127D64EC6_*")
             .join("LocalCache/Local/runtime/*/*/*");
-        if let Some(pattern) = pattern.to_str() {
-            if let Ok(paths) = glob(pattern) {
-                for path in paths.flatten() {
-                    candidates.push((path, JavaSource::MojangLauncher));
-                }
+        if let Some(pattern) = pattern.to_str()
+            && let Ok(paths) = glob::glob(pattern)
+        {
+            for path in paths.flatten() {
+                candidates.push((path, JavaSource::MojangLauncher));
             }
         }
     }
