@@ -30,7 +30,8 @@ jobs:
 
   macos:
     name: macOS SwiftUI
-    runs-on: macos-14
+    # macOS 14 arm64 was retired from GitHub Actions on 2026-11-02.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
