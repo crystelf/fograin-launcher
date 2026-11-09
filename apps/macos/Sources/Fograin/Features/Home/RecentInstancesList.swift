@@ -25,9 +25,14 @@ struct RecentInstancesSection: View {
 
     private var shownInstances: [Instance] {
         switch filter {
-        case .recent: SampleData.recentInstances
-        case .favorites: SampleData.favoriteInstances
-        case .all: model.instances
+        case .recent:
+            model.instances
+                .sorted { ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast) }
+                .prefix(6).map { $0 }
+        case .favorites:
+            model.instances.filter(\.isFavorite)
+        case .all:
+            model.instances
         }
     }
 
@@ -59,7 +64,7 @@ struct RecentInstancesSection: View {
                     ForEach(shownInstances) { instance in
                         HomeInstanceRow(
                             instance: instance,
-                            isActive: instance.id == model.currentInstance.id
+                            isActive: model.currentInstance?.id == instance.id
                         )
                     }
                 }
@@ -74,7 +79,7 @@ struct RecentInstancesSection: View {
                     ForEach(shownInstances) { instance in
                         HomeInstanceCard(
                             instance: instance,
-                            isActive: instance.id == model.currentInstance.id
+                            isActive: model.currentInstance?.id == instance.id
                         )
                     }
                 }

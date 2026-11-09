@@ -3,8 +3,13 @@ import SwiftUI
 
 struct PlaceholderPage: View {
     let section: AppSection
+    @EnvironmentObject private var model: AppModel
 
     var body: some View {
+        milestoneBody
+    }
+
+    private var milestoneBody: some View {
         ScrollView {
             VStack(spacing: FGSpacing.page) {
                 ZStack {

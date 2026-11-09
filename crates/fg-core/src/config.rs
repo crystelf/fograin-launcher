@@ -60,6 +60,7 @@ impl ResolvedTheme {
 pub struct LauncherConfig {
     pub schema_version: u32,
     pub appearance: AppearanceConfig,
+    pub game: GameConfig,
     pub download: DownloadConfig,
     pub network: NetworkConfig,
 }
@@ -76,6 +77,7 @@ impl LauncherConfig {
         Self {
             schema_version: SCHEMA_VERSION,
             appearance: AppearanceConfig::default(),
+            game: GameConfig::default(),
             download: DownloadConfig::default(),
             network: NetworkConfig::default(),
         }
@@ -88,6 +90,7 @@ impl LauncherConfig {
             self.schema_version = SCHEMA_VERSION;
         }
         self.download = self.download.clamped();
+        self.game.normalize();
         self
     }
 }
@@ -96,6 +99,67 @@ impl LauncherConfig {
 #[serde(default)]
 pub struct AppearanceConfig {
     pub theme: ThemePreference,
+}
+
+/// `[game]` — defaults inherited by every instance (§5.2, §8.3).
+///
+/// An instance only stores fields that differ from these values; the UI shows
+/// "inherit" for the rest. `memory_mb = 0` means "automatic" and is resolved
+/// from physical memory and the instance's mod count.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GameConfig {
+    /// Offline player name used until account management lands in M7.
+    pub username: String,
+    /// Default heap in MiB; `0` selects the automatic policy.
+    pub memory_mb: u32,
+    /// Preferred Java home; empty means automatic discovery and matching.
+    pub java: Option<PathBuf>,
+    /// Extra JVM arguments appended to every instance that does not override
+    /// them.
+    pub jvm_args: String,
+    /// Default window size; `None` lets the game choose.
+    pub resolution: Option<[u32; 2]>,
+    pub fullscreen: bool,
+    /// Show the game log window when a session starts.
+    pub show_log: bool,
+    /// Complete missing game files before launching.
+    pub auto_complete_resources: bool,
+}
+
+impl Default for GameConfig {
+    fn default() -> Self {
+        Self {
+            username: "Steve".to_string(),
+            memory_mb: 0,
+            java: None,
+            jvm_args: String::new(),
+            resolution: None,
+            fullscreen: false,
+            show_log: false,
+            auto_complete_resources: true,
+        }
+    }
+}
+
+impl GameConfig {
+    /// Clamps user input to values the launch path can honour.
+    pub fn normalize(&mut self) {
+        self.username = self.username.trim().to_string();
+        if self.username.is_empty() {
+            self.username = "Steve".to_string();
+        }
+        if self.memory_mb != 0 {
+            self.memory_mb = self.memory_mb.clamp(512, 65_536);
+        }
+        if let Some([width, height]) = self.resolution {
+            self.resolution = if width == 0 || height == 0 {
+                None
+            } else {
+                Some([width.max(320), height.max(240)])
+            };
+        }
+    }
 }
 
 /// Preferred source ordering for downloads (§6.1).
@@ -261,7 +325,7 @@ pub fn write_config(root: &Path, config: &LauncherConfig) -> Result<()> {
 
     let path = config_path(root);
     let temporary = root.join("launcher.toml.tmp");
-    let contents = toml::to_string_pretty(config).map_err(|error| {
+    let contents = toml::to_string_pretty(&config.clone().normalize()).map_err(|error| {
         Error::with_detail(
             ErrorKind::Parse,
             "error.config.serialize",
@@ -340,8 +404,40 @@ mod tests {
     }
 
     #[test]
+    fn game_defaults_are_normalised_and_written_back() {
+        let root = temp_root();
+        let mut config = LauncherConfig::new();
+
+        config.game.username = "  Notch  ".to_string();
+        config.game.memory_mb = 999_999;
+        config.game.resolution = Some([0, 720]);
+        config.game.show_log = true;
+
+        write_config(&root, &config).expect("write config");
+        let loaded = read_config(&root).expect("read config");
+        assert_eq!(loaded.game.username, "Notch");
+        assert_eq!(loaded.game.memory_mb, 65_536);
+        // A zero dimension disables the fixed resolution.
+        assert_eq!(loaded.game.resolution, None);
+        assert!(loaded.game.show_log);
+        assert!(loaded.game.auto_complete_resources);
+
+        let text = fs::read_to_string(config_path(&root)).expect("read toml");
+        assert!(text.contains("username = \"Notch\""));
+        assert!(text.contains("auto_complete_resources = true"));
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
     fn download_and_network_sections_use_documented_defaults() {
         let config = LauncherConfig::new();
+
+        assert_eq!(config.game.username, "Steve");
+        assert_eq!(config.game.memory_mb, 0);
+        assert_eq!(config.game.resolution, None);
+        assert!(!config.game.fullscreen);
+        assert!(config.game.auto_complete_resources);
 
         assert_eq!(config.download.source, DownloadSource::Auto);
         assert_eq!(config.download.version_source, DownloadSource::Auto);

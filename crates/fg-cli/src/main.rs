@@ -339,6 +339,34 @@ enum InstanceCommand {
     List(InstanceListArgs),
     /// Show one instance.
     Show(InstanceShowArgs),
+    /// Create an empty instance without installing files.
+    Create(InstanceCreateArgs),
+    /// Register an external `.minecraft` directory (files stay in place).
+    Import(InstanceImportArgs),
+    /// Delete an instance directory (shared game files stay installed).
+    Delete(InstanceDeleteArgs),
+}
+
+#[derive(Debug, Args)]
+struct InstanceCreateArgs {
+    id: String,
+    /// Minecraft version the instance targets.
+    version: String,
+    /// Display name; defaults to the id.
+    #[arg(long)]
+    name: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct InstanceImportArgs {
+    directory: std::path::PathBuf,
+    #[arg(long)]
+    name: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct InstanceDeleteArgs {
+    id: String,
 }
 
 #[derive(Debug, Args)]
@@ -1157,6 +1185,12 @@ async fn command_launch(
     let (layout, _downloader, resolver) =
         build_shared(root, table, source, region, concurrency, rate_limit_kib)?;
     let mut instance = Instance::load(&layout, &args.instance)?;
+    {
+        // M4: `[override]` inherits `launcher.toml [game]` defaults when the
+        // instance does not set its own value.
+        let globals = config::read_config(root)?.game;
+        instance.overrides = fg_game::manager::overrides_for_launch(&instance, &globals);
+    }
     if !instance.loader.is_vanilla() {
         return Err(Error::with_detail(
             ErrorKind::Unsupported,
@@ -1401,6 +1435,9 @@ fn java_warning(warning: &JavaWarning) -> String {
                 "game"
             )
         }
+        JavaWarning::TooOld { found, required } => {
+            format!("Java {found} selected; version recommends Java {required}")
+        }
         JavaWarning::ArchMismatch { runtime, host } => {
             format!("runtime arch {runtime} differs from host arch {host}")
         }
@@ -1499,7 +1536,37 @@ async fn command_java(
 
 fn command_instance(root: &std::path::Path, args: InstanceArgs) -> Result<()> {
     let layout = data_layout(root);
+    let globals = config::read_config(root)?.game;
+    let manager = fg_game::manager::InstanceManager::new(layout.clone(), globals);
     match args.command {
+        InstanceCommand::Create(args) => {
+            let instance = manager.create(
+                &args.id,
+                args.name.as_deref().unwrap_or(""),
+                &args.version,
+                None,
+                None,
+            )?;
+            println!(
+                "created {} ({})",
+                instance.id,
+                layout.instance_dir(&instance.id).display()
+            );
+            println!("  install files with: fg-cli install {}", args.version);
+        }
+        InstanceCommand::Import(args) => {
+            let instance = manager.import_external(&args.directory, args.name.as_deref(), None)?;
+            println!(
+                "imported {} -> {} ({})",
+                instance.name,
+                instance.id,
+                instance.game_dir(&layout).display()
+            );
+        }
+        InstanceCommand::Delete(args) => {
+            manager.delete(&args.id, false)?;
+            println!("deleted {}", args.id);
+        }
         InstanceCommand::List(args) => {
             let mut instances = Vec::new();
             if let Ok(entries) = std::fs::read_dir(layout.instances()) {

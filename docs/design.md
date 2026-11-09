@@ -391,6 +391,7 @@ Forge / NeoForge processors 要点（对照 HMCL `ForgeNewInstallTask`）：
 ### 8.2 自动匹配规则
 
 - 首选 version json 的 `javaVersion.majorVersion`。缺失时按版本推断：≤1.16.5 → 8，1.17 → 16，1.18–1.20.4 → 17，1.20.5+ → 21，以后的新版以 json 为准。
+- 推荐版本不是硬性门槛：优先精确 major，其次最近的更高 major，再次最近的更低 major；同 major 优先 host arch。没有精确版本时返回 `TooNew` / `TooOld` warning 而不是阻止启动，先用环境中已有的 Java 尝试运行，失败后再由 M6 的 Java 安装引导补装。只有完全没有发现任何 Java 时才报 `error.java.none_installed`。
 - Forge 1.16.5 及以下需要 Java 8；部分旧 Forge 在 Java 9+ 上会失败，规则表单独标出。
 - 优先选同架构；Apple 芯片上 1.18 以下原版缺少 arm64 natives，需要为 LWJGL 2 / 3.2 替换 arm64 natives，或回退到 x86_64 Java（Rosetta）。这里给出提示，见 §12。
 - 都没有时提示一键下载：
@@ -407,7 +408,7 @@ Forge / NeoForge processors 要点（对照 HMCL `ForgeNewInstallTask`）：
 
 点击「开始游戏」后按顺序执行，每步都是任务图节点，主页卡片显示当前步骤：
 
-1. 预检：账户可用（离线账户直接通过；Yggdrasil 账户先 `validate`，失败则 `refresh`，再失败就弹登录框）；Java 存在且版本匹配；内存设置合法；游戏目录可写。
+1. 预检：账户可用（离线账户直接通过；Yggdrasil 账户先 `validate`，失败则 `refresh`，再失败就弹登录框）；Java 存在（精确版本优先，但不强制，见 §8.2）；内存设置合法；游戏目录可写。
 2. 资源补全：按 §7.1 补齐缺失文件，可在设置里关闭。
 3. 解压 natives 到 `shared/natives/<hash>/`：遵守 `extract.exclude`（排除 `META-INF/`）。1.19+ 的 LWJGL natives 不用解压，由 `-Djava.library.path` 加 `-Dorg.lwjgl.librarypath` 指向。
 4. 构建 classpath：解析后的 libraries（去重时同一 `group:artifact` 取最后出现的版本，加载器库优先）+ 主 jar。分隔符 Windows 为 `;`，其它系统为 `:`。
@@ -673,6 +674,8 @@ Rust 侧的差异点：
 4. 资源补全与启动前校验。
 5. 下载页「下载队列」面板与侧栏角标、Dock / 任务栏进度。
 6. 外部 `.minecraft` 目录导入。
+
+> 已实现（2026-11-08，交付检查 2026-11-09）：核心的实例 CRUD、设置继承、外部 `.minecraft` 导入与 `fg-ffi` 异步 RPC/事件队列；macOS 采用 HMCL/PCL 式下载流程（添加实例 → 下载页 → 安装对话框选择加载器/版本/实例名 → 下载完成后进入游戏设置），并使用 macOS 26/27 的 Liquid Glass 胶囊控件。Java 选择不强制精确版本，优先使用环境中已发现、可运行的运行时；加载器安装器、Java 自动下载分别留待 M5/M6；Windows/Linux/Android 复用同一 FFI 契约接线。
 
 验收：完全通过 UI 完成「新建 → 安装 → 启动 → 退出 → 游玩时长更新」。
 

@@ -81,11 +81,12 @@ struct LoaderTile: View {
 /// Status capsule on the hero artwork.
 struct HeroStatusPill: View {
     let text: String
+    var tint: Color = FG.success
 
     var body: some View {
         HStack(spacing: FGSpacing.sm) {
             Circle()
-                .fill(FG.success)
+                .fill(tint)
                 .frame(width: 6, height: 6)
             Text(text)
                 .font(.system(size: 11.5, weight: .medium))

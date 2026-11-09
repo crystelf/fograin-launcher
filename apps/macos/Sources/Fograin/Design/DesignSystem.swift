@@ -256,6 +256,20 @@ enum AppAssets {
 }
 
 
+// MARK: - Liquid Glass edge effects
+
+extension View {
+    /// macOS 26/27 scroll edge treatment. Older systems keep the plain edge.
+    @ViewBuilder
+    func fgScrollEdgeEffect() -> some View {
+        if #available(macOS 26.0, *) {
+            self.scrollEdgeEffectStyle(.soft, for: .top)
+        } else {
+            self
+        }
+    }
+}
+
 // MARK: - Native capsules
 
 extension View {

@@ -51,8 +51,8 @@ struct LibraryListView: View {
             Button("清除搜索") {
                 model.libraryQuery = ""
             }
-            Button("新建实例") {
-                model.newInstance()
+            Button("添加实例") {
+                model.openAddInstance()
             }
         }
         .frame(maxWidth: .infinity)

@@ -621,3 +621,81 @@ async fn abandoned_partial_files_are_not_left_behind() {
     names.sort();
     assert_eq!(names, vec!["cache", "file.bin"]);
 }
+
+#[tokio::test]
+async fn segmented_download_creates_nested_parent_directories() {
+    let server = MockServer::start().await;
+    let payload: Vec<u8> = (0_u8..64).collect();
+
+    Mock::given(method("GET"))
+        .respond_with(RangeResponder {
+            body: payload.clone(),
+        })
+        .mount(&server)
+        .await;
+
+    let dir = tempfile::tempdir().expect("temp dir");
+    let dest = dir
+        .path()
+        .join("shared")
+        .join("libraries")
+        .join("it")
+        .join("unimi")
+        .join("fastutil")
+        .join("8.5.18")
+        .join("fastutil-8.5.18.jar");
+    let url = format!("{}/fastutil.jar", server.uri());
+
+    engine(dir.path())
+        .download(
+            DownloadRequest::from_url(&dest, &url)
+                .expect("url")
+                .with_size_hint(payload.len() as u64),
+        )
+        .await
+        .expect("segmented download into a new directory");
+
+    assert_eq!(tokio::fs::read(&dest).await.expect("read"), payload);
+}
+
+#[tokio::test]
+async fn rate_limited_candidate_falls_back_without_retrying_the_mirror() {
+    let limited = MockServer::start().await;
+    let healthy = MockServer::start().await;
+    // Below the segmentation threshold so this test observes exactly one
+    // candidate attempt (the 429 path, not the four parallel range requests).
+    let payload = b"ok".to_vec();
+
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(429))
+        .mount(&limited)
+        .await;
+    Mock::given(method("GET"))
+        .respond_with(RangeResponder {
+            body: payload.clone(),
+        })
+        .mount(&healthy)
+        .await;
+
+    let dir = tempfile::tempdir().expect("temp dir");
+    let dest = dir.path().join("nested").join("file.bin");
+    let candidates = vec![
+        Candidate::parse(&format!("{}/file.bin", limited.uri())).expect("mirror url"),
+        Candidate::parse(&format!("{}/file.bin", healthy.uri())).expect("official url"),
+    ];
+
+    let outcome = engine(dir.path())
+        .download(DownloadRequest::new(&dest, candidates).with_size_hint(payload.len() as u64))
+        .await
+        .expect("fallback download");
+
+    assert_eq!(tokio::fs::read(&dest).await.expect("read"), payload);
+    assert_eq!(outcome.bytes, payload.len() as u64);
+
+    let limited_requests = limited.received_requests().await.expect("requests");
+    assert_eq!(
+        limited_requests.len(),
+        1,
+        "a 429 mirror must not be retried before the next candidate"
+    );
+}

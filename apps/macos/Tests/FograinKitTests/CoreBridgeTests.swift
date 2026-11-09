@@ -75,6 +75,29 @@ final class CoreBridgeTests: XCTestCase {
         XCTAssertEqual(result.error?.messageKey, "error.theme.invalid")
     }
 
+    func testCoreErrorPayloadUsesFriendlyChineseMessages() {
+        let payload = CoreErrorPayload(
+            kind: "notFound",
+            messageKey: "error.launch.not_installed",
+            detail: "1.21.4 is not installed"
+        )
+        XCTAssertEqual(payload.userMessage, "游戏资源尚未安装完成，请先在下载页补全资源。")
+
+        let unknown = CoreErrorPayload(
+            kind: "internal",
+            messageKey: "error.something.else",
+            detail: "technical detail"
+        )
+        XCTAssertEqual(unknown.userMessage, "technical detail")
+    }
+
+    func testAsyncRPCReturnsTheAppSnapshot() async throws {
+        let payload = try await CoreBridge.rpcAsync("app.snapshot")
+        XCTAssertEqual(payload["ok"] as? Bool, true)
+        XCTAssertNotNil(payload["platform"] as? String)
+        XCTAssertNotNil(payload["diskFreeBytes"] as? NSNumber)
+    }
+
     func testThemePreferenceWireValues() {
         XCTAssertEqual(ThemePreference.system.rawValue, "system")
         XCTAssertEqual(ThemePreference.light.rawValue, "light")

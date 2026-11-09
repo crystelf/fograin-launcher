@@ -21,13 +21,9 @@ struct HeroCard: View {
             )
 
             VStack(alignment: .leading, spacing: 0) {
-                HeroStatusPill(text: "已就绪 · 资源校验完成")
-                    .padding(.top, 22)
-
-                Spacer(minLength: FGSpacing.section)
-
-                launchBar
-                    .frame(height: 100)
+                Spacer(minLength: 0)
+                heroInfo
+                    .padding(.bottom, 22)
             }
             .padding(.horizontal, FGSpacing.page)
         }
@@ -39,56 +35,40 @@ struct HeroCard: View {
         )
     }
 
-    private var launchBar: some View {
+    private var heroInfo: some View {
         HStack(alignment: .center, spacing: FGSpacing.section) {
             InstanceTile(instance: instance, size: 56)
+            instanceText(compact: false)
+            Spacer(minLength: 0)
+        }
+    }
 
-            VStack(alignment: .leading, spacing: FGSpacing.sm) {
-                Text(instance.name)
-                    .font(FGFont.title)
-                    .foregroundStyle(FGImage.primary)
-                    .lineLimit(1)
+    private func instanceText(compact: Bool) -> some View {
+        VStack(alignment: .leading, spacing: compact ? FGSpacing.xs : FGSpacing.sm) {
+            Text(instance.name)
+                .font(compact ? FGFont.headingBold : FGFont.title)
+                .foregroundStyle(FGImage.primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
 
-                HStack(spacing: FGSpacing.xl) {
-                    HeroMetaLabel(
-                        symbol: "gamepad",
-                        text: "Java 版 \(instance.minecraftVersion)"
-                    )
-                    HeroMetaLabel(
-                        symbol: "square.stack.3d.up.fill",
-                        text: instance.loaderVersion.isEmpty
-                            ? instance.loader.title
-                            : "\(instance.loader.title) \(instance.loaderVersion)"
-                    )
-                    if let mods = instance.modCount {
-                        HeroMetaLabel(symbol: "puzzlepiece.fill", text: "\(mods) 个模组")
-                    }
+            HStack(spacing: compact ? FGSpacing.md : FGSpacing.xl) {
+                HeroMetaLabel(
+                    symbol: "gamepad",
+                    text: "Java 版 \(instance.minecraftVersion)"
+                )
+                HeroMetaLabel(
+                    symbol: "square.stack.3d.up.fill",
+                    text: instance.loaderVersion.isEmpty
+                        ? instance.loader.title
+                        : "\(instance.loader.title) \(instance.loaderVersion)"
+                )
+                if !compact, let mods = instance.modCount {
+                    HeroMetaLabel(symbol: "puzzlepiece.fill", text: "\(mods) 个模组")
                 }
             }
-
-            Spacer(minLength: FGSpacing.xl)
-
-            Button {
-                model.manageInstance(instance)
-            } label: {
-                Image(systemName: "slider.horizontal.3")
-            }
-            .controlSize(.large)
-            .fgCapsuleButton(circular: true)
-            .help("实例设置将在 M4 接入")
-            .accessibilityLabel("实例设置")
-
-            Button {
-                model.startGame(instance)
-            } label: {
-                Label("开始游戏", systemImage: "play.fill")
-            }
-            .controlSize(.large)
-            .fgCapsuleButton(prominent: true)
-            .tint(FG.accent)
-            .keyboardShortcut(.defaultAction)
-            .help("开始游戏 (↩)")
+            .lineLimit(1)
         }
+        .layoutPriority(1)
     }
 }
 

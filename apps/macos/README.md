@@ -8,6 +8,41 @@ toolbar, search field, segmented controls and menus are the system's controls:
 `NSToolbar`, `NSSearchField`, `NSSegmentedControl`, `NSMenu`, `NSButton`. Do not
 draw custom buttons or glass capsules to imitate the pen.
 
+## Status (M4)
+
+- Instances come from the Rust core through `fg-ffi` JSON RPC (`instances.list`,
+  `instances.summary`, `app.snapshot`). The M1 fixtures only remain for
+  AI/newsfash not yet fed by the core.
+- HMCL/PCL-style download flow (⌘N / 添加实例): the 下载 page opens on 游戏,
+  shows the version list and a source/size/Java summary, then 下载 opens an
+  install dialog. The dialog is the only place for loader, loader version and
+  instance name; Forge / NeoForge / OptiFine / Fabric / Fabric API / Quilt /
+  SQL API are reserved slots (M5), and only 原版 is installable now.
+  `install.start` queues the graph; when it finishes the launcher opens that
+  instance's 游戏设置. Memory, JVM arguments, resolution and fullscreen live
+  there, never in the download page.
+- Titlebar filters: the 游戏 tab has a native Liquid Glass menu for 正式版 /
+  快照 / 愚人节 / 远古版本; 模组 and 整合包 show Forge / NeoForge / Fabric /
+  Quilt / OptiFine in the same slot. The channel drives `versions.list`; the
+  loader filter is wired for M8/M9 content search.
+- Download queue: the home column plus the `下载` page consume
+  `task.progress` / `task.finished` events and update Dock badge progress.
+- Page data loads after first paint: `versions.list`, `version.plan`,
+  `instances.list`, `app.snapshot` and `gameConfig.get` run off the main actor
+  (a dedicated serial queue around the blocking C ABI), with a loading state
+  instead of a frozen window.
+- Failure handling: core errors surface as a modal alert with the translated
+  `messageKey` and the technical detail; install failures also leave the
+  instance marked 未安装 (shared installs require the `fograin-install.json`
+  finalize marker), so it cannot masquerade as playable.
+- Instance settings sheet: writes `instance.toml [override]` via
+  `instances.settings.set`; a blank value inherits `launcher.toml [game]`.
+- Launch: 开始游戏 calls `launch.start`; Java selection prefers the exact major
+  but falls back to any discovered newer/older runtime instead of blocking;
+  `game.started` / `game.line` / `game.exited` events surface in the notice
+  capsule and record play seconds. Stopping from the titlebar reports
+  「游戏已停止」 when the process exits.
+
 ## Status (M1)
 
 - `NavigationSplitView` shell with native traffic lights and titlebar.
@@ -90,6 +125,17 @@ Sources/Fograin/            # AppKit/SwiftUI shell
   Platform/                 # window setup, native search field, snapshot helper
 Tests/FograinKitTests/      # FFI contract, models, sorting/filtering, formatting
 ```
+
+## Liquid Glass
+
+The 下载 category switcher is a **native segmented `Picker`** in the titlebar
+(`ToolbarItemGroup(placement: .principal)`). macOS 26/27 supplies its Liquid
+Glass material, native click/drag tracking and accessibility; do not rebuild it
+with `glassEffect` inside a `ScrollView` (that triggers text-rendering
+corruption on macOS 26). Scroll views use `scrollEdgeEffectStyle(.soft, for:
+.top)` where available. Do not hand-draw glass with materials; use the system
+controls/APIs so the real material, highlight and interaction behaviour come
+from the OS.
 
 ## Visual checks
 

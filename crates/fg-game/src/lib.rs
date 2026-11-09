@@ -9,6 +9,7 @@ pub mod install;
 pub mod instance;
 pub mod launch;
 pub mod layout;
+pub mod manager;
 pub mod resolver;
 pub mod rules;
 pub mod version;

@@ -66,7 +66,7 @@ struct SidebarView: View {
     private func badgeCount(for section: AppSection) -> Int? {
         switch section {
         case .library: model.instances.count
-        case .downloads: model.downloads.count
+        case .downloads: model.activeDownloadCount
         default: nil
         }
     }

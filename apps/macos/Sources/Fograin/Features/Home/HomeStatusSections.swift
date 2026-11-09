@@ -20,17 +20,17 @@ struct HomeStatusColumn: View {
                 Image(systemName: "arrow.down.circle")
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(FG.accent)
-                Text("下载队列")
+                Text("任务队列")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(FG.textPrimary)
                 Spacer(minLength: FGSpacing.md)
-                Text("18.4 MB/s")
+                Text(model.downloadsSpeedText)
                     .font(.system(size: 11.5))
                     .foregroundStyle(FG.textSecondary)
                     .monospacedDigit()
             }
 
-            ForEach(model.downloads) { task in
+            ForEach(model.activeDownloads) { task in
                 VStack(alignment: .leading, spacing: FGSpacing.xl) {
                     HStack(spacing: FGSpacing.md) {
                         Text(task.title)
@@ -38,12 +38,12 @@ struct HomeStatusColumn: View {
                             .foregroundStyle(FG.textPrimary)
                             .lineLimit(1)
                         Spacer(minLength: FGSpacing.md)
-                        Text(task.detail)
+                        Text(task.state)
                             .font(.system(size: 11))
                             .foregroundStyle(FG.textTertiary)
                             .monospacedDigit()
                     }
-                    ThinProgressBar(progress: task.progress)
+                    ThinProgressBar(progress: task.fraction)
                         .accessibilityLabel(task.title)
                 }
             }
@@ -58,12 +58,12 @@ struct HomeStatusColumn: View {
 
             KeyValueRow(
                 label: "Java",
-                value: "Temurin 21.0.5 · \(model.systemInfo.architecture)",
-                checkmark: true
+                value: model.javaSummary,
+                checkmark: (model.appSnapshot?.javaCount ?? 0) > 0
             )
             KeyValueRow(
                 label: "内存分配",
-                value: "6 GB / \(model.systemInfo.memoryText)",
+                value: model.memorySummary,
                 checkmark: true
             )
             KeyValueRow(

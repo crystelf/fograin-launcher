@@ -525,6 +525,24 @@ impl Downloader {
             return Err(cancelled());
         }
 
+        // Segmented downloads create `.part.N` files directly instead of going
+        // through `write_resume`, which is what creates parent directories for
+        // single-stream downloads. Create the destination directory up front so
+        // a segmented first file in a new Maven group cannot fail with ENOENT.
+        if let Some(parent) = request
+            .dest
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            tokio::fs::create_dir_all(parent).await.map_err(|error| {
+                Error::with_detail(
+                    ErrorKind::Io,
+                    "error.io.create_dir",
+                    format!("{}: {error}", parent.display()),
+                )
+            })?;
+        }
+
         if let Some(outcome) = self.already_complete(&request).await? {
             return Ok(outcome);
         }
@@ -773,6 +791,15 @@ impl Downloader {
             match result {
                 Ok(outcome) => return Ok(outcome),
                 Err(AttemptError::Cancelled) => return Err(AttemptError::Cancelled),
+                Err(error @ AttemptError::Status { status, .. })
+                    if status == StatusCode::TOO_MANY_REQUESTS =>
+                {
+                    // Mirror rate limits should switch candidates rather than
+                    // hammer the same host through every retry. The next
+                    // candidate (usually the official source) gets its turn.
+                    last = error;
+                    break;
+                }
                 Err(AttemptError::RangeUnsupported) if segmented => {
                     // The server ignored `Range`; fall back without spending a retry.
                     match self.stream_attempt(candidate, request, ctx).await {

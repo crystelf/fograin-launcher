@@ -32,7 +32,15 @@ struct LibraryView: View {
             .background(FG.surface.opacity(0.30))
         }
         .background(FG.background)
+        .overlay {
+            if model.isInitialLoading {
+                ZStack {
+                    FG.background
+                    ProgressView("正在读取实例…")
+                        .controlSize(.small)
+                }
+            }
+        }
         .navigationSubtitle(model.librarySubtitle)
-
     }
 }

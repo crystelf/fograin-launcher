@@ -32,27 +32,6 @@ final class ToolbarGroupInstaller: NSObject, NSToolbarDelegate {
         sync()
     }
 
-    private func makeGroup() -> NSToolbarItemGroup {
-        let images = [
-            NSImage(systemSymbolName: "plus", accessibilityDescription: "新建实例"),
-            NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: "导入整合包"),
-            NSImage(systemSymbolName: "folder", accessibilityDescription: "打开数据目录"),
-        ].compactMap { $0 }
-
-        let group = NSToolbarItemGroup(
-            itemIdentifier: Self.groupIdentifier,
-            images: images,
-            selectionMode: .momentary,
-            labels: ["新建实例", "导入整合包", "打开数据目录"],
-            target: actionsTarget,
-            action: #selector(InstanceActionsTarget.perform(_:))
-        )
-        group.label = "实例操作"
-        group.paletteLabel = "实例操作"
-        group.controlRepresentation = .expanded
-        return group
-    }
-
     private func sync() {
         guard let toolbar else { return }
 
@@ -139,6 +118,27 @@ final class ToolbarGroupInstaller: NSObject, NSToolbarDelegate {
 
     func toolbarDidRemoveItem(_ notification: Notification) {
         originalDelegate?.toolbarDidRemoveItem?(notification)
+    }
+
+    private func makeGroup() -> NSToolbarItemGroup {
+        let images = [
+            NSImage(systemSymbolName: "plus", accessibilityDescription: "新建实例"),
+            NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: "导入整合包"),
+            NSImage(systemSymbolName: "folder", accessibilityDescription: "打开数据目录"),
+        ].compactMap { $0 }
+
+        let group = NSToolbarItemGroup(
+            itemIdentifier: Self.groupIdentifier,
+            images: images,
+            selectionMode: .momentary,
+            labels: ["新建实例", "导入整合包", "打开数据目录"],
+            target: actionsTarget,
+            action: #selector(InstanceActionsTarget.perform(_:))
+        )
+        group.label = "实例操作"
+        group.paletteLabel = "实例操作"
+        group.controlRepresentation = .expanded
+        return group
     }
 }
 

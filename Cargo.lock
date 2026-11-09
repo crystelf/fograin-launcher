@@ -454,9 +454,19 @@ version = "0.1.0"
 name = "fg-ffi"
 version = "0.1.0"
 dependencies = [
+ "fg-auth",
  "fg-core",
+ "fg-game",
+ "fg-java",
+ "fg-net",
+ "fg-task",
+ "libc",
  "serde",
  "serde_json",
+ "tempfile",
+ "tokio",
+ "toml",
+ "tracing",
 ]
 
 [[package]]

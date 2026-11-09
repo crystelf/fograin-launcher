@@ -3,10 +3,12 @@
 //! The surface stays deliberately small while the native shells are built out:
 //!
 //! - [`fg_abi_version`] identifies the C ABI.
-//! - [`fg_settings_snapshot`] hands the UI the settings it needs before the
-//!   first frame (theme preference, data root, config path).
-//! - [`fg_settings_set_theme`] is the first write path, so the shells can prove
-//!   that Rust owns `launcher.toml` instead of duplicating config I/O.
+//! - [`fg_settings_snapshot`] / [`fg_settings_set_theme`] read and persist
+//!   `launcher.toml` through the core's config layer.
+//! - [`fg_service_current`] lazily builds the launcher service for the
+//!   resolved data root.
+//! - [`fg_rpc_call`] dispatches one JSON command against that service.
+//! - [`fg_events_next`] pops progress/game events the clients subscribed to.
 //! - [`fg_string_free`] releases every string returned by this library.
 //!
 //! Everything crosses the boundary as JSON. The contract is documented in
@@ -18,13 +20,32 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     path::Path,
     ptr,
+    sync::OnceLock,
 };
 
 use fg_core::{Error, ErrorKind, LauncherConfig, Platform, Result, ThemePreference, config, paths};
 use serde::Serialize;
 
+mod events;
+mod service;
+pub use events::EventQueue;
+pub use service::{InstanceRow, Service, SettingUpdate, TaskRow};
+
 /// Version of the C ABI. Bump for breaking layout/function changes.
 pub const ABI_VERSION: u32 = 1;
+
+static SERVICE: OnceLock<ResultService> = OnceLock::new();
+type ResultService = Result<std::sync::Arc<Service>>;
+
+/// Returns (building on first use) the process-wide service.
+///
+/// # Errors
+///
+/// Propagates [`Service::new`].
+pub fn service_current() -> Result<std::sync::Arc<Service>> {
+    let cached = SERVICE.get_or_init(|| Service::new(paths::data_root()));
+    cached.clone()
+}
 
 /// Settings the native shells read before creating their first window (§4.1.1).
 #[derive(Debug, Serialize)]
@@ -129,6 +150,13 @@ fn to_c_string<T: Serialize>(value: &T) -> *mut c_char {
         .map_or(ptr::null_mut(), CString::into_raw)
 }
 
+fn error_payload(error: &Error) -> serde_json::Value {
+    serde_json::json!({
+        "ok": false,
+        "error": error,
+    })
+}
+
 /// Returns the C ABI version. Used by each native client at startup.
 #[unsafe(no_mangle)]
 pub extern "C" fn fg_abi_version() -> u32 {
@@ -193,6 +221,62 @@ pub unsafe extern "C" fn fg_settings_set_theme(theme: *const c_char) -> *mut c_c
     result.unwrap_or(ptr::null_mut())
 }
 
+/// Returns `{ ok: true, service: true }` once the service exists, or an error
+/// payload when building it failed.
+#[unsafe(no_mangle)]
+pub extern "C" fn fg_service_current() -> *mut c_char {
+    let value = match service_current() {
+        Ok(_) => serde_json::json!({ "ok": true, "service": true }),
+        Err(error) => error_payload(&error),
+    };
+    to_c_string(&value)
+}
+
+/// Executes one JSON RPC command: `{"method": "...", "params": {...}}`.
+///
+/// The response is `{"ok": true, ...}` on success or
+/// `{"ok": false, "error": { kind, messageKey, detail }}` on failure.
+/// Requests may combine several commands for one UI action with `rpc.batch`.
+///
+/// # Safety
+///
+/// `request` must be null or a valid, NUL-terminated C string that stays valid
+/// for the duration of the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fg_rpc_call(request: *const c_char) -> *mut c_char {
+    let request = read_optional_string(request);
+    let result = catch_unwind(AssertUnwindSafe(|| run_rpc(request.as_deref())));
+    result.unwrap_or_else(|_| {
+        to_c_string(&error_payload(&Error::new(
+            ErrorKind::Internal,
+            "error.rpc.panic",
+        )))
+    })
+}
+
+/// Pops and returns up to 64 queued events as a JSON array (`[]` when empty).
+///
+/// Callers poll this after UI render ticks; it never blocks.
+#[unsafe(no_mangle)]
+pub extern "C" fn fg_events_next() -> *mut c_char {
+    let value = catch_unwind(AssertUnwindSafe(|| -> serde_json::Value {
+        match service_current() {
+            Ok(service) => {
+                let queue = service.events();
+                let events: Vec<serde_json::Value> = queue
+                    .next_with_limit(64)
+                    .into_iter()
+                    .filter_map(|line| serde_json::from_str(&line).ok())
+                    .collect();
+                serde_json::Value::Array(events)
+            }
+            Err(error) => error_payload(&error),
+        }
+    }))
+    .unwrap_or_else(|_| error_payload(&Error::new(ErrorKind::Internal, "error.events.panic")));
+    to_c_string(&value)
+}
+
 /// Releases a string returned by another `fg_*` function.
 ///
 /// Passing `NULL` is a no-op.
@@ -209,6 +293,80 @@ pub unsafe extern "C" fn fg_string_free(value: *mut c_char) {
 
     // SAFETY: the pointer came from `CString::into_raw` in this library.
     drop(unsafe { CString::from_raw(value) });
+}
+
+fn read_optional_string(pointer: *const c_char) -> Option<String> {
+    if pointer.is_null() {
+        return None;
+    }
+    // SAFETY: the pointer, when non-null, is a valid NUL-terminated C string
+    // owned by the caller.
+    unsafe { CStr::from_ptr(pointer) }
+        .to_str()
+        .ok()
+        .map(str::to_owned)
+}
+
+fn run_rpc(request: Option<&str>) -> *mut c_char {
+    let Some(request) = request else {
+        return to_c_string(&error_payload(&Error::new(
+            ErrorKind::InvalidInput,
+            "error.rpc.missing",
+        )));
+    };
+    let parsed: serde_json::Value = match serde_json::from_str(request) {
+        Ok(value) => value,
+        Err(error) => {
+            return to_c_string(&error_payload(&Error::with_detail(
+                ErrorKind::InvalidInput,
+                "error.rpc.parse",
+                error.to_string(),
+            )));
+        }
+    };
+
+    let method = parsed
+        .get("method")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let params = parsed
+        .get("params")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    if method.is_empty() {
+        // Validate before touching the service so parsing errors never depend
+        // on the data root.
+        return to_c_string(&error_payload(&Error::new(
+            ErrorKind::InvalidInput,
+            "error.rpc.missing_method",
+        )));
+    }
+
+    let response = service_current().map_or_else(Err, |service| {
+        service.block_on(async { service.rpc(&method, params).await })
+    });
+
+    to_c_string(&rpc_envelope(response))
+}
+
+/// Wraps one RPC outcome into the documented `{ ok, ... | error }` envelope.
+fn rpc_envelope(response: fg_core::Result<serde_json::Value>) -> serde_json::Value {
+    match response {
+        Ok(value) => {
+            let mut merged = serde_json::Map::new();
+            merged.insert("ok".into(), serde_json::Value::Bool(true));
+            if let serde_json::Value::Object(fields) = value {
+                for (key, item) in fields {
+                    merged.insert(key, item);
+                }
+            } else if !value.is_null() {
+                merged.insert("result".into(), value);
+            }
+            serde_json::Value::Object(merged)
+        }
+        Err(error) => error_payload(&error),
+    }
 }
 
 #[cfg(test)]
@@ -365,5 +523,26 @@ mod tests {
         assert!(!snapshot.is_null());
         // SAFETY: the pointer is a NUL-terminated string from this library.
         unsafe { fg_string_free(snapshot) };
+    }
+
+    #[test]
+    fn rpc_rejects_malformed_json() {
+        let request = CString::new("not json").expect("CString");
+        // SAFETY: `request` is a valid NUL-terminated C string.
+        let reply = read_json(unsafe { fg_rpc_call(request.as_ptr()) });
+        assert_eq!(reply["ok"], json!(false));
+        assert_eq!(reply["error"]["messageKey"], json!("error.rpc.parse"));
+    }
+
+    #[test]
+    fn rpc_reports_a_missing_method_name() {
+        let request = CString::new("{}").expect("CString");
+        // SAFETY: `request` is a valid NUL-terminated C string.
+        let reply = read_json(unsafe { fg_rpc_call(request.as_ptr()) });
+        assert_eq!(reply["ok"], json!(false));
+        assert_eq!(
+            reply["error"]["messageKey"],
+            json!("error.rpc.missing_method")
+        );
     }
 }

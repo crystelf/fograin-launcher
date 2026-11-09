@@ -75,7 +75,7 @@ struct InstancePreviewPane: View {
             FGSeparator()
 
             VStack(alignment: .leading, spacing: FGSpacing.ml) {
-                ForEach(SampleData.details(for: instance)) { item in
+                ForEach(computedDetails(model, instance)) { item in
                     DetailRow(item: item)
                 }
             }
@@ -85,6 +85,23 @@ struct InstancePreviewPane: View {
                 updateNotice(for: instance)
             }
         }
+    }
+
+    /// Detail rows computed from the core data instead of M1 fixtures.
+    private func computedDetails(_ model: AppModel, _ instance: Instance) -> [DetailItem] {
+        let memory = model.gameConfig.memoryMb
+        let memoryText = memory == 0 ? "自动" : InstanceFormat.byteSize(Int64(memory) * 1_048_576)
+        var rows = [
+            DetailItem(label: "模组", value: instance.modCount.map { "\($0)" } ?? "未安装"),
+            DetailItem(label: "Java", value: "自动发现"),
+            DetailItem(label: "内存", value: memoryText),
+            DetailItem(label: "占用空间", value: InstanceFormat.byteSize(instance.sizeBytes)),
+            DetailItem(label: "游玩时长", value: instance.playTimeText),
+        ]
+        if let last = instance.lastPlayed {
+            rows.append(DetailItem(label: "上次游玩", value: InstanceFormat.relativeDate(last)))
+        }
+        return rows
     }
 
     private func iconButton(

@@ -48,7 +48,7 @@ M3 把 `fg-game`、`fg-java`、`fg-auth` 从占位 crate 变成可用的原版�
 - 优先读 `release` 文件的 `JAVA_VERSION` / `OS_ARCH` / `IMPLEMENTOR`，不启动 JVM。没有 `release` 时才跑 `java -XshowSettings:properties -version`，5s 超时且 `kill_on_drop`。
 - 架构来自 PE / Mach-O / ELF 头，避免 Apple 芯片把 Rosetta 版 Java 误当 arm64。
 - `required_major` 优先用 `javaVersion.majorVersion`；缺失时按 §8.2 规则推断（≤1.16.5→8、1.17→16、1.18–1.20.4→17、1.20.5+→21），快照按年份粗分。
-- 选择规则：精确 major 优先，其次最小的更高 major，最后报错；同 major 优先 host arch。选不到精确版本时返回 `TooNew` warning 而不是失败，方便用户在 M6 自动装 Java 之前先看到提示。
+- 选择规则：精确 major 优先，其次最近的更高 major，再次最近的更低 major；同 major 优先 host arch。精确版本不是硬性门槛——先用环境中可用的 Java 尝试启动，返回 `TooNew` / `TooOld` warning 而不是失败；只有完全没有 Java 时才报 `error.java.none_installed`。M6 的自动安装作为失败后的引导，而不是启动的前置条件。
 - M3 不做 Java 下载；`<root>/runtimes` 已经被扫描，M6 可以直接往那里放。
 
 ### 启动命令

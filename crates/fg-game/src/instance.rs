@@ -39,6 +39,9 @@ pub struct Instance {
     /// Unknown keys are kept for M4/M5 loaders and future fields.
     #[serde(flatten)]
     pub extra: BTreeMap<String, toml::Value>,
+    /// Populated by [`crate::manager::InstanceManager::list`]; not serialized.
+    #[serde(skip)]
+    pub version_json_path: Option<std::path::PathBuf>,
 }
 
 impl Default for Instance {
@@ -53,6 +56,7 @@ impl Default for Instance {
             overrides: InstanceOverrides::default(),
             meta: InstanceMeta::default(),
             extra: BTreeMap::new(),
+            version_json_path: None,
         }
     }
 }
@@ -290,6 +294,17 @@ impl Instance {
     #[must_use]
     pub fn java(&self) -> Option<&Path> {
         self.overrides.java.as_deref()
+    }
+
+    /// Resolves the effective memory from `[override] memory_mb` with the
+    /// global `[game]` default when the instance inherits (§5.2).
+    #[must_use]
+    pub fn memory_mb_with(&self, global_memory_mb: u32) -> u32 {
+        if global_memory_mb > 0 && self.overrides.memory_mb.is_none() {
+            global_memory_mb.max(512)
+        } else {
+            self.memory_mb()
+        }
     }
 
     /// Updates play statistics after a session.

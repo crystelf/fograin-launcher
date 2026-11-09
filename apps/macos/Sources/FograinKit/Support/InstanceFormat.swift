@@ -30,6 +30,37 @@ public enum InstanceFormat {
         return formatter.localizedString(for: date, relativeTo: now)
     }
 
+    /// Turns a display name into a filesystem-safe instance id (empty when the
+    /// name carries no usable characters, e.g. pure CJK).
+    public static func sanitizedInstanceID(_ raw: String) -> String {
+        let allowed = CharacterSet(
+            charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."
+        )
+        let filtered = raw.unicodeScalars.filter { allowed.contains($0) }
+        // Leading/trailing dots produce hidden files or `.`/`..` path entries;
+        // internal dots are fine because version ids rely on them.
+        let id = String(String.UnicodeScalarView(filtered))
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        if id.isEmpty {
+            return ""
+        }
+        return id
+    }
+
+    /// Task graph name shown in the queue rows (`install:1.21.4` → 安装 1.21.4).
+    public static func taskTitle(_ graphName: String) -> String {
+        if graphName.hasPrefix("install:") {
+            return "安装 \(graphName.dropFirst("install:".count))"
+        }
+        return graphName
+    }
+
+    /// Speed text like `12.3 MB`; accepts a bytes-per-second double.
+    public static func byteRate(_ bytesPerSecond: Double) -> String {
+        guard bytesPerSecond > 0 else { return "—" }
+        return byteSize(Int64(max(1, bytesPerSecond.rounded())))
+    }
+
     public static func playTime(_ minutes: Int?) -> String {
         guard let minutes, minutes > 0 else {
             return "—"

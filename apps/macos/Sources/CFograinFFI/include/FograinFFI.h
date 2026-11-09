@@ -36,6 +36,23 @@ char *fg_settings_set_theme(const char *theme);
 /// Releases a string returned by this library. NULL is a no-op.
 void fg_string_free(char *value);
 
+/// Builds (once per process) the launcher service for the resolved data root.
+/// Returns `{ "ok": true }` or `{ "ok": false, "error": { ... } }`.
+char *fg_service_current(void);
+
+/// Executes one JSON RPC command:
+///
+///   request:  { "method": "...", "params": {...} }
+///   response: { "ok": true, ...method fields... }
+///             { "ok": false, "error": { "kind", "messageKey", "detail" } }
+///
+/// The caller owns the returned string and must release it with
+/// fg_string_free(). Returns NULL on allocation failure.
+char *fg_rpc_call(const char *request);
+
+/// Pops up to 64 queued progress/game events as a JSON array; blocks never.
+char *fg_events_next(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -34,6 +34,9 @@ public struct Instance: Identifiable, Hashable, Sendable {
     public let iconSymbolName: String?
     public let palette: Palette
     public let playTimeMinutes: Int?
+    /// Whether the shared version files exist. New instances created by the
+    /// download page start as `false` until the install graph finishes.
+    public let isInstalled: Bool
 
     public init(
         id: String,
@@ -48,7 +51,8 @@ public struct Instance: Identifiable, Hashable, Sendable {
         iconImageName: String? = nil,
         iconSymbolName: String? = nil,
         palette: Palette,
-        playTimeMinutes: Int? = nil
+        playTimeMinutes: Int? = nil,
+        isInstalled: Bool = true
     ) {
         self.id = id
         self.name = name
@@ -63,6 +67,7 @@ public struct Instance: Identifiable, Hashable, Sendable {
         self.iconSymbolName = iconSymbolName
         self.palette = palette
         self.playTimeMinutes = playTimeMinutes
+        self.isInstalled = isInstalled
     }
 
     public var group: LibraryGroup { loader.libraryGroup }

@@ -7,8 +7,11 @@ use crate::runtime::{JavaArch, JavaRuntime};
 /// Non-fatal problems with a selected runtime, surfaced in the launch dialog.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JavaWarning {
-    /// No runtime with the exact major version was found.
+    /// No runtime with the exact major version was found; a newer one is used.
     TooNew { found: u32, required: u32 },
+    /// No runtime with the exact or a newer major was found; the closest older
+    /// runtime is used so the user can still try to launch.
+    TooOld { found: u32, required: u32 },
     /// The runtime's architecture differs from the host.
     ArchMismatch { runtime: JavaArch, host: JavaArch },
     /// The runtime could not report its version.
@@ -21,6 +24,7 @@ impl JavaWarning {
     pub const fn message_key(&self) -> &'static str {
         match self {
             Self::TooNew { .. } => "error.java.too_new",
+            Self::TooOld { .. } => "error.java.too_old",
             Self::ArchMismatch { .. } => "error.java.arch_mismatch",
             Self::UnknownVersion => "error.java.unknown_version",
         }
@@ -97,12 +101,15 @@ fn snapshot_year(version_id: &str) -> Option<u32> {
 
 /// Selects the best runtime for `required` major.
 ///
-/// Preference order: exact major, same architecture, then discovery order.
+/// Preference order: exact major, then the closest newer major, then the
+/// closest older major. The exact version is not mandatory: any discovered
+/// runtime is preferred over blocking launch, with a warning that describes
+/// the mismatch. The caller can still surface a Java failure if the game does
+/// not start.
 ///
 /// # Errors
 ///
-/// Returns [`ErrorKind::NotFound`] when no runtime is installed at all or when
-/// no runtime is new enough for the version.
+/// Returns [`ErrorKind::NotFound`] only when no runtime is installed at all.
 pub fn select(
     runtimes: &[JavaRuntime],
     required: u32,
@@ -121,11 +128,17 @@ pub fn select(
             required,
         });
         (candidate, false)
+    } else if let Some(candidate) = best_older(runtimes, required, host_arch) {
+        warnings.push(JavaWarning::TooOld {
+            found: candidate.major().unwrap_or(0),
+            required,
+        });
+        (candidate, false)
     } else {
         return Err(Error::with_detail(
             ErrorKind::NotFound,
             "error.java.required_missing",
-            format!("need Java {required} or newer; none installed"),
+            format!("need Java {required}; none installed"),
         ));
     };
 
@@ -174,6 +187,24 @@ fn best_newer(
     candidates.sort_by_key(|runtime| {
         (
             runtime.major().unwrap_or(u32::MAX),
+            arch_rank(runtime.arch, host_arch),
+        )
+    });
+    candidates.first().copied()
+}
+
+fn best_older(
+    runtimes: &[JavaRuntime],
+    required: u32,
+    host_arch: JavaArch,
+) -> Option<&JavaRuntime> {
+    let mut candidates: Vec<&JavaRuntime> = runtimes
+        .iter()
+        .filter(|runtime| runtime.major().is_some_and(|major| major < required))
+        .collect();
+    candidates.sort_by_key(|runtime| {
+        (
+            std::cmp::Reverse(runtime.major().unwrap_or(0)),
             arch_rank(runtime.arch, host_arch),
         )
     });
@@ -282,10 +313,27 @@ mod tests {
     }
 
     #[test]
-    fn errors_when_nothing_is_new_enough() {
-        let runtimes = vec![runtime("/jdk-8", 8, JavaArch::Arm64)];
-        let error = select(&runtimes, 17, JavaArch::Arm64).expect_err("too old");
+    fn falls_back_to_the_closest_older_runtime_with_a_warning() {
+        let runtimes = vec![
+            runtime("/jdk-8", 8, JavaArch::Arm64),
+            runtime("/jdk-16", 16, JavaArch::Arm64),
+        ];
+        let selected = select(&runtimes, 17, JavaArch::Arm64).expect("older fallback");
+        assert!(!selected.exact);
+        assert_eq!(selected.runtime.major(), Some(16));
+        assert_eq!(
+            selected.warnings[0],
+            JavaWarning::TooOld {
+                found: 16,
+                required: 17
+            }
+        );
+    }
+
+    #[test]
+    fn errors_when_no_runtime_is_installed() {
+        let error = select(&[], 17, JavaArch::Arm64).expect_err("none");
         assert_eq!(error.kind, ErrorKind::NotFound);
-        assert_eq!(error.message_key, "error.java.required_missing");
+        assert_eq!(error.message_key, "error.java.none_installed");
     }
 }
