@@ -1,10 +1,8 @@
 package com.fograin.launcher.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
@@ -14,7 +12,6 @@ import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Terrain
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,7 +49,7 @@ fun LoaderKind.icon(): ImageVector = when (this) {
 /**
  * Generated artwork for an instance: a rounded tile with the loader glyph.
  *
- * The pen uses per-instance key art; the M1 shell only ships the Fograin hero
+ * The pen uses per-instance key art; the client only ships the Fograin hero
  * image, so every row gets this token-colored tile instead.
  */
 @Composable
@@ -77,15 +74,4 @@ fun InstanceTile(
             tint = Color.White.copy(alpha = 0.92f),
         )
     }
-}
-
-/** Small dot marking an instance whose content has updates. */
-@Composable
-fun UpdateDot(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .size(10.dp)
-            .background(MaterialTheme.colorScheme.primary, CircleShape)
-            .border(2.dp, MaterialTheme.colorScheme.surfaceContainerLow, CircleShape),
-    )
 }

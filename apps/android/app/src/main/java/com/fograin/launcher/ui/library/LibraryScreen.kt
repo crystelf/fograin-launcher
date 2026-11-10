@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -22,6 +21,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material.icons.outlined.Search
@@ -55,39 +55,45 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.R
-import com.fograin.launcher.model.InstanceFormat
+import com.fograin.launcher.app.AppModel
+import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.model.LibraryQuery
 import com.fograin.launcher.model.LibraryScope
 import com.fograin.launcher.model.LibrarySort
-import com.fograin.launcher.model.SampleData
-import com.fograin.launcher.ui.components.AccountAvatarButton
 import com.fograin.launcher.ui.components.EmptyState
 import com.fograin.launcher.ui.components.SectionHeader
 
 /**
- * M1 instance library: native filter chips, search field, sort menu and a
- * LazyColumn of instance cards backed by static fixtures.
+ * Instance library: search, loader filters, sort, grouped table and the
+ * inspector sheet. Mirrors the macOS library page on a single phone column.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LibraryScreen(onShowMessage: (String) -> Unit) {
+fun LibraryScreen(model: AppModel, state: AppUiState) {
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
-    var query by rememberSaveable { mutableStateOf("") }
-    var scopeName by rememberSaveable { mutableStateOf(LibraryScope.ALL.name) }
-    var sortName by rememberSaveable { mutableStateOf(LibrarySort.LAST_PLAYED.name) }
-
-    val scope = LibraryScope.entries.firstOrNull { it.name == scopeName } ?: LibraryScope.ALL
-    val sort = LibrarySort.entries.firstOrNull { it.name == sortName } ?: LibrarySort.LAST_PLAYED
-    val nowMillis = remember { System.currentTimeMillis() }
-    val visible = remember(scope, sort, query, nowMillis) {
-        LibraryQuery.select(SampleData.instances, scope, sort, query, nowMillis)
-    }
-
+    var menuExpanded by remember { mutableStateOf(false) }
+    var showDirectoryPicker by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     val searchFocusRequester = remember { FocusRequester() }
+    val nowMillis = remember { System.currentTimeMillis() }
+
+    val sections = remember(
+        state.instances,
+        state.libraryScope,
+        state.librarySort,
+        state.libraryQuery,
+    ) {
+        LibraryQuery.sections(
+            instances = state.instances,
+            scope = state.libraryScope,
+            sort = state.librarySort,
+            query = state.libraryQuery,
+        )
+    }
+
     val closeSearch: () -> Unit = {
         searchExpanded = false
-        query = ""
+        model.setLibraryQuery("")
         focusManager.clearFocus(force = true)
     }
 
@@ -96,16 +102,10 @@ fun LibraryScreen(onShowMessage: (String) -> Unit) {
         if (searchExpanded) searchFocusRequester.requestFocus()
     }
 
-    val createMessage = stringResource(R.string.stub_create_instance)
-    val launchMessage = stringResource(R.string.stub_launch)
-    val accountMessage = stringResource(R.string.stub_account)
-    val settingsMessage = stringResource(R.string.stub_instance_settings)
-    val folderMessage = stringResource(R.string.stub_open_folder)
-
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
             LargeTopAppBar(
-                title = { Text(stringResource(R.string.library_title)) },
+                title = { Text("实例库") },
                 actions = {
                     IconButton(
                         onClick = {
@@ -127,14 +127,30 @@ fun LibraryScreen(onShowMessage: (String) -> Unit) {
                             ),
                         )
                     }
-                    AccountAvatarButton(
-                        initial = SampleData.account.initial,
-                        label = stringResource(
-                            R.string.home_account,
-                            SampleData.account.name,
-                        ),
-                        onClick = { onShowMessage(accountMessage) },
-                    )
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "更多操作")
+                        }
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("导入 .minecraft 目录…") },
+                                onClick = {
+                                    menuExpanded = false
+                                    showDirectoryPicker = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("新建实例") },
+                                onClick = {
+                                    menuExpanded = false
+                                    model.openAddInstance()
+                                },
+                            )
+                        }
+                    }
                 },
                 colors = TopAppBarDefaults.largeTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
@@ -143,23 +159,18 @@ fun LibraryScreen(onShowMessage: (String) -> Unit) {
 
             if (searchExpanded) {
                 OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
+                    value = state.libraryQuery,
+                    onValueChange = model::setLibraryQuery,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                         .focusRequester(searchFocusRequester),
-                    placeholder = { Text(stringResource(R.string.library_search)) },
-                    leadingIcon = {
-                        Icon(Icons.Outlined.Search, contentDescription = null)
-                    },
+                    placeholder = { Text("搜索实例、版本或加载器") },
+                    leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
                     trailingIcon = {
-                        if (query.isNotEmpty()) {
-                            IconButton(onClick = { query = "" }) {
-                                Icon(
-                                    imageVector = Icons.Filled.Close,
-                                    contentDescription = stringResource(R.string.library_clear_search),
-                                )
+                        if (state.libraryQuery.isNotEmpty()) {
+                            IconButton(onClick = { model.setLibraryQuery("") }) {
+                                Icon(Icons.Filled.Close, contentDescription = "清除搜索")
                             }
                         }
                     },
@@ -173,89 +184,99 @@ fun LibraryScreen(onShowMessage: (String) -> Unit) {
             }
 
             LazyColumn(
-                state = rememberLazyListState(),
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    start = 16.dp,
-                    end = 16.dp,
-                    top = 4.dp,
-                    bottom = 88.dp,
-                ),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 88.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                if (visible.isNotEmpty()) {
-                    item {
-                        Text(
-                            text = stringResource(
-                                R.string.library_summary,
-                                visible.size,
-                                InstanceFormat.totalSize(visible),
-                            ),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-
                 item {
-                    LibraryFilterRow(selected = scope, onSelect = { scopeName = it.name })
+                    Text(
+                        text = state.librarySubtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
+                item {
+                    LibraryFilterRow(
+                        selected = state.libraryScope,
+                        onSelect = model::setLibraryScope,
+                    )
                 }
 
-                if (visible.isEmpty()) {
+                if (sections.isEmpty()) {
                     item {
-                        val searching = query.isNotBlank()
+                        val searching = state.libraryQuery.isNotBlank()
                         EmptyState(
                             icon = if (searching) Icons.Filled.SearchOff else Icons.Outlined.Inbox,
-                            title = stringResource(
-                                if (searching) {
-                                    R.string.library_empty_search_title
-                                } else {
-                                    R.string.library_empty_scope_title
-                                },
-                            ),
-                            body = stringResource(
-                                if (searching) {
-                                    R.string.library_empty_search_body
-                                } else {
-                                    R.string.library_empty_scope_body
-                                },
-                            ),
-                        )
-                    }
-                } else {
-                    item {
-                        SectionHeader(
-                            title = scope.title,
-                            action = {
-                                SortMenu(selected = sort, onSelect = { sortName = it.name })
+                            title = if (searching) "没有匹配的实例" else "这里还没有实例",
+                            body = if (searching) {
+                                "换个关键词，或清除筛选条件再试一次。"
+                            } else {
+                                "新建一个实例，或导入现有的 .minecraft 目录。"
                             },
                         )
                     }
-                    items(items = visible, key = { it.id }) { instance ->
-                        InstanceCard(
-                            instance = instance,
-                            onLaunch = { onShowMessage(launchMessage) },
-                            onInstanceSettings = { onShowMessage(settingsMessage) },
-                            onOpenFolder = { onShowMessage(folderMessage) },
-                        )
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            TextButton(onClick = { model.setLibraryQuery("") }) {
+                                Text("清除搜索")
+                            }
+                            TextButton(onClick = model::openAddInstance) {
+                                Text("添加实例")
+                            }
+                        }
+                    }
+                } else {
+                    sections.forEach { section ->
+                        item(key = "header-${section.group.name}") {
+                            SectionHeader(
+                                title = "${section.group.title} · ${section.instances.size}",
+                                modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                                action = {
+                                    SortMenu(
+                                        selected = state.librarySort,
+                                        onSelect = model::setLibrarySort,
+                                    )
+                                },
+                            )
+                        }
+                        items(items = section.instances, key = { it.id }) { instance ->
+                            LibraryRow(
+                                model = model,
+                                instance = instance,
+                                isSelected = state.librarySelection == instance.id,
+                                nowMillis = nowMillis,
+                            )
+                        }
                     }
                 }
             }
         }
 
         FloatingActionButton(
-            onClick = { onShowMessage(createMessage) },
+            onClick = model::openAddInstance,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(16.dp),
             containerColor = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         ) {
-            Icon(
-                imageVector = Icons.Filled.Add,
-                contentDescription = stringResource(R.string.library_create),
-            )
+            Icon(Icons.Filled.Add, contentDescription = "新建实例")
         }
+    }
+
+    if (showDirectoryPicker) {
+        DirectoryPickerDialog(
+            rootPath = state.settings.dataRoot,
+            onDismiss = { showDirectoryPicker = false },
+            onSelect = { directory ->
+                showDirectoryPicker = false
+                model.importMinecraftDirectory(directory)
+            },
+        )
     }
 }
 
@@ -274,7 +295,7 @@ private fun LibraryFilterRow(
             FilterChip(
                 selected = scope == selected,
                 onClick = { onSelect(scope) },
-                label = { Text(scope.chipTitle) },
+                label = { Text(scope.title) },
                 leadingIcon = if (scope == selected) {
                     {
                         Icon(
@@ -297,22 +318,15 @@ private fun SortMenu(
     onSelect: (LibrarySort) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
-
     Box {
         TextButton(onClick = { expanded = true }) {
-            Text(
-                text = selected.title,
-                style = MaterialTheme.typography.labelLarge,
-            )
+            Text(selected.title, style = MaterialTheme.typography.labelLarge)
             Icon(
                 imageVector = Icons.Filled.ArrowDropDown,
                 contentDescription = stringResource(R.string.library_sort),
             )
         }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-        ) {
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             LibrarySort.entries.forEach { sort ->
                 DropdownMenuItem(
                     text = { Text(sort.title) },

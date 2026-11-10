@@ -9,7 +9,12 @@
 //!   resolved data root.
 //! - [`fg_rpc_call`] dispatches one JSON command against that service.
 //! - [`fg_events_next`] pops progress/game events the clients subscribed to.
+//! - [`fg_set_data_root`] installs the process data root before the service
+//!   exists; Android calls it because apps have no usable `$HOME`.
 //! - [`fg_string_free`] releases every string returned by this library.
+//!
+//! The safe `*_json` functions below build the same payloads for the C ABI and
+//! for the Android JNI shim in `bindings/fg-ffi-jni`.
 //!
 //! Everything crosses the boundary as JSON. The contract is documented in
 //! `bindings/README.md`; UI clients own their presentation types, so no Swift,
@@ -18,7 +23,7 @@
 use std::{
     ffi::{CStr, CString, c_char},
     panic::{AssertUnwindSafe, catch_unwind},
-    path::Path,
+    path::{Path, PathBuf},
     ptr,
     sync::OnceLock,
 };
@@ -37,13 +42,57 @@ pub const ABI_VERSION: u32 = 1;
 static SERVICE: OnceLock<ResultService> = OnceLock::new();
 type ResultService = Result<std::sync::Arc<Service>>;
 
+/// Process-wide data root override.
+///
+/// Desktop shells can rely on `dirs` resolving `$HOME`, but Android apps have
+/// no usable home directory: the Kotlin client passes its app-private external
+/// files directory through [`fg_set_data_root`] before the first RPC call.
+static DATA_ROOT: OnceLock<PathBuf> = OnceLock::new();
+
+/// Resolves the launcher data root, honouring an explicit override.
+#[must_use]
+pub fn data_root() -> PathBuf {
+    DATA_ROOT.get().cloned().unwrap_or_else(paths::data_root)
+}
+
+/// Overrides the data root used by this process.
+///
+/// The override must be installed before [`service_current`] builds the
+/// service; changing the root later would leave the task queue and instance
+/// manager pointing at a different directory.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::Conflict`] when the service already exists or when a
+/// different root was installed earlier.
+pub fn set_data_root(root: &Path) -> Result<PathBuf> {
+    if SERVICE.get().is_some() {
+        return Err(Error::with_detail(
+            ErrorKind::Conflict,
+            "error.data_root.service_started",
+            root.display().to_string(),
+        ));
+    }
+
+    let root = root.to_path_buf();
+    match DATA_ROOT.set(root.clone()) {
+        Ok(()) => Ok(root),
+        Err(_) if DATA_ROOT.get() == Some(&root) => Ok(root),
+        Err(_) => Err(Error::with_detail(
+            ErrorKind::Conflict,
+            "error.data_root.already_set",
+            root.display().to_string(),
+        )),
+    }
+}
+
 /// Returns (building on first use) the process-wide service.
 ///
 /// # Errors
 ///
 /// Propagates [`Service::new`].
 pub fn service_current() -> Result<std::sync::Arc<Service>> {
-    let cached = SERVICE.get_or_init(|| Service::new(paths::data_root()));
+    let cached = SERVICE.get_or_init(|| Service::new(data_root()));
     cached.clone()
 }
 
@@ -143,11 +192,8 @@ fn write_theme_at(root: &Path, theme: ThemePreference) -> Result<SettingsSnapsho
     Ok(SettingsSnapshot::at(root))
 }
 
-fn to_c_string<T: Serialize>(value: &T) -> *mut c_char {
-    serde_json::to_vec(value)
-        .ok()
-        .and_then(|bytes| CString::new(bytes).ok())
-        .map_or(ptr::null_mut(), CString::into_raw)
+fn string_to_c(value: String) -> *mut c_char {
+    CString::new(value).map_or(ptr::null_mut(), CString::into_raw)
 }
 
 fn error_payload(error: &Error) -> serde_json::Value {
@@ -157,10 +203,35 @@ fn error_payload(error: &Error) -> serde_json::Value {
     })
 }
 
+fn serialize_error(message_key: &str, detail: String) -> String {
+    error_payload(&Error::with_detail(
+        ErrorKind::Internal,
+        message_key,
+        detail,
+    ))
+    .to_string()
+}
+
 /// Returns the C ABI version. Used by each native client at startup.
 #[unsafe(no_mangle)]
 pub extern "C" fn fg_abi_version() -> u32 {
     ABI_VERSION
+}
+
+/// Installs the launcher data root before the service exists.
+///
+/// Desktop clients normally leave this to `dirs`; Android passes its app-private
+/// external files directory here before the first RPC call.
+///
+/// # Safety
+///
+/// `root` must be null or a valid, NUL-terminated C string that stays valid for
+/// the duration of the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fg_set_data_root(root: *const c_char) -> *mut c_char {
+    let root = read_optional_string(root);
+    let result = catch_unwind(AssertUnwindSafe(|| set_data_root_json(root.as_deref())));
+    result.map_or(ptr::null_mut(), string_to_c)
 }
 
 /// Returns a JSON [`SettingsSnapshot`] for the current launcher data root.
@@ -169,8 +240,10 @@ pub extern "C" fn fg_abi_version() -> u32 {
 /// [`fg_string_free`]. Returns `NULL` only if serialization or allocation fails.
 #[unsafe(no_mangle)]
 pub extern "C" fn fg_settings_snapshot() -> *mut c_char {
-    catch_unwind(|| to_c_string(&SettingsSnapshot::at(&paths::data_root())))
-        .unwrap_or(ptr::null_mut())
+    catch_unwind(settings_snapshot_json)
+        .ok()
+        .and_then(|value| CString::new(value).ok())
+        .map_or(ptr::null_mut(), CString::into_raw)
 }
 
 /// Writes `appearance.theme` to `launcher.toml` and returns a JSON
@@ -188,48 +261,23 @@ pub extern "C" fn fg_settings_snapshot() -> *mut c_char {
 pub unsafe extern "C" fn fg_settings_set_theme(theme: *const c_char) -> *mut c_char {
     // Copy before crossing `catch_unwind`: borrowed C memory must not outlive a
     // panic boundary and must not be captured by the closure.
-    let requested: Option<String> = if theme.is_null() {
-        None
-    } else {
-        // SAFETY: documented contract; the pointer, when non-null, is a valid
-        // NUL-terminated C string owned by the caller.
-        unsafe { CStr::from_ptr(theme) }
-            .to_str()
-            .ok()
-            .map(str::to_owned)
-    };
+    let requested = read_optional_string(theme);
 
     let result = catch_unwind(AssertUnwindSafe(|| {
-        let Some(requested) = requested.as_deref() else {
-            return to_c_string(&WriteResult::failed(Error::new(
-                ErrorKind::InvalidInput,
-                "error.theme.missing",
-            )));
-        };
-
-        let outcome = parse_theme(requested).and_then(|theme| {
-            let root = paths::data_root();
-            write_theme_at(&root, theme).map(|snapshot| (theme, snapshot))
-        });
-
-        match outcome {
-            Ok((theme, snapshot)) => to_c_string(&WriteResult::applied(theme, snapshot)),
-            Err(error) => to_c_string(&WriteResult::failed(error)),
-        }
+        settings_set_theme_json(requested.as_deref())
     }));
 
-    result.unwrap_or(ptr::null_mut())
+    result.map_or(ptr::null_mut(), string_to_c)
 }
 
 /// Returns `{ ok: true, service: true }` once the service exists, or an error
 /// payload when building it failed.
 #[unsafe(no_mangle)]
 pub extern "C" fn fg_service_current() -> *mut c_char {
-    let value = match service_current() {
-        Ok(_) => serde_json::json!({ "ok": true, "service": true }),
-        Err(error) => error_payload(&error),
-    };
-    to_c_string(&value)
+    catch_unwind(service_current_json)
+        .ok()
+        .and_then(|value| CString::new(value).ok())
+        .map_or(ptr::null_mut(), CString::into_raw)
 }
 
 /// Executes one JSON RPC command: `{"method": "...", "params": {...}}`.
@@ -245,13 +293,9 @@ pub extern "C" fn fg_service_current() -> *mut c_char {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fg_rpc_call(request: *const c_char) -> *mut c_char {
     let request = read_optional_string(request);
-    let result = catch_unwind(AssertUnwindSafe(|| run_rpc(request.as_deref())));
-    result.unwrap_or_else(|_| {
-        to_c_string(&error_payload(&Error::new(
-            ErrorKind::Internal,
-            "error.rpc.panic",
-        )))
-    })
+    let result = catch_unwind(AssertUnwindSafe(|| rpc_call_json(request.as_deref())));
+    let value = result.unwrap_or_else(|_| serialize_error("error.rpc.panic", String::new()));
+    string_to_c(value)
 }
 
 /// Pops and returns up to 64 queued events as a JSON array (`[]` when empty).
@@ -259,22 +303,9 @@ pub unsafe extern "C" fn fg_rpc_call(request: *const c_char) -> *mut c_char {
 /// Callers poll this after UI render ticks; it never blocks.
 #[unsafe(no_mangle)]
 pub extern "C" fn fg_events_next() -> *mut c_char {
-    let value = catch_unwind(AssertUnwindSafe(|| -> serde_json::Value {
-        match service_current() {
-            Ok(service) => {
-                let queue = service.events();
-                let events: Vec<serde_json::Value> = queue
-                    .next_with_limit(64)
-                    .into_iter()
-                    .filter_map(|line| serde_json::from_str(&line).ok())
-                    .collect();
-                serde_json::Value::Array(events)
-            }
-            Err(error) => error_payload(&error),
-        }
-    }))
-    .unwrap_or_else(|_| error_payload(&Error::new(ErrorKind::Internal, "error.events.panic")));
-    to_c_string(&value)
+    let value = catch_unwind(events_next_json)
+        .unwrap_or_else(|_| serialize_error("error.events.panic", String::new()));
+    string_to_c(value)
 }
 
 /// Releases a string returned by another `fg_*` function.
@@ -307,21 +338,97 @@ fn read_optional_string(pointer: *const c_char) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn run_rpc(request: Option<&str>) -> *mut c_char {
-    let Some(request) = request else {
-        return to_c_string(&error_payload(&Error::new(
+/// JSON entry points shared by the C ABI and the Android JNI shim.
+///
+/// Keeping the payload construction here means both boundaries serialize the
+/// same envelope; only the string ownership rules differ.
+#[must_use]
+pub fn settings_snapshot_json() -> String {
+    serde_json::to_string(&SettingsSnapshot::at(&data_root()))
+        .unwrap_or_else(|error| serialize_error("error.settings.serialize", error.to_string()))
+}
+
+#[must_use]
+pub fn settings_set_theme_json(theme: Option<&str>) -> String {
+    let result = match theme {
+        None => WriteResult::failed(Error::new(ErrorKind::InvalidInput, "error.theme.missing")),
+        Some(requested) => {
+            let outcome = parse_theme(requested).and_then(|theme| {
+                write_theme_at(&data_root(), theme).map(|snapshot| (theme, snapshot))
+            });
+
+            match outcome {
+                Ok((theme, snapshot)) => WriteResult::applied(theme, snapshot),
+                Err(error) => WriteResult::failed(error),
+            }
+        }
+    };
+
+    serde_json::to_string(&result)
+        .unwrap_or_else(|error| serialize_error("error.settings.serialize", error.to_string()))
+}
+
+#[must_use]
+pub fn set_data_root_json(path: Option<&str>) -> String {
+    let Some(path) = path.map(str::trim).filter(|path| !path.is_empty()) else {
+        return error_payload(&Error::new(
             ErrorKind::InvalidInput,
-            "error.rpc.missing",
-        )));
+            "error.data_root.missing",
+        ))
+        .to_string();
+    };
+
+    match set_data_root(Path::new(path)) {
+        Ok(root) => serde_json::json!({
+            "ok": true,
+            "dataRoot": root.display().to_string(),
+        })
+        .to_string(),
+        Err(error) => error_payload(&error).to_string(),
+    }
+}
+
+#[must_use]
+pub fn service_current_json() -> String {
+    let value = match service_current() {
+        Ok(_) => serde_json::json!({ "ok": true, "service": true }),
+        Err(error) => error_payload(&error),
+    };
+    value.to_string()
+}
+
+#[must_use]
+pub fn events_next_json() -> String {
+    let value = match service_current() {
+        Ok(service) => {
+            let queue = service.events();
+            let events: Vec<serde_json::Value> = queue
+                .next_with_limit(64)
+                .into_iter()
+                .filter_map(|line| serde_json::from_str(&line).ok())
+                .collect();
+            serde_json::Value::Array(events)
+        }
+        Err(error) => error_payload(&error),
+    };
+    value.to_string()
+}
+
+#[must_use]
+pub fn rpc_call_json(request: Option<&str>) -> String {
+    let Some(request) = request else {
+        return error_payload(&Error::new(ErrorKind::InvalidInput, "error.rpc.missing"))
+            .to_string();
     };
     let parsed: serde_json::Value = match serde_json::from_str(request) {
         Ok(value) => value,
         Err(error) => {
-            return to_c_string(&error_payload(&Error::with_detail(
+            return error_payload(&Error::with_detail(
                 ErrorKind::InvalidInput,
                 "error.rpc.parse",
                 error.to_string(),
-            )));
+            ))
+            .to_string();
         }
     };
 
@@ -337,17 +444,18 @@ fn run_rpc(request: Option<&str>) -> *mut c_char {
     if method.is_empty() {
         // Validate before touching the service so parsing errors never depend
         // on the data root.
-        return to_c_string(&error_payload(&Error::new(
+        return error_payload(&Error::new(
             ErrorKind::InvalidInput,
             "error.rpc.missing_method",
-        )));
+        ))
+        .to_string();
     }
 
     let response = service_current().map_or_else(Err, |service| {
         service.block_on(async { service.rpc(&method, params).await })
     });
 
-    to_c_string(&rpc_envelope(response))
+    rpc_envelope(response).to_string()
 }
 
 /// Wraps one RPC outcome into the documented `{ ok, ... | error }` envelope.

@@ -33,6 +33,26 @@ class InstanceFormatTest {
     }
 
     @Test
+    fun sanitizedInstanceIDKeepsSafeCharacters() {
+        assertEquals("fog-forest", InstanceFormat.sanitizedInstanceID("fog-forest"))
+        assertEquals("1.21.4", InstanceFormat.sanitizedInstanceID("1.21.4"))
+        assertEquals("", InstanceFormat.sanitizedInstanceID("雾林生存"))
+        assertEquals("abc", InstanceFormat.sanitizedInstanceID("..abc.."))
+    }
+
+    @Test
+    fun taskTitleReadsLikeTheQueue() {
+        assertEquals("安装 1.21.4", InstanceFormat.taskTitle("install:1.21.4"))
+        assertEquals("install", InstanceFormat.taskTitle("install"))
+    }
+
+    @Test
+    fun byteRateUsesTheSameUnitsAsByteSize() {
+        assertEquals("—", InstanceFormat.byteRate(0.0))
+        assertEquals("12.3 MB", InstanceFormat.byteRate(12_300_000.0))
+    }
+
+    @Test
     fun playTimeSplitsHoursAndMinutes() {
         assertEquals("—", InstanceFormat.playTime(null))
         assertEquals("—", InstanceFormat.playTime(0))

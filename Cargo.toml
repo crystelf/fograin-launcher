@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "bindings/fg-ffi"]
+members = ["crates/*", "bindings/fg-ffi", "bindings/fg-ffi-jni"]
 exclude = ["apps/linux"]
 
 [workspace.package]

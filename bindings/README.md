@@ -8,7 +8,10 @@ them.
 - Rust crates expose domain operations through `fg-ffi`; UI clients never link
   `fg-*` crates directly except on Linux, where GTK and the core are both Rust
   (the Linux client may depend on the crates directly to avoid an FFI hop).
-- Swift and Kotlin use UniFFI-generated bindings.
+- Swift links the C ABI directly through `CFograinFFI`.
+- Kotlin calls the same JSON payloads through the JNI shim in
+  `bindings/fg-ffi-jni` (`libfg_ffi_jni.so`); no UniFFI code generation is
+  required for the Android milestone.
 - C# uses a stable C ABI with P/Invoke (generated with `csbindgen` once the
   command surface exists).
 - Long-running operations return an opaque task id and push progress through a
@@ -21,6 +24,9 @@ them.
 `fg-ffi` exports:
 
 - `fg_abi_version()` — C ABI version.
+- `fg_set_data_root(path)` — installs the process data root before the service
+  exists. Desktop clients normally leave this to `dirs`; Android passes its
+  app-private external files directory before the first RPC call.
 - `fg_settings_snapshot()` — JSON settings snapshot (`abiVersion`, `appVersion`,
   `platform`, `theme`, `dataRoot`, `configPath`, optional `configError`).
 - `fg_settings_set_theme(theme)` — writes `appearance.theme` through the Rust
@@ -59,14 +65,36 @@ them.
 Errors always keep the shape `{kind, messageKey, detail}` and camelCase keys
 throughout.
 
-All strings are owned by the caller and released with `fg_string_free`. The real
-command surface grows after the four shells are approved. Generated bindings
-will live next to each client:
+All strings returned by the C ABI are owned by the caller and released with
+`fg_string_free`. The JNI shim allocates JVM strings instead, so Kotlin never
+sees a raw pointer.
+
+### Android JNI shim
+
+`bindings/fg-ffi-jni` is a small `cdylib` that forwards to the safe JSON
+functions in `fg-ffi`. Kotlin loads it as `fg_ffi_jni`:
 
 ```text
-apps/macos/Sources/Fograin/Generated/
-apps/windows/Fograin.Windows/Generated/
-apps/android/app/src/main/java/com/fograin/launcher/generated/
+com.fograin.launcher.platform.CoreNative
+  nativeAbiVersion()      -> Int
+  nativeSetDataRoot(path) -> String
+  nativeSettingsSnapshot()-> String
+  nativeSetTheme(theme)   -> String
+  nativeServiceCurrent()  -> String
+  nativeRpcCall(request)  -> String
+  nativeEventsNext()      -> String
 ```
 
-Do not hand-edit generated files.
+Every function catches Rust panics before returning to the JVM. Build the
+library for the device ABIs with:
+
+```bash
+./scripts/build-android.sh              # arm64-v8a + x86_64, release
+./scripts/build-android.sh --abi arm64-v8a
+```
+
+The script stages `libfg_ffi_jni.so` under
+`apps/android/app/src/main/jniLibs/<abi>/`; Gradle packages it into the APK.
+The Android client calls `fg_set_data_root` with
+`getExternalFilesDir(null)` (falling back to `filesDir`) because Android apps
+have no usable `$HOME` for the `dirs` crate.

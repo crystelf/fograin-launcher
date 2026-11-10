@@ -3,3 +3,6 @@
 local.properties
 captures/
 *.iml
+
+# Rust JNI libraries staged by scripts/build-android.sh
+jniLibs/

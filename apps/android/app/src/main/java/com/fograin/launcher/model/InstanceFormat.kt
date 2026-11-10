@@ -1,6 +1,8 @@
 package com.fograin.launcher.model
 
 import java.time.Instant
+import kotlin.math.max
+import kotlin.math.roundToLong
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -48,6 +50,26 @@ object InstanceFormat {
             days < 14L -> "上周"
             else -> Instant.ofEpochMilli(epochMillis).atZone(zone).format(dateFormatter)
         }
+    }
+
+    /** Turns a display name into a filesystem-safe instance id. */
+    fun sanitizedInstanceID(raw: String): String {
+        val allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."
+        return raw.filter { it in allowed }.trim('.')
+    }
+
+    /** Task graph name shown in the queue rows (`install:1.21.4` → 安装 1.21.4). */
+    fun taskTitle(graphName: String): String {
+        if (graphName.startsWith("install:")) {
+            return "安装 ${graphName.removePrefix("install:")}"
+        }
+        return graphName
+    }
+
+    /** Speed text like `12.3 MB`; accepts a bytes-per-second double. */
+    fun byteRate(bytesPerSecond: Double): String {
+        if (bytesPerSecond <= 0) return "—"
+        return byteSize(max(1L, bytesPerSecond.roundToLong()))
     }
 
     fun playTime(minutes: Int?): String {

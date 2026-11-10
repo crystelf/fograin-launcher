@@ -13,6 +13,12 @@ extern "C" {
 /// against an unexpected core build.
 uint32_t fg_abi_version(void);
 
+/// Installs the launcher data root before the service is built. Desktop
+/// clients normally let the core resolve `$HOME`; Android calls this with its
+/// app-private external files directory. Returns `{ "ok": true, "dataRoot" }`
+/// or `{ "ok": false, "error": { ... } }`.
+char *fg_set_data_root(const char *root);
+
 /// Returns a JSON settings snapshot:
 ///
 ///   { "abiVersion": 1, "appVersion": "0.1.0", "platform": "macos",

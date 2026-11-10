@@ -1,10 +1,12 @@
 package com.fograin.launcher.model
 
+import com.fograin.launcher.platform.CoreInstanceRow
+
 /**
- * One launcher instance, as shown by the M1 shell.
+ * One launcher instance, backed by `instances.list` from the shared Rust core.
  *
- * The values come from [SampleData] for now. M4 replaces the fixtures with
- * `instance_list` from the shared Rust core without changing this model.
+ * Presentation-only fields (palette, formatted strings) are derived here so the
+ * screens stay free of wire types.
  */
 data class Instance(
     val id: String,
@@ -16,11 +18,9 @@ data class Instance(
     val sizeBytes: Long,
     val lastPlayedEpochMillis: Long?,
     val isFavorite: Boolean = false,
-    val hasUpdate: Boolean = false,
     val palette: InstancePalette,
-    val playTimeMinutes: Int? = null,
-    val memoryMb: Int = 4096,
-    val javaMajorVersion: Int = 21,
+    val playSeconds: Long = 0,
+    val isInstalled: Boolean = false,
 ) {
     /** Accent family for the generated instance tile, from `tokens.json`. */
     enum class InstancePalette {
@@ -32,13 +32,33 @@ data class Instance(
         LAGOON,
         SAND,
         MOSS,
-        ASH,
+        ASH;
+
+        companion object {
+            /**
+             * Assigns tile palettes in the pen's order so every instance gets a
+             * stable accent color derived from its id (same djb2 hash as macOS).
+             */
+            fun forId(id: String): InstancePalette {
+                var hash = 5381
+                for (character in id) {
+                    hash = (hash shl 5) + hash + character.code
+                }
+                return entries[(hash and Int.MAX_VALUE) % entries.size]
+            }
+        }
     }
+
+    val group: LibraryGroup
+        get() = loader.libraryGroup
 
     /** `1.21.4 · Fabric · 42 模组`, the supporting line used by both lists. */
     val meta: String
-        get() = listOf(minecraftVersion, loader.title, "${modCount ?: 0} 模组")
-            .joinToString(" · ")
+        get() = buildList {
+            add(minecraftVersion)
+            add(if (loader == LoaderKind.VANILLA) "原版" else loader.title)
+            modCount?.let { add("$it 模组") }
+        }.joinToString(" · ")
 
     /** `1.21.4 · Fabric 0.16.9`, or just the Minecraft version for vanilla. */
     val versionLine: String
@@ -48,7 +68,41 @@ data class Instance(
             "$minecraftVersion · ${loader.title} $loaderVersion"
         }
 
-    /** Sort key so unmodded instances sort below modded ones. */
-    val modCountForSort: Int
-        get() = modCount ?: 0
+    /** Home rows show the loader even when it is vanilla. */
+    val homeDetail: String
+        get() = meta
+
+    val playTimeMinutes: Int?
+        get() = if (playSeconds <= 0) {
+            null
+        } else {
+            (playSeconds / 60).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        }
+
+    val playTimeText: String
+        get() = InstanceFormat.playTime(playTimeMinutes)
+
+    internal val searchText: String
+        get() = "$name $minecraftVersion ${loader.title} $loaderVersion"
+
+    companion object {
+        /** Converts a core row; returns `null` only for a missing id. */
+        fun from(row: CoreInstanceRow): Instance? {
+            if (row.id.isBlank()) return null
+            return Instance(
+                id = row.id,
+                name = row.name.ifBlank { row.id },
+                loader = LoaderKind.fromWire(row.loaderKind),
+                loaderVersion = row.loaderVersion,
+                minecraftVersion = row.minecraft,
+                modCount = row.modCount,
+                sizeBytes = row.sizeBytes,
+                lastPlayedEpochMillis = row.lastPlayedMs,
+                isFavorite = row.favorite,
+                palette = InstancePalette.forId(row.id),
+                playSeconds = row.playSeconds,
+                isInstalled = row.installed,
+            )
+        }
+    }
 }
