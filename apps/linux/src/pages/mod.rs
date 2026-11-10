@@ -1,11 +1,13 @@
 //! Native pages of the GNOME client.
 
 mod detail;
+mod downloads;
 mod home;
 mod library;
 mod placeholder;
 mod settings;
 
+pub use downloads::DownloadsPage;
 pub use home::HomePage;
 pub use library::LibraryPage;
 pub use placeholder::placeholder_page;

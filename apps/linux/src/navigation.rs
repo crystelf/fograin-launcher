@@ -55,7 +55,7 @@ impl Section {
             Self::Home => "启动上次游玩的实例",
             Self::Library => "管理所有实例、模组与存档",
             Self::Servers => "收藏、局域网发现与状态 Ping",
-            Self::Downloads => "下载队列与资源搜索",
+            Self::Downloads => "浏览与安装",
             Self::Java => "扫描、安装与测试运行",
             Self::Accounts => "离线、外置登录与皮肤",
             Self::Settings => "外观与全局设置",
@@ -107,10 +107,7 @@ impl Section {
                 name: "M9",
                 detail: "服务器列表、SLP Ping 与局域网发现将在 M9 接入。",
             }),
-            Self::Downloads => Some(Milestone {
-                name: "M8",
-                detail: "资源浏览、依赖解析与下载队列将在 M8 接入。",
-            }),
+            Self::Downloads => None,
             Self::Java => Some(Milestone {
                 name: "M6",
                 detail: "Java 扫描、运行时下载与测试运行将在 M6 接入。",
@@ -143,6 +140,7 @@ mod tests {
     fn only_unimplemented_sections_carry_a_milestone() {
         assert!(Section::Home.milestone().is_none());
         assert!(Section::Library.milestone().is_none());
+        assert!(Section::Downloads.milestone().is_none());
         assert_eq!(
             Section::Servers.milestone().map(|item| item.name),
             Some("M9")

@@ -14,7 +14,11 @@ build = "build.rs"
 [dependencies]
 adw = { package = "libadwaita", version = "0.7", features = ["v1_5"] }
 fg-core = { path = "../../crates/fg-core" }
+fg-ffi = { path = "../../bindings/fg-ffi" }
 gtk = { package = "gtk4", version = "0.9", features = ["v4_12"] }
+libc = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
 [build-dependencies]
 serde_json = "1.0"

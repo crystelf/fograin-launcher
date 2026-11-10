@@ -239,6 +239,28 @@ fn stylesheet() -> String {
     );
     rule(
         &mut css,
+        ".fograin-split.fograin-stop-action > button",
+        "background-color: rgba(0, 0, 0, 0.55); color: white; \
+         box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);",
+    );
+    rule(
+        &mut css,
+        ".fograin-split.fograin-stop-action > menubutton > button",
+        "background-color: rgba(0, 0, 0, 0.55); color: white; \
+         box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);",
+    );
+    rule(
+        &mut css,
+        ".fograin-split.fograin-stop-action label",
+        "color: white;",
+    );
+    rule(
+        &mut css,
+        ".fograin-split.fograin-stop-action:hover > button",
+        "background-color: rgba(0, 0, 0, 0.70);",
+    );
+    rule(
+        &mut css,
         ".fograin-split > menubutton > button",
         &format!(
             "min-height: 38px; padding: 0 10px; border-radius: 0 {radius}px {radius}px 0;",
@@ -252,25 +274,46 @@ fn stylesheet() -> String {
     );
     rule(
         &mut css,
-        ".fograin-segments",
+        ".fograin-filter",
         &format!(
-            "background-color: alpha(@window_fg_color, 0.08); border-radius: {}px; padding: 3px;",
+            "padding: 2px; border-radius: {}px; background-color: alpha(@window_fg_color, 0.07);",
             RADIUS_PILL
         ),
     );
     rule(
         &mut css,
-        ".fograin-segments > togglebutton",
+        ".fograin-filter > button",
         &format!(
-            "border-radius: {}px; background-color: transparent; background-image: none; \
-             box-shadow: none; border: none; min-height: 24px; padding: 0 12px;",
-            RADIUS_PILL - 3
+            "border-radius: {}px; min-width: 56px; min-height: 26px; padding: 0 12px; \
+             border: none; box-shadow: none; background-image: none; background-color: transparent; \
+             color: alpha(@window_fg_color, 0.78); font-weight: 500;",
+            RADIUS_PILL
         ),
     );
     rule(
         &mut css,
-        ".fograin-segments > togglebutton:checked",
-        "background-color: alpha(@window_fg_color, 0.14); font-weight: 600;",
+        ".fograin-filter > button:hover",
+        "background-color: alpha(@window_fg_color, 0.06); color: @window_fg_color;",
+    );
+    rule(
+        &mut css,
+        ".fograin-filter > button:checked",
+        &format!(
+            "background-color: {}; color: white; font-weight: 600; \
+             box-shadow: 0 1px 2px alpha(black, 0.18); border-radius: {}px;",
+            rgb(ACCENT),
+            RADIUS_PILL
+        ),
+    );
+    rule(
+        &mut css,
+        ".fograin-filter > button:checked:hover",
+        &format!("background-color: {}; color: white;", rgb(ACCENT)),
+    );
+    rule(
+        &mut css,
+        ".fograin-filter > button:focus-visible",
+        "box-shadow: inset 0 0 0 2px alpha(@window_fg_color, 0.55);",
     );
     rule(
         &mut css,
@@ -287,6 +330,83 @@ fn stylesheet() -> String {
             "padding: 20px; border-radius: {}px; background-color: alpha(@card_bg_color, 0.75);",
             RADIUS_CARD
         ),
+    );
+    rule(
+        &mut css,
+        ".fograin-empty-hero",
+        &format!(
+            "padding: 24px; border-radius: {}px; background-color: alpha(@card_bg_color, 0.75);",
+            RADIUS_CARD
+        ),
+    );
+    rule(
+        &mut css,
+        ".fograin-loading",
+        &format!(
+            "padding: 20px 28px; border-radius: {}px;              background-color: alpha(@window_bg_color, 0.86);",
+            RADIUS_CARD
+        ),
+    );
+    rule(
+        &mut css,
+        ".fograin-queue-column",
+        "background-color: alpha(@card_bg_color, 0.35);",
+    );
+    rule(
+        &mut css,
+        ".fograin-milestone-chip",
+        &format!(
+            "color: {}; background-color: {}; border-radius: {}px;              padding: 2px 10px; font-size: {}px; font-weight: 600;",
+            rgb(ACCENT),
+            rgba(ACCENT, 0.12),
+            RADIUS_PILL,
+            TYPE_SMALL
+        ),
+    );
+    rule(
+        &mut css,
+        ".fograin-loader-card",
+        &format!("border-radius: {}px;", RADIUS_CARD),
+    );
+    rule(
+        &mut css,
+        ".fograin-loader-card:checked",
+        &format!(
+            "background-color: {}; box-shadow: inset 0 0 0 1px {};",
+            rgba(ACCENT, 0.16),
+            rgba(ACCENT, 0.55)
+        ),
+    );
+    rule(
+        &mut css,
+        ".fograin-error-banner",
+        &format!(
+            "color: {}; background-color: {}; border-radius: 10px; padding: 10px 12px;              border: 1px solid {};",
+            rgb(DANGER),
+            rgba(DANGER, 0.10),
+            rgba(DANGER, 0.30)
+        ),
+    );
+    rule(
+        &mut css,
+        ".fograin-status-dot.fograin-status-ok",
+        &format!("background-color: {};", rgb(SUCCESS)),
+    );
+    rule(
+        &mut css,
+        ".fograin-status-dot.fograin-status-warn",
+        &format!("background-color: {};", rgb(WARNING)),
+    );
+    rule(
+        &mut css,
+        ".fograin-status-dot.fograin-status-info",
+        &format!("background-color: {};", rgb(ACCENT)),
+    );
+    rule(&mut css, ".fograin-status-button", "padding: 2px 8px;");
+    rule(
+        &mut css,
+        ".fograin-status-title",
+        &format!("font-size: {}px; font-weight: 600;", TYPE_SMALL),
     );
 
     css

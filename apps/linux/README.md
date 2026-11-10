@@ -22,35 +22,63 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-## M1 status
+## M4 status
 
-The shell from `docs/design.md` §M1 is implemented:
+The M4 instance, download and session flows are wired to the Rust core. The
+client links `fg-ffi`'s `Service` directly instead of re-implementing the JSON
+contract: RPCs run on a three-thread worker pool, and the GTK main loop pumps
+their results and the core event queue. macOS goes through the C ABI, but both
+clients issue the same commands and consume the same events.
 
-- `Adw.ApplicationWindow` with `Adw.NavigationSplitView`, a native sidebar
-  `Adw.HeaderBar`, the app menu and stock GTK window controls.
-- Home page: hero banner (`Gtk.Overlay` + `Gtk.Picture`), launch actions,
-  recent/favourite/all instance lists, download cards with `Gtk.ProgressBar`,
-  and an environment block built from `Adw.ActionRow` / `Adw.SwitchRow`.
-- Instance library: `Adw.OverlaySplitView` list/detail split. Below 1180 px it
-  collapses to a list-first compact layout; picking a row shows the detail pane
-  with a native back button. Includes `Gtk.SearchEntry` filtering, a sort menu,
-  a loader-grouped list, and a detail pane with `Adw.PreferencesGroup`.
-- Theme: `appearance.theme` is read through `fg-core` in `startup`, before the
-  first frame, and written back atomically when changed from the primary menu
-  or the settings page (`Ctrl+,`).
-- Native `Gtk.FileDialog` for “导入现有实例…”, `Gio.AppInfo` for opening the
-  data directory, and `Adw.AboutDialog` for about.
-- Honest `Adw.StatusPage` placeholders for servers (M9), downloads (M8),
-  Java (M6) and accounts (M7).
-- Shortcuts: `Ctrl+1…7` sections, `Ctrl+F` library search, `Ctrl+I` import,
-  `Ctrl+,` settings, `F1` about, `Ctrl+Q` quit.
-- Accessible names on navigation rows, instance rows and icon-only buttons; the
-  home columns stack vertically below 1000 px.
+- **Core bridge** (`src/core.rs`, `src/state.rs`): `instances.list`,
+  `app.snapshot`, `gameConfig.get`, `tasks.list`, `versions.list`,
+  `version.plan`, `install.start`, `launch.start`, `session.stop`,
+  `instances.settings.get/set`, `instances.favorite`, `instances.delete`,
+  `instances.dir` and `instances.import`; task progress and `game.*` events are
+  drained on a 50 ms GLib timer.
+- **Home**: the hero follows the selected instance and reports install, download
+  and session state; its primary split button toggles 开始游戏 / 停止游戏 (the
+  titlebar keeps only the scheme-style instance item that opens 游戏设置).
+  Recent/favourite/all is an accent segmented filter built from native toggle
+  buttons, and the task queue, Java count, memory summary and session type all
+  read live data. The empty state routes to the download page.
+- **Instance library**: loader-grouped live instances, `Gtk.SearchEntry`
+  filtering, a sort menu, a `Gtk.ListBox` table and an
+  `Adw.OverlaySplitView` preview pane. Single click selects, double click (or
+  row menu) opens 游戏设置. Below 1180 px the split collapses to a full-width
+  list; the first row click reveals the detail overlay with a native back
+  button.
+- **Downloads** follows the HMCL/PCL flow used by macOS: the titlebar switches
+  categories (游戏/模组/整合包/资源包/光影/数据包), the 游戏 tab loads
+  `versions.list` for a channel (正式版/快照/愚人节/远古版本), selecting a
+  version computes `version.plan` (Java major, file count, size, release date),
+  and 安装 opens the native modal for game version, loader and instance name.
+  The queue rail shows live task progress and aggregate speed. 原版 installs;
+  the other loader cards are honest M5 placeholders. Below 1240 px the queue is
+  hidden, the version/detail split collapses and the six-way segmented switcher
+  becomes a native dropdown, so the page fits a 1000 px window without
+  horizontal clipping.
+- **游戏设置**: a native `Adw.Dialog` with 启动/显示/内容/维护 groups. It loads
+  the effective values and `[override]` values, writes 内存 / JVM 参数 / 全屏 /
+  分辨率 through `instances.settings.set` (`null` restores inheritance), opens
+  the real instance directory (including imported external `.minecraft`
+  folders) and confirms before deleting the instance.
+- **Sessions**: `launch.start` and `session.stop` drive the hero start/stop state;
+  `game.started`, `game.windowReady`, `game.line` and `game.exited` update the
+  session, show native toasts/alert dialogs, refresh the instance row and record
+  play time. Pressing 开始游戏 on an incomplete instance starts its resource
+  completion and jumps to the queue; a finished install opens the new instance
+  in 游戏设置.
+- **Import**: “导入现有实例…” uses the XDG portal `Gtk.FileDialog` and registers
+  the chosen `.minecraft` directory through `instances.import`.
+- **Feedback**: success/info/warning notices use `Adw.Toast`; failures use an
+  `Adw.AlertDialog` instead of a vanishing capsule. Theme switching still goes
+  through `Adw.StyleManager` before the first frame and from the primary menu.
 
-Instance data, downloads, the environment summary and the account are static
-fixtures that mirror the pen screens; M4 replaces the instance data, later
-milestones wire the remaining back ends. Buttons that would launch or install
-show a milestone toast instead of pretending to work.
+Reserved for later milestones: Forge/NeoForge/Fabric/Quilt/OptiFine installers
+(M5), Java auto-download (M6), accounts (M7), mods/resource packs/shaders
+(M8), worlds and packaging (M9/M10). Unity LauncherEntry progress is not wired
+yet; the task queue is the source of truth.
 
 ## Design tokens
 
@@ -72,34 +100,46 @@ one-line change.
 
 ```
 src/
-├─ main.rs            GApplication, theme startup, accelerators
-├─ app.rs             window shell, sidebar, actions, menu
+├─ main.rs            GApplication, theme startup, window size, accelerators
+├─ app.rs             window shell, sidebar, actions, menu, breakpoints
+├─ core.rs            fg-ffi service bridge: workers, callbacks, events
+├─ state.rs           live instance/task/version/session state and M4 flows
 ├─ design.rs          token module + token-derived GTK stylesheet
 ├─ dev.rs             screenshot harness for the visual pass
-├─ events.rs          page → shell events
-├─ models.rs          M1 fixtures, grouping/sorting/formatting (+ unit tests)
+├─ events.rs          page → shell events (navigation, toast, alert, dialogs)
+├─ models.rs          wire decoding, grouping/sorting/formatting (+ tests)
 ├─ navigation.rs      sections, sidebar groups, milestone copy
-├─ pages/             home, library, detail pane, settings, placeholders
-├─ platform/          Adw.StyleManager theme adapter, native file dialogs
-└─ widgets.rs         rows, tiles, banner, section headers
+├─ dialogs/           install wizard and 游戏设置
+├─ pages/             home, library, detail pane, downloads, settings, stubs
+├─ platform/          Adw.StyleManager theme, native file dialogs, host info
+└─ widgets.rs         rows, tiles, hero card, progress, chips
 ```
 
 ## Visual verification
 
-`FOGRAIN_SCREENSHOT=<path>` renders the window to a PNG after the first frame
-and exits; `FOGRAIN_PAGE=library`, `FOGRAIN_SIZE=1000x700` and
-`FOGRAIN_THEME=light` cover the acceptance matrix from `docs/design.md` §4.4
-without scripting a window manager:
+`FOGRAIN_SCREENSHOT=<path>` renders the window to a PNG after a delay and exits.
+The size is applied before the first frame, so breakpoints are exercised:
 
 ```bash
-FOGRAIN_HOME=/tmp/fograin-demo FOGRAIN_PAGE=library \
+# Live data root (or point FOGRAIN_HOME at a disposable directory)
+FOGRAIN_HOME=/tmp/fograin-demo FOGRAIN_PAGE=library FOGRAIN_SIZE=1000x700 \
 FOGRAIN_SCREENSHOT=/tmp/library.png \
   cargo run --manifest-path apps/linux/Cargo.toml
 ```
 
-Reference renders from the M1 pass live in [`docs/screenshots`](docs/screenshots);
-they were captured with the GTK4 backend on the development host, while the Linux
-CI job builds the same sources against GTK4/libadwaita on Ubuntu.
+Useful switches for the acceptance matrix:
+
+| Variable | Purpose |
+| --- | --- |
+| `FOGRAIN_PAGE=home|library|downloads|settings|servers` | section to open |
+| `FOGRAIN_SIZE=1000x700` | window size before the first frame |
+| `FOGRAIN_THEME=light|dark|system` | appearance action |
+| `FOGRAIN_SCREENSHOT_DELAY=5000` | wait for the remote version manifest |
+
+Reference renders from the M1 pass live in [`docs/screenshots`](docs/screenshots).
+The M4 pass lives in [`docs/screenshots/m4`](docs/screenshots/m4): 1400×880 in
+dark and light appearance, plus 1280×800 and 1000×700 responsive passes for the
+compact library, compact downloads, empty states and the two modal surfaces.
 
 ## Rules
 
@@ -107,5 +147,7 @@ CI job builds the same sources against GTK4/libadwaita on Ubuntu.
 - Native header bar and window controls; no fake macOS traffic lights.
 - Colors and metrics come from `design/tokens.json` through generated constants;
   do not copy hex values into Rust or CSS by hand.
+- The Rust core never sees a GTK type; all business state stays in `fg-*` and
+  `fg-ffi`.
 - libsecret, Unity LauncherEntry, portal integration and packaging land with
   M7/M10.

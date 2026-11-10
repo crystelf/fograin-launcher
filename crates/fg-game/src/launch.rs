@@ -1071,10 +1071,36 @@ impl GameProcess {
     /// # Errors
     ///
     /// Returns [`ErrorKind::Io`] when waiting fails.
-    pub async fn wait(mut self) -> Result<GameExit> {
-        let status = self.child.wait().await.map_err(|error| {
-            Error::with_detail(ErrorKind::Io, "error.launch.wait", error.to_string())
-        })?;
+    pub async fn wait(self) -> Result<GameExit> {
+        self.wait_with_kill(std::future::pending()).await
+    }
+
+    /// Waits for the game to exit, terminating it when `kill` resolves.
+    ///
+    /// The log readers keep running until the child exits, so callers can
+    /// forward their events while this future owns the process handle. This is
+    /// the only place that emits [`GameEvent::Exited`]; polling only the log
+    /// stream would miss a clean exit or a requested stop.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorKind::Io`] when waiting fails.
+    pub async fn wait_with_kill(
+        mut self,
+        kill: impl std::future::Future<Output = ()>,
+    ) -> Result<GameExit> {
+        tokio::pin!(kill);
+        let status = tokio::select! {
+            status = self.child.wait() => status.map_err(|error| {
+                Error::with_detail(ErrorKind::Io, "error.launch.wait", error.to_string())
+            })?,
+            () = &mut kill => {
+                let _ = self.child.start_kill();
+                self.child.wait().await.map_err(|error| {
+                    Error::with_detail(ErrorKind::Io, "error.launch.wait", error.to_string())
+                })?
+            }
+        };
         let _ = self.stdout_task.await;
         let _ = self.stderr_task.await;
         let code = status.code();
@@ -1749,6 +1775,41 @@ mod tests {
         ));
         assert!(is_window_ready_line("[main/INFO]: LWJGL Version: 3.3.3"));
         assert!(!is_window_ready_line("Stopping!"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn wait_with_kill_terminates_a_running_process() {
+        let (_directory, layout) = layout();
+        let instance = Instance::create(&layout, "kill", "1.21.4").expect("instance");
+        let plan = LaunchPlan {
+            program: PathBuf::from("/bin/sh"),
+            args: vec!["-c".to_string(), "sleep 30".to_string()],
+            cwd: instance.game_dir(&layout),
+            env: BTreeMap::new(),
+            main_class: String::new(),
+            classpath: Vec::new(),
+            natives_dir: layout.natives("kill"),
+            game_dir: instance.game_dir(&layout),
+            asset_index: None,
+            log_config: None,
+            argfile: None,
+            pathing_jar: None,
+            features: BTreeMap::new(),
+        };
+        let process = GameProcess::spawn(&plan).expect("spawn");
+        let started = Instant::now();
+        let exit = tokio::time::timeout(
+            Duration::from_secs(10),
+            process.wait_with_kill(async {
+                tokio::time::sleep(Duration::from_millis(150)).await;
+            }),
+        )
+        .await
+        .expect("stop should not hang")
+        .expect("wait");
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert!(!exit.success);
     }
 
     #[cfg(unix)]

@@ -5,43 +5,45 @@
 //! and collapsed layouts. Window actions own the state transitions; pages raise
 //! [`crate::events::UiEvent`]s instead of reaching into the window.
 
-use std::cell::Cell;
-use std::rc::Rc;
+use std::{cell::Cell, rc::Rc, time::Duration};
 
 use adw::prelude::*;
 use gtk::{gio, glib};
 
+use crate::core::Core;
 use crate::design;
-use crate::events::{EventSink, UiEvent};
-use crate::models::{self, SortOrder};
+use crate::dialogs;
+use crate::events::{EventSink, ToastLevel, UiEvent};
+use crate::models::SortOrder;
 use crate::navigation::Section;
-use crate::pages::{HomePage, LibraryPage, SettingsPage, placeholder_page};
+use crate::pages::{DownloadsPage, HomePage, LibraryPage, SettingsPage, placeholder_page};
 use crate::platform::theme::{self, ThemeController};
+use crate::state::AppState;
 use crate::widgets;
 use fg_core::ThemePreference;
 
-pub fn build_ui(application: &adw::Application) {
+pub fn build_ui(application: &adw::Application, size: Option<(i32, i32)>) {
+    let (core, core_error) = Core::connect();
     let sink = EventSink::new();
+    let state = AppState::new(core, sink.clone());
     let theme = Rc::new(ThemeController::load());
 
-    let home = Rc::new(HomePage::new(&sink));
-    let library = LibraryPage::new();
+    let home = HomePage::new(&state);
+    let library = LibraryPage::new(&state);
+    let downloads = DownloadsPage::new(&state);
     let settings = Rc::new(SettingsPage::new(&theme, &sink));
-    let placeholders: Vec<(Section, adw::NavigationPage)> = [
-        Section::Servers,
-        Section::Downloads,
-        Section::Java,
-        Section::Accounts,
-    ]
-    .into_iter()
-    .map(|section| (section, placeholder_page(section)))
-    .collect();
+    let placeholders: Vec<(Section, adw::NavigationPage)> =
+        [Section::Servers, Section::Java, Section::Accounts]
+            .into_iter()
+            .map(|section| (section, placeholder_page(section)))
+            .collect();
 
+    let (default_width, default_height) = size.unwrap_or((1_400, 880));
     let window = adw::ApplicationWindow::builder()
         .application(application)
         .title("雾雨启动器")
-        .default_width(1_400)
-        .default_height(880)
+        .default_width(default_width)
+        .default_height(default_height)
         .build();
     window.set_size_request(880, 560);
 
@@ -66,17 +68,34 @@ pub fn build_ui(application: &adw::Application) {
         nav_rows,
         home: home.clone(),
         library: library.clone(),
+        downloads: downloads.clone(),
         settings,
         placeholders,
         theme,
+        state: state.clone(),
         current: Cell::new(Section::Home),
         syncing_nav: Cell::new(false),
         library_breakpoint: Cell::new(false),
+        downloads_breakpoint: Cell::new(false),
     });
+
+    home.bind(&state);
+    library.bind(&state);
+    downloads.bind(&state);
+
+    {
+        let weak = Rc::downgrade(&shell);
+        state.subscribe(move || {
+            if let Some(shell) = weak.upgrade() {
+                shell.refresh_chrome();
+            }
+        });
+    }
 
     wire_navigation(&shell);
     shell.sync_sidebar(Section::Home);
     wire_home_breakpoint(&window, &home);
+    shell.refresh_chrome();
 
     sink.connect({
         let weak = Rc::downgrade(&shell);
@@ -90,6 +109,26 @@ pub fn build_ui(application: &adw::Application) {
     install_actions(application, &shell);
     menu_button.set_menu_model(Some(&build_menu()));
     window.present();
+
+    state.refresh_core_data();
+    install_pump(&state);
+
+    if let Some(error) = core_error {
+        glib::idle_add_local_once(move || {
+            state.show_error("无法连接启动器核心", &error);
+        });
+    }
+}
+
+fn install_pump(state: &Rc<AppState>) {
+    let weak = Rc::downgrade(state);
+    glib::timeout_add_local(Duration::from_millis(50), move || {
+        let Some(state) = weak.upgrade() else {
+            return glib::ControlFlow::Break;
+        };
+        state.tick();
+        glib::ControlFlow::Continue
+    });
 }
 
 struct Shell {
@@ -100,25 +139,41 @@ struct Shell {
     nav_rows: Vec<NavRow>,
     home: Rc<HomePage>,
     library: Rc<LibraryPage>,
+    downloads: Rc<DownloadsPage>,
     settings: Rc<SettingsPage>,
     placeholders: Vec<(Section, adw::NavigationPage)>,
     theme: Rc<ThemeController>,
+    state: Rc<AppState>,
     current: Cell<Section>,
     syncing_nav: Cell<bool>,
     library_breakpoint: Cell<bool>,
+    downloads_breakpoint: Cell<bool>,
 }
 
 impl Shell {
     fn navigate(&self, section: Section) {
         if self.current.get() == section {
+            self.on_section_shown(section);
             return;
         }
         self.current.set(section);
         self.split.set_content(Some(&self.page(section)));
+        self.on_section_shown(section);
         if section == Section::Library {
             self.ensure_library_breakpoint();
         }
+        if section == Section::Downloads {
+            self.ensure_downloads_breakpoint();
+        }
         self.sync_sidebar(section);
+    }
+
+    fn on_section_shown(&self, section: Section) {
+        match section {
+            Section::Library => self.library.on_shown(),
+            Section::Downloads => self.downloads.on_shown(),
+            _ => {}
+        }
     }
 
     /// `Adw.Breakpoint` setters only act on widgets that are inside the window,
@@ -133,21 +188,73 @@ impl Shell {
         let breakpoint = adw::Breakpoint::new(condition);
         let collapsed = glib::Value::from(true);
         breakpoint.add_setter(&self.library.split, "collapsed", Some(&collapsed));
+        let full_width = glib::Value::from(1.0_f64);
+        breakpoint.add_setter(
+            &self.library.split,
+            "sidebar-width-fraction",
+            Some(&full_width),
+        );
+        let wide = glib::Value::from(10_000.0_f64);
+        breakpoint.add_setter(&self.library.split, "max-sidebar-width", Some(&wide));
 
         // In compact mode the list is the entry point; selecting a row hides it
         // again and reveals the detail pane with the back button.
         let split = self.library.split.clone();
-        breakpoint.connect_apply(move |_| split.set_show_sidebar(true));
+        let library = Rc::clone(&self.library);
+        breakpoint.connect_apply(move |_| {
+            split.set_show_sidebar(true);
+            library.prepare_compact();
+        });
+        let library = Rc::clone(&self.library);
+        breakpoint.connect_unapply(move |_| library.restore_selection());
 
         self.library.split.set_show_sidebar(true);
         self.window.add_breakpoint(breakpoint);
         self.library_breakpoint.set(true);
     }
 
+    fn ensure_downloads_breakpoint(&self) {
+        if self.downloads_breakpoint.get() {
+            return;
+        }
+        // 1240 px is where the queue rail, version list and plan card stop
+        // fitting together. Hiding the rail and collapsing the split in one
+        // breakpoint matters: hiding only one of them still leaves a minimum
+        // width above the breakpoint, so the breakpoint would never apply.
+        let Ok(condition) = adw::BreakpointCondition::parse("max-width: 1240px") else {
+            return;
+        };
+        let breakpoint = adw::Breakpoint::new(condition);
+        let hidden = glib::Value::from(false);
+        breakpoint.add_setter(&self.downloads.queue, "visible", Some(&hidden));
+        let collapsed = glib::Value::from(true);
+        breakpoint.add_setter(&self.downloads.split, "collapsed", Some(&collapsed));
+        let full_width = glib::Value::from(1.0_f64);
+        breakpoint.add_setter(
+            &self.downloads.split,
+            "sidebar-width-fraction",
+            Some(&full_width),
+        );
+        let wide = glib::Value::from(10_000.0_f64);
+        breakpoint.add_setter(&self.downloads.split, "max-sidebar-width", Some(&wide));
+        let split = self.downloads.split.clone();
+        let downloads = Rc::clone(&self.downloads);
+        breakpoint.connect_apply(move |_| {
+            split.set_show_sidebar(true);
+            downloads.set_compact_header(true);
+        });
+        let downloads = Rc::clone(&self.downloads);
+        breakpoint.connect_unapply(move |_| downloads.set_compact_header(false));
+        self.downloads.queue.set_visible(true);
+        self.window.add_breakpoint(breakpoint);
+        self.downloads_breakpoint.set(true);
+    }
+
     fn page(&self, section: Section) -> adw::NavigationPage {
         match section {
             Section::Home => self.home.page.clone(),
             Section::Library => self.library.page.clone(),
+            Section::Downloads => self.downloads.page.clone(),
             Section::Settings => self.settings.page.clone(),
             other => self
                 .placeholders
@@ -160,7 +267,7 @@ impl Shell {
 
     fn sync_sidebar(&self, section: Section) {
         self.syncing_nav.set(true);
-        for (candidate, list, row) in &self.nav_rows {
+        for (candidate, list, row, _) in &self.nav_rows {
             if *candidate == section {
                 list.select_row(Some(row));
             } else {
@@ -170,15 +277,48 @@ impl Shell {
         self.syncing_nav.set(false);
     }
 
+    fn refresh_chrome(&self) {
+        let instances = self.state.instances().len();
+        let downloads = self.state.active_download_count();
+        for (section, _, _, badge) in &self.nav_rows {
+            let Some(badge) = badge else { continue };
+            let count = match section {
+                Section::Library => instances,
+                Section::Downloads => downloads,
+                _ => continue,
+            };
+            badge.set_label(&count.to_string());
+        }
+    }
+
     fn open_instance(&self, id: &str) {
         self.navigate(Section::Library);
         self.library.select(id);
     }
 
+    fn add_instance(&self) {
+        self.navigate(Section::Downloads);
+        self.downloads.on_shown();
+    }
+
     fn handle(&self, event: UiEvent) {
         match event {
-            UiEvent::OpenInstance(id) => self.open_instance(id),
+            UiEvent::Navigate(section) => self.navigate(section),
+            UiEvent::OpenInstance(id) => self.open_instance(&id),
+            UiEvent::ShowInstanceSettings(id) => {
+                dialogs::instance_settings::present(self.window.upcast_ref(), &self.state, &id);
+            }
+            UiEvent::FocusLibrarySearch => {
+                self.navigate(Section::Library);
+                self.library.focus_search();
+            }
             UiEvent::ThemeChanged(preference) => self.set_theme(preference),
+            UiEvent::Toast { message, level } => self.show_toast(&message, level),
+            UiEvent::Alert {
+                title,
+                message,
+                detail,
+            } => self.show_alert(&title, &message, detail.as_deref()),
         }
     }
 
@@ -189,29 +329,60 @@ impl Shell {
             action.set_state(&preference.as_str().to_variant());
         }
         if let Err(error) = result {
-            self.toast(&format!("外观已切换，但保存失败：{error}"));
+            self.show_toast(
+                &format!("外观已切换，但保存失败：{error}"),
+                ToastLevel::Warning,
+            );
         }
     }
 
-    fn toast(&self, message: &str) {
-        show_toast(&self.toast, message);
+    fn show_toast(&self, message: &str, level: ToastLevel) {
+        // A stock toast lets Adwaita size and wrap the capsule; a custom icon
+        // row made short notices wrap mid-sentence. Warnings use the high
+        // priority slot so they are not pushed out by routine progress notices.
+        let toast = adw::Toast::new(message);
+        toast.set_timeout(4);
+        if level == ToastLevel::Warning {
+            toast.set_priority(adw::ToastPriority::High);
+        }
+        self.toast.add_toast(toast);
+    }
+
+    fn show_alert(&self, title: &str, message: &str, detail: Option<&str>) {
+        let body = match detail {
+            Some(detail) if !detail.is_empty() => {
+                let mut trimmed: String = detail.chars().take(480).collect();
+                if detail.chars().count() > 480 {
+                    trimmed.push('…');
+                }
+                format!("{message}\n\n{trimmed}")
+            }
+            _ => message.to_owned(),
+        };
+        let alert = adw::AlertDialog::new(Some(title), Some(&body));
+        alert.add_response("close", "好");
+        alert.set_default_response(Some("close"));
+        alert.set_close_response("close");
+        alert.present(Some(&self.window));
     }
 
     fn import_instance(&self) {
         let window = self.window.clone();
-        let toast = self.toast.clone();
+        let state = self.state.clone();
         glib::spawn_future_local(async move {
             match crate::platform::files::choose_folder(&window, "导入现有 .minecraft 目录").await
             {
                 Ok(Some(folder)) => {
-                    let path = folder.path().map_or_else(
-                        || folder.uri().to_string(),
-                        |path| path.display().to_string(),
-                    );
-                    show_toast(&toast, &format!("已选择 {path}（导入将在 M4 接入）"));
+                    let Some(path) = folder.path() else {
+                        state.show_notice("无法读取所选目录的路径", ToastLevel::Warning);
+                        return;
+                    };
+                    state.import_directory(path);
                 }
                 Ok(None) => {}
-                Err(error) => show_toast(&toast, &format!("无法打开文件选择器：{error}")),
+                Err(error) => {
+                    state.show_notice(format!("无法打开文件选择器：{error}"), ToastLevel::Warning);
+                }
             }
         });
     }
@@ -219,11 +390,11 @@ impl Shell {
     fn open_data_dir(&self) {
         let root = fg_core::paths::data_root();
         if let Err(error) = std::fs::create_dir_all(&root) {
-            self.toast(&format!("无法创建数据目录：{error}"));
+            self.show_toast(&format!("无法创建数据目录：{error}"), ToastLevel::Warning);
             return;
         }
         if let Err(error) = crate::platform::files::open_directory(&root) {
-            self.toast(&format!("无法打开数据目录：{error}"));
+            self.show_toast(&format!("无法打开数据目录：{error}"), ToastLevel::Warning);
         }
     }
 
@@ -255,10 +426,10 @@ fn wire_navigation(shell: &Rc<Shell>) {
             let Some(row) = row else {
                 return;
             };
-            if let Some((section, _, _)) = shell
+            if let Some((section, _, _, _)) = shell
                 .nav_rows
                 .iter()
-                .find(|(_, _, candidate)| candidate == row)
+                .find(|(_, _, candidate, _)| candidate == row)
             {
                 shell.navigate(*section);
             }
@@ -273,7 +444,7 @@ fn wire_home_breakpoint(window: &adw::ApplicationWindow, home: &Rc<HomePage>) {
     };
     let breakpoint = adw::Breakpoint::new(condition);
 
-    let vertical = gtk::glib::prelude::ToValue::to_value(&gtk::Orientation::Vertical);
+    let vertical = glib::prelude::ToValue::to_value(&gtk::Orientation::Vertical);
     breakpoint.add_setter(&home.columns, "orientation", Some(&vertical));
 
     let natural = glib::Value::from(-1i32);
@@ -282,7 +453,7 @@ fn wire_home_breakpoint(window: &adw::ApplicationWindow, home: &Rc<HomePage>) {
     window.add_breakpoint(breakpoint);
 }
 
-type NavRow = (Section, gtk::ListBox, gtk::ListBoxRow);
+type NavRow = (Section, gtk::ListBox, gtk::ListBoxRow, Option<gtk::Label>);
 type Sidebar = (
     adw::NavigationPage,
     Vec<gtk::ListBox>,
@@ -317,22 +488,14 @@ fn build_sidebar() -> Sidebar {
     let mut nav_rows = Vec::new();
 
     for section in Section::LAUNCH {
-        let badge = match section {
-            Section::Library => Some(models::all().len().to_string()),
-            _ => None,
-        };
-        let row = nav_row(section.icon(), section.title(), badge.as_deref());
+        let (row, badge) = nav_row(section);
         launch_nav.append(&row);
-        nav_rows.push((section, launch_nav.clone(), row));
+        nav_rows.push((section, launch_nav.clone(), row, badge));
     }
     for section in Section::RESOURCES {
-        let badge = match section {
-            Section::Downloads => Some(models::DOWNLOADS.len().to_string()),
-            _ => None,
-        };
-        let row = nav_row(section.icon(), section.title(), badge.as_deref());
+        let (row, badge) = nav_row(section);
         resources_nav.append(&row);
-        nav_rows.push((section, resources_nav.clone(), row));
+        nav_rows.push((section, resources_nav.clone(), row, badge));
     }
 
     let separator = gtk::Separator::new(gtk::Orientation::Horizontal);
@@ -379,7 +542,7 @@ fn nav_list_box() -> gtk::ListBox {
     list
 }
 
-fn nav_row(icon_name: &str, title: &str, badge: Option<&str>) -> gtk::ListBoxRow {
+fn nav_row(section: Section) -> (gtk::ListBoxRow, Option<gtk::Label>) {
     let row = gtk::ListBoxRow::new();
     let content = gtk::Box::new(gtk::Orientation::Horizontal, design::SPACING_5);
     content.set_margin_top(design::SPACING_2);
@@ -387,28 +550,32 @@ fn nav_row(icon_name: &str, title: &str, badge: Option<&str>) -> gtk::ListBoxRow
     content.set_margin_start(design::SPACING_5);
     content.set_margin_end(design::SPACING_5);
 
-    let icon = gtk::Image::from_icon_name(icon_name);
+    let icon = gtk::Image::from_icon_name(section.icon());
     icon.set_pixel_size(16);
     content.append(&icon);
 
     let label = gtk::Label::builder()
-        .label(title)
+        .label(section.title())
         .xalign(0.0)
         .hexpand(true)
         .build();
     content.append(&label);
 
-    if let Some(badge) = badge {
-        let count = gtk::Label::new(Some(badge));
-        count.add_css_class("caption");
-        count.add_css_class("dim-label");
-        count.set_valign(gtk::Align::Center);
-        content.append(&count);
-    }
+    let badge = match section {
+        Section::Library | Section::Downloads => {
+            let count = gtk::Label::new(Some("0"));
+            count.add_css_class("caption");
+            count.add_css_class("dim-label");
+            count.set_valign(gtk::Align::Center);
+            content.append(&count);
+            Some(count)
+        }
+        _ => None,
+    };
 
     row.set_child(Some(&content));
-    row.update_property(&[gtk::accessible::Property::Label(title)]);
-    row
+    row.update_property(&[gtk::accessible::Property::Label(section.title())]);
+    (row, badge)
 }
 
 fn account_button() -> gtk::Button {
@@ -465,8 +632,13 @@ fn build_menu() -> gio::Menu {
         ));
     }
     menu.append_submenu(Some("外观"), &appearance);
-    menu.append(Some("设置"), Some("app.goto-settings"));
+    menu.append(Some("新建实例"), Some("app.new-instance"));
     menu.append(Some("导入现有实例…"), Some("app.import-instance"));
+    // Global stop route: the titlebar capsule is intentionally gone, and the
+    // hero stop is only visible on 主页.
+    menu.append(Some("停止游戏"), Some("app.stop-session"));
+    menu.append(Some("设置"), Some("app.goto-settings"));
+    menu.append(Some("打开数据目录"), Some("app.open-data-dir"));
     menu.append(Some("关于雾雨启动器"), Some("app.show-about"));
     menu.append(Some("退出"), Some("app.quit"));
     menu
@@ -523,13 +695,12 @@ fn install_actions(application: &adw::Application, shell: &Rc<Shell>) {
     string_action(application, "launch-instance", {
         let shell = shell.clone();
         move |_, parameter| {
-            let Some(instance) = parameter
+            if let Some(instance) = parameter
                 .and_then(|value| value.str())
-                .and_then(models::by_id)
-            else {
-                return;
-            };
-            shell.toast(&format!("「{}」的启动流程将在 M3 接入。", instance.name));
+                .and_then(|id| shell.state.instance(id))
+            {
+                shell.state.start_game(&instance);
+            }
         }
     });
 
@@ -545,13 +716,33 @@ fn install_actions(application: &adw::Application, shell: &Rc<Shell>) {
     string_action(application, "instance-settings", {
         let shell = shell.clone();
         move |_, parameter| {
-            let Some(instance) = parameter
+            if let Some(id) = parameter.and_then(|value| value.str()) {
+                shell.handle(UiEvent::ShowInstanceSettings(id.to_owned()));
+            }
+        }
+    });
+
+    string_action(application, "open-instance-folder", {
+        let shell = shell.clone();
+        move |_, parameter| {
+            if let Some(instance) = parameter
                 .and_then(|value| value.str())
-                .and_then(models::by_id)
-            else {
-                return;
-            };
-            shell.toast(&format!("「{}」的实例设置将在 M4 接入。", instance.name));
+                .and_then(|id| shell.state.instance(id))
+            {
+                shell.state.open_instance_folder(&instance);
+            }
+        }
+    });
+
+    string_action(application, "toggle-favorite", {
+        let shell = shell.clone();
+        move |_, parameter| {
+            if let Some(instance) = parameter
+                .and_then(|value| value.str())
+                .and_then(|id| shell.state.instance(id))
+            {
+                shell.state.toggle_favorite(&instance);
+            }
         }
     });
 
@@ -559,14 +750,19 @@ fn install_actions(application: &adw::Application, shell: &Rc<Shell>) {
         let shell = shell.clone();
         move |_, parameter| {
             if let Some(id) = parameter.and_then(|value| value.str()) {
-                shell.toast(milestone_message(id));
+                shell.show_toast(milestone_message(id), ToastLevel::Info);
             }
         }
     });
 
     simple_action(application, "new-instance", {
         let shell = shell.clone();
-        move |_, _| shell.toast("新建实例向导将在 M4 接入。")
+        move |_, _| shell.add_instance()
+    });
+
+    simple_action(application, "add-instance", {
+        let shell = shell.clone();
+        move |_, _| shell.add_instance()
     });
 
     simple_action(application, "import-instance", {
@@ -586,10 +782,17 @@ fn install_actions(application: &adw::Application, shell: &Rc<Shell>) {
 
     simple_action(application, "focus-search", {
         let shell = shell.clone();
-        move |_, _| {
-            shell.navigate(Section::Library);
-            shell.library.focus_search();
-        }
+        move |_, _| shell.handle(UiEvent::FocusLibrarySearch)
+    });
+
+    simple_action(application, "stop-session", {
+        let shell = shell.clone();
+        move |_, _| shell.state.stop_game()
+    });
+
+    simple_action(application, "refresh", {
+        let shell = shell.clone();
+        move |_, _| shell.state.refresh_core_data()
     });
 
     let application_weak = application.downgrade();
@@ -629,19 +832,9 @@ fn app_simple_action(window: &adw::ApplicationWindow, name: &str) -> Option<gio:
 fn milestone_message(id: &str) -> &'static str {
     match id {
         "java" => "Java 运行时管理将在 M6 接入。",
-        "memory" => "内存分配策略将在 M4 接入。",
-        "graphics" => "图形与 GameMode 设置将在 M4 接入。",
-        "mods" => "模组管理将在 M8 接入。",
-        "resourcepacks" => "资源包管理将在 M8 接入。",
-        "shaders" => "光影管理将在 M8 接入。",
-        "worlds" => "世界管理将在 M8 接入。",
-        "instance-folder" => "实例目录将在 M4 接入。",
+        "mods" | "resourcepacks" | "shaders" => "模组、资源包与光影管理将在 M8 接入。",
+        "worlds" => "世界管理将在 M9 接入。",
+        "instance-folder" => "请在实例详情或游戏设置中打开实例目录。",
         _ => "该功能尚未接入。",
     }
-}
-
-fn show_toast(overlay: &adw::ToastOverlay, message: &str) {
-    let toast = adw::Toast::new(message);
-    toast.set_timeout(4);
-    overlay.add_toast(toast);
 }

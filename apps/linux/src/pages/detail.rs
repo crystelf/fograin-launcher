@@ -1,121 +1,116 @@
 //! Detail pane of the instance library.
 //!
-//! Mirrors the pen's right column: hero with the instance tile and launch
-//! actions, then "内容" and "信息" groups built from `Adw.PreferencesGroup`.
+//! Mirrors the macOS inspector: the instance identity and launch actions on top,
+//! then the values computed from the core (`instances.list`, `gameConfig.get`,
+//! `app.snapshot`). Milestone-only content management stays in 游戏设置.
+
+use std::{cell::RefCell, rc::Rc};
 
 use adw::prelude::*;
 
 use crate::design;
-use crate::models::{self, Instance, LoaderKind, Palette};
-use crate::widgets::{self, TileSize};
+use crate::models::{self, Instance, LoaderKind};
+use crate::state::AppState;
+use crate::widgets::{self, InstanceTile, TileSize};
 
 pub struct DetailPane {
-    root: gtk::Widget,
-    tile: gtk::Label,
+    root: gtk::Stack,
+    state: Rc<AppState>,
+    tile: InstanceTile,
     name: gtk::Label,
     meta: gtk::Label,
     chip: gtk::Label,
-    play: gtk::Button,
-    settings: gtk::Button,
-    mods_value: gtk::Label,
-    mods_badge: gtk::Label,
-    resource_pack: gtk::Label,
-    shader: gtk::Label,
-    worlds: gtk::Label,
+    favorite: gtk::Button,
+    mods: gtk::Label,
     java: gtk::Label,
+    memory: gtk::Label,
     size: gtk::Label,
     play_time: gtk::Label,
+    last_played: gtk::Label,
+    current_id: Rc<RefCell<String>>,
 }
 
 impl DetailPane {
-    pub fn new() -> Self {
-        let instance = models::current();
+    #[must_use]
+    pub fn new(state: &Rc<AppState>) -> Self {
+        let tile = InstanceTile::new(TileSize::Detail);
+        tile.widget().set_halign(gtk::Align::Center);
 
-        let hero = gtk::Box::new(gtk::Orientation::Vertical, 8);
-        hero.add_css_class("fograin-detail-hero");
-
-        let tile = widgets::tile(instance, TileSize::Detail);
-        tile.set_halign(gtk::Align::Center);
-        hero.append(&tile);
-
-        let name = gtk::Label::new(Some(instance.name));
+        let name = gtk::Label::new(None);
         name.add_css_class("title-1");
         name.set_halign(gtk::Align::Center);
         name.set_justify(gtk::Justification::Center);
-        hero.append(&name);
+        name.set_ellipsize(gtk::pango::EllipsizeMode::End);
 
-        let meta = gtk::Label::new(Some(&instance.detail_meta()));
+        let meta = gtk::Label::new(None);
         meta.add_css_class("caption");
         meta.add_css_class("dim-label");
         meta.set_halign(gtk::Align::Center);
-        hero.append(&meta);
 
-        let chip = gtk::Label::new(Some(&instance.loader_chip()));
+        let chip = gtk::Label::new(None);
         chip.add_css_class("fograin-chip");
-        chip.add_css_class(instance.loader.chip_class());
         chip.set_halign(gtk::Align::Center);
+
+        let hero = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        hero.add_css_class("fograin-detail-hero");
+        hero.append(tile.widget());
+        hero.append(&name);
+        hero.append(&meta);
         hero.append(&chip);
 
         let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         actions.set_margin_top(design::SPACING_3);
+        actions.set_halign(gtk::Align::Center);
 
-        let play = widgets::start_button(instance);
-        play.set_hexpand(true);
+        let play = gtk::Button::builder().tooltip_text("开始游戏").build();
+        let play_content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        play_content.append(&gtk::Image::from_icon_name("media-playback-start-symbolic"));
+        play_content.append(&gtk::Label::new(Some("开始游戏")));
+        play.set_child(Some(&play_content));
+        play.add_css_class("suggested-action");
         play.add_css_class("pill");
         actions.append(&play);
 
-        actions.append(&icon_button(
-            "folder-open-symbolic",
-            "打开实例目录",
-            "app.milestone",
-            "instance-folder",
-        ));
+        let folder = circular_button("folder-open-symbolic", "打开实例文件夹");
+        actions.append(&folder);
 
-        let settings = icon_button(
-            "emblem-system-symbolic",
-            "实例设置",
-            "app.instance-settings",
-            instance.id,
-        );
+        let favorite = circular_button("starred-symbolic", "收藏");
+        actions.append(&favorite);
+
+        let settings = circular_button("emblem-system-symbolic", "游戏设置");
         actions.append(&settings);
+
         hero.append(&actions);
 
-        let content_group = adw::PreferencesGroup::builder().title("内容").build();
-        let mods_value = widgets::value_label();
-        let mods_badge = widgets::badge_label();
-        content_group.add(&widgets::value_row(
-            "模组",
-            &mods_value,
-            Some(&mods_badge),
-            Some("mods"),
-        ));
-        let resource_pack = widgets::value_label();
-        content_group.add(&widgets::value_row(
-            "资源包",
-            &resource_pack,
-            None,
-            Some("resourcepacks"),
-        ));
-        let shader = widgets::value_label();
-        content_group.add(&widgets::value_row("光影", &shader, None, Some("shaders")));
-        let worlds = widgets::value_label();
-        content_group.add(&widgets::value_row("世界", &worlds, None, Some("worlds")));
+        let hint = gtk::Label::builder()
+            .label("双击列表项进入实例管理")
+            .halign(gtk::Align::Center)
+            .build();
+        hint.add_css_class("caption");
+        hint.add_css_class("dim-label");
+        hint.set_margin_top(design::SPACING_2);
 
         let info_group = adw::PreferencesGroup::builder().title("信息").build();
+        let mods = widgets::value_label();
+        info_group.add(&detail_row("模组", &mods));
         let java = widgets::value_label();
-        info_group.add(&widgets::value_row("Java", &java, None, None));
+        info_group.add(&detail_row("Java", &java));
+        let memory = widgets::value_label();
+        info_group.add(&detail_row("内存", &memory));
         let size = widgets::value_label();
-        info_group.add(&widgets::value_row("占用空间", &size, None, None));
+        info_group.add(&detail_row("占用空间", &size));
         let play_time = widgets::value_label();
-        info_group.add(&widgets::value_row("游玩时长", &play_time, None, None));
+        info_group.add(&detail_row("游玩时长", &play_time));
+        let last_played = widgets::value_label();
+        info_group.add(&detail_row("上次游玩", &last_played));
 
-        let content = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        let content = gtk::Box::new(gtk::Orientation::Vertical, design::SPACING_6);
         content.set_margin_top(design::SPACING_8);
         content.set_margin_bottom(design::SPACING_10);
         content.set_margin_start(design::SPACING_6);
         content.set_margin_end(design::SPACING_6);
         content.append(&hero);
-        content.append(&content_group);
+        content.append(&hint);
         content.append(&info_group);
 
         let clamp = adw::Clamp::new();
@@ -128,39 +123,93 @@ impl DetailPane {
             .child(&clamp)
             .build();
 
-        let pane = Self {
-            root: scroller.upcast(),
+        let empty = adw::StatusPage::builder()
+            .icon_name("view-list-symbolic")
+            .title("未选择实例")
+            .description("在列表中选择一个实例查看详情。")
+            .build();
+        empty.set_vexpand(true);
+
+        let root = gtk::Stack::new();
+        root.set_transition_type(gtk::StackTransitionType::Crossfade);
+        root.add_named(&empty, Some("empty"));
+        root.add_named(&scroller, Some("detail"));
+        root.set_visible_child_name("empty");
+
+        let current_id = Rc::new(RefCell::new(String::new()));
+        {
+            let state = Rc::clone(state);
+            let current_id = Rc::clone(&current_id);
+            play.connect_clicked(move |_| {
+                let id = current_id.borrow().clone();
+                if let Some(instance) = state.instance(&id) {
+                    state.start_game(&instance);
+                }
+            });
+        }
+        {
+            let state = Rc::clone(state);
+            let current_id = Rc::clone(&current_id);
+            folder.connect_clicked(move |_| {
+                let id = current_id.borrow().clone();
+                if let Some(instance) = state.instance(&id) {
+                    state.open_instance_folder(&instance);
+                }
+            });
+        }
+        {
+            let state = Rc::clone(state);
+            let current_id = Rc::clone(&current_id);
+            favorite.connect_clicked(move |_| {
+                let id = current_id.borrow().clone();
+                if let Some(instance) = state.instance(&id) {
+                    state.toggle_favorite(&instance);
+                }
+            });
+        }
+        {
+            let state = Rc::clone(state);
+            let current_id = Rc::clone(&current_id);
+            settings.connect_clicked(move |_| {
+                let id = current_id.borrow().clone();
+                if !id.is_empty() {
+                    state.show_instance_settings(&id);
+                }
+            });
+        }
+
+        Self {
+            root,
+            state: Rc::clone(state),
             tile,
             name,
             meta,
             chip,
-            play,
-            settings,
-            mods_value,
-            mods_badge,
-            resource_pack,
-            shader,
-            worlds,
+            favorite,
+            mods,
             java,
+            memory,
             size,
             play_time,
-        };
-        pane.show(instance);
-        pane
-    }
-
-    pub fn widget(&self) -> &gtk::Widget {
-        &self.root
-    }
-
-    pub fn show(&self, instance: &'static Instance) {
-        self.tile.set_label(instance.monogram);
-        for palette in Palette::ALL {
-            self.tile.remove_css_class(palette.class());
+            last_played,
+            current_id,
         }
-        self.tile.add_css_class(instance.palette.class());
+    }
 
-        self.name.set_label(instance.name);
+    #[must_use]
+    pub fn widget(&self) -> &gtk::Widget {
+        self.root.upcast_ref()
+    }
+
+    pub fn show(&self, instance: Option<&Instance>) {
+        let Some(instance) = instance else {
+            self.root.set_visible_child_name("empty");
+            return;
+        };
+
+        self.root.set_visible_child_name("detail");
+        self.tile.show(instance);
+        self.name.set_label(&instance.name);
         self.meta.set_label(&instance.detail_meta());
 
         for loader in LoaderKind::ALL {
@@ -169,25 +218,53 @@ impl DetailPane {
         self.chip.add_css_class(instance.loader.chip_class());
         self.chip.set_label(&instance.loader_chip());
 
-        self.play
-            .set_action_target_value(Some(&instance.id.to_variant()));
-        self.settings
-            .set_action_target_value(Some(&instance.id.to_variant()));
+        self.current_id.replace(instance.id.clone());
+        self.favorite.set_icon_name(if instance.favorite {
+            "starred-symbolic"
+        } else {
+            "non-starred-symbolic"
+        });
+        self.favorite.set_tooltip_text(Some(if instance.favorite {
+            "取消收藏"
+        } else {
+            "收藏"
+        }));
+        self.favorite.remove_css_class("warning");
+        if instance.favorite {
+            self.favorite.add_css_class("warning");
+        }
 
-        self.mods_value.set_label(&instance.mods_label());
-        self.mods_badge.set_label(&instance.mods_update_label());
-        self.mods_badge.set_visible(instance.updates > 0);
-        self.resource_pack.set_label(instance.resource_pack_label());
-        self.shader.set_label(instance.shader_label());
-        self.worlds.set_label(&instance.worlds_label());
-        self.java.set_label(instance.java);
+        self.mods.set_label(&if instance.installed {
+            instance.mods_text()
+        } else {
+            "未安装".to_owned()
+        });
+
+        let config = self.state.game_config();
+        let snapshot = self.state.app_snapshot();
+        let java = match snapshot {
+            Some(snapshot) if snapshot.java_count > 0 => {
+                format!("自动发现 · {} 个", snapshot.java_count)
+            }
+            Some(_) => "未发现 Java".to_owned(),
+            None => "扫描中…".to_owned(),
+        };
+        self.java.set_label(&java);
+
+        let memory = if config.memory_mb == 0 {
+            "自动".to_owned()
+        } else {
+            format!("{} GB", (config.memory_mb / 1024).max(1))
+        };
+        self.memory.set_label(&memory);
         self.size
             .set_label(&models::format_size(instance.size_bytes));
         self.play_time.set_label(&instance.play_time_label());
+        self.last_played.set_label(&instance.last_played_label());
     }
 }
 
-fn icon_button(icon: &str, tooltip: &str, action: &str, target: &str) -> gtk::Button {
+fn circular_button(icon: &str, tooltip: &str) -> gtk::Button {
     let button = gtk::Button::builder()
         .icon_name(icon)
         .tooltip_text(tooltip)
@@ -195,8 +272,13 @@ fn icon_button(icon: &str, tooltip: &str, action: &str, target: &str) -> gtk::Bu
         .build();
     button.add_css_class("flat");
     button.add_css_class("circular");
-    button.set_action_name(Some(action));
-    button.set_action_target_value(Some(&target.to_variant()));
     button.update_property(&[gtk::accessible::Property::Label(tooltip)]);
     button
+}
+
+fn detail_row(title: &str, value: &gtk::Label) -> adw::ActionRow {
+    let row = adw::ActionRow::builder().title(title).build();
+    value.add_css_class("dim-label");
+    row.add_suffix(value);
+    row
 }

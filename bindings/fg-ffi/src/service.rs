@@ -906,37 +906,52 @@ impl Service {
 /// play seconds once the game exits.
 async fn run_session(
     state: SessionState,
-    mut process: GameProcess,
+    process: GameProcess,
     events: Arc<EventQueue>,
     layout: Layout,
 ) {
     let mut logs = process.subscribe();
-    let mut timed_out = false;
-    loop {
-        tokio::select! {
-            event = logs.recv() => {
-                match event {
-                    Ok(GameEvent::Started { .. }) => {}
-                    Ok(GameEvent::Line { text, .. }) => {
-                        events.push_game_line(&state.instance_id, &text);
-                    }
-                    Ok(GameEvent::WindowReady) => {
-                        events.push_game_window_ready(&state.instance_id);
-                    }
-                    Ok(GameEvent::Exited { code, .. }) => {
-                        finish_session(&state, code, events, layout).await;
-                        return;
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        tracing::warn!(target: "fg_ffi", "dropped {n} game log lines");
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+    let log_events = events.clone();
+    let instance_id = state.instance_id.clone();
+    let log_task = tokio::spawn(async move {
+        loop {
+            match logs.recv().await {
+                Ok(GameEvent::Line { text, .. }) => {
+                    log_events.push_game_line(&instance_id, &text);
                 }
+                Ok(GameEvent::WindowReady) => {
+                    log_events.push_game_window_ready(&instance_id);
+                }
+                Ok(_) => {}
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::warn!(target: "fg_ffi", "dropped {n} game log lines");
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
-            _ = state.stop.notified(), if !timed_out => {
-                timed_out = true;
-                let _ = process.kill();
-            }
+        }
+    });
+
+    // `wait_with_kill` owns the child handle, so a stop request is delivered as
+    // a future instead of racing a log receiver. Without this waiter a clean
+    // exit or a requested stop never produced `game.exited`, leaving
+    // `play_seconds` stale and the UI's stop button stuck.
+    let stop = state.stop.clone();
+    let exit = process
+        .wait_with_kill(async move { stop.notified().await })
+        .await;
+    let _ = log_task.await;
+
+    match exit {
+        Ok(game_exit) => {
+            finish_session(&state, game_exit.code, events, layout).await;
+        }
+        Err(error) => {
+            tracing::warn!(
+                target: "fg_ffi",
+                "session watcher failed for {}: {error}",
+                state.instance_id
+            );
+            finish_session(&state, None, events, layout).await;
         }
     }
 }

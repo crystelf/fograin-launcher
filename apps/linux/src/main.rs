@@ -1,17 +1,21 @@
 //! Native GNOME client for Fograin Launcher: GTK4 + libadwaita.
 //!
-//! The M1 shell owns the window, navigation, theme and static fixtures. The
-//! Rust core (`fg-*`) is linked directly, as the design allows for the Linux
-//! client; business logic arrives in M3/M4.
+//! The M4 shell owns the window, navigation, theme and the launcher state. The
+//! Rust core is linked directly through `fg-ffi`'s service, as the design allows
+//! for the Linux client; RPCs run on worker threads and the GTK loop pumps their
+//! results and the core event queue.
 
 mod app;
+mod core;
 mod design;
 mod dev;
+mod dialogs;
 mod events;
 mod models;
 mod navigation;
 mod pages;
 mod platform;
+mod state;
 mod widgets;
 
 use adw::prelude::*;
@@ -21,6 +25,7 @@ const APP_ID: &str = "com.fograin.launcher";
 
 fn main() -> glib::ExitCode {
     let screenshot = dev::requested();
+    let size = dev::requested_size();
     let application = adw::Application::builder().application_id(APP_ID).build();
 
     application.connect_startup(|_| {
@@ -36,7 +41,7 @@ fn main() -> glib::ExitCode {
             return;
         }
 
-        app::build_ui(application);
+        app::build_ui(application, size);
         let Some(window) = application.active_window() else {
             return;
         };
