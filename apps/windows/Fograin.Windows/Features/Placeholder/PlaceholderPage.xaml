@@ -38,12 +38,12 @@
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </Viewbox>
             <TextBlock
-                Text="M1 原型外壳"
+                Text="后续里程碑接入"
                 HorizontalAlignment="Center"
                 Style="{StaticResource SubtitleTextBlockStyle}" />
             <TextBlock
-                MaxWidth="380"
-                Text="这一页会在后续里程碑接入；当前阶段先验证原生窗口、导航、主题与设计令牌。"
+                MaxWidth="420"
+                Text="这一页会在后续里程碑接入。主页、实例库、下载与游戏设置已经接入启动器核心。"
                 TextAlignment="Center"
                 TextWrapping="Wrap"
                 FontSize="13"
@@ -54,6 +54,7 @@
             x:Name="CoreStatusText"
             Grid.Row="2"
             Style="{StaticResource CaptionTextBlockStyle}"
-            Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+            TextWrapping="Wrap" />
     </Grid>
 </Page>

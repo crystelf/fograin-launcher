@@ -9,14 +9,14 @@
     mc:Ignorable="d"
     Background="Transparent">
 
-    <Grid Padding="36,28" RowSpacing="24">
+    <Grid Padding="32,24" RowSpacing="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- Page header -->
-        <Grid Height="60">
+        <!-- Page header: sort order replaces the macOS toolbar menu. -->
+        <Grid Height="56">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -25,7 +25,7 @@
             <StackPanel VerticalAlignment="Bottom" Spacing="2">
                 <TextBlock Text="实例库" Style="{StaticResource TitleTextBlockStyle}" />
                 <TextBlock
-                    Text="{x:Bind ViewModel.PageCaption}"
+                    Text="{x:Bind Model.LibrarySubtitle, Mode=OneWay}"
                     Style="{StaticResource CaptionTextBlockStyle}"
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </StackPanel>
@@ -33,9 +33,14 @@
             <StackPanel
                 Grid.Column="1"
                 Orientation="Horizontal"
-                Spacing="4"
+                Spacing="6"
                 VerticalAlignment="Bottom">
-                <Button Style="{StaticResource AccentButtonStyle}" Height="32" Padding="12,0" FontSize="13">
+                <Button
+                    Style="{StaticResource AccentButtonStyle}"
+                    Height="32"
+                    Padding="12,0"
+                    FontSize="13"
+                    Click="AddInstance_Click">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Viewbox Width="14" Height="14">
                             <SymbolIcon
@@ -43,69 +48,34 @@
                                 Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
                         </Viewbox>
                         <TextBlock
-                            Text="新建实例"
+                            Text="添加实例"
                             FontSize="13"
                             Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
                     </StackPanel>
                 </Button>
-                <Button Style="{StaticResource FograinCommandButtonStyle}" Click="ImportPackage_Click">
+                <Button
+                    Style="{StaticResource FograinCommandButtonStyle}"
+                    Click="ImportDirectory_Click"
+                    ToolTipService.ToolTip="登记一个已有的 .minecraft 目录">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Viewbox Width="14" Height="14">
                             <SymbolIcon Symbol="Upload" />
                         </Viewbox>
-                        <TextBlock Text="导入整合包" FontSize="13" />
+                        <TextBlock Text="导入 .minecraft" FontSize="13" />
                     </StackPanel>
                 </Button>
-                <Button Style="{StaticResource FograinCommandButtonStyle}" Click="GameDirectory_Click">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Viewbox Width="14" Height="14">
-                            <SymbolIcon Symbol="Folder" />
-                        </Viewbox>
-                        <TextBlock Text="游戏目录" FontSize="13" />
-                    </StackPanel>
-                </Button>
-                <Rectangle
-                    Width="1"
-                    Height="20"
-                    Margin="8,0"
-                    Fill="{ThemeResource DividerStrokeColorDefaultBrush}"
-                    VerticalAlignment="Center" />
-                <ComboBox Width="128" Height="32" SelectedIndex="0" ToolTipService.ToolTip="排序方式">
+                <ComboBox
+                    x:Name="SortComboBox"
+                    Width="132"
+                    Height="32"
+                    SelectedIndex="0"
+                    VerticalAlignment="Center"
+                    ToolTipService.ToolTip="排序方式"
+                    SelectionChanged="SortComboBox_SelectionChanged">
                     <ComboBoxItem Content="上次游玩" />
                     <ComboBoxItem Content="名称" />
                     <ComboBoxItem Content="占用空间" />
                 </ComboBox>
-                <Border
-                    Background="{ThemeResource ControlFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
-                    BorderThickness="1"
-                    CornerRadius="4"
-                    Padding="2"
-                    Height="32">
-                    <StackPanel Orientation="Horizontal">
-                        <ToggleButton
-                            Width="30"
-                            Height="26"
-                            Padding="0"
-                            CornerRadius="3"
-                            ToolTipService.ToolTip="网格视图">
-                            <Viewbox Width="14" Height="14">
-                                <SymbolIcon Symbol="AllApps" />
-                            </Viewbox>
-                        </ToggleButton>
-                        <ToggleButton
-                            Width="30"
-                            Height="26"
-                            Padding="0"
-                            CornerRadius="3"
-                            IsChecked="True"
-                            ToolTipService.ToolTip="列表视图">
-                            <Viewbox Width="14" Height="14">
-                                <SymbolIcon Symbol="List" />
-                            </Viewbox>
-                        </ToggleButton>
-                    </StackPanel>
-                </Border>
             </StackPanel>
         </Grid>
 
@@ -115,45 +85,16 @@
                 <ColumnDefinition Width="320" />
             </Grid.ColumnDefinitions>
 
+            <!-- Grouped instance table (native ListView grouping by loader). -->
             <Grid RowSpacing="0">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <Grid Height="28">
-                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                        <TextBlock Text="全部实例" FontSize="14" FontWeight="SemiBold" />
-                        <Border
-                            Background="{ThemeResource SubtleFillColorSecondaryBrush}"
-                            CornerRadius="9"
-                            Height="18"
-                            Padding="7,0"
-                            VerticalAlignment="Center">
-                            <TextBlock
-                                Text="8"
-                                FontSize="11"
-                                VerticalAlignment="Center"
-                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        </Border>
-                    </StackPanel>
-                    <DropDownButton
-                        Content="按加载器分组"
-                        HorizontalAlignment="Right"
-                        VerticalAlignment="Center"
-                        Height="28"
-                        Padding="8,0"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        FontSize="12"
-                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                </Grid>
-
-                <Grid Grid.Row="1" Height="26" Padding="12,0">
+                <Grid Height="26" Padding="12,0">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="28" />
+                        <ColumnDefinition Width="30" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="80" />
                         <ColumnDefinition Width="56" />
@@ -170,7 +111,7 @@
                         Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                     <TextBlock
                         Grid.Column="2"
-                        Text="版本"
+                        Text="游戏版本"
                         FontSize="11"
                         FontWeight="SemiBold"
                         VerticalAlignment="Center"
@@ -200,15 +141,16 @@
 
                 <ListView
                     x:Name="LibraryList"
-                    Grid.Row="2"
+                    Grid.Row="1"
                     SelectionMode="Single"
+                    ItemContainerStyle="{StaticResource FograinLibraryRowStyle}"
                     SelectionChanged="LibraryList_SelectionChanged"
-                    ItemContainerStyle="{StaticResource FograinLibraryRowStyle}">
+                    DoubleTapped="LibraryList_DoubleTapped">
                     <ListView.ItemTemplate>
-                        <DataTemplate x:DataType="models:Instance">
+                        <DataTemplate x:DataType="models:InstanceRow">
                             <Grid Height="44" Padding="12,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="28" />
+                                    <ColumnDefinition Width="30" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="80" />
                                     <ColumnDefinition Width="56" />
@@ -221,8 +163,8 @@
                                     Width="28"
                                     Height="28"
                                     CornerRadius="4"
-                                    Background="{ThemeResource SubtleFillColorSecondaryBrush}"
-                                    VerticalAlignment="Center">
+                                    VerticalAlignment="Center"
+                                    Background="{ThemeResource SubtleFillColorSecondaryBrush}">
                                     <Viewbox Width="14" Height="14">
                                         <SymbolIcon
                                             Symbol="{x:Bind Icon}"
@@ -235,10 +177,10 @@
                                     Orientation="Horizontal"
                                     Spacing="6"
                                     VerticalAlignment="Center">
-                                    <TextBlock Text="{x:Bind Name}" FontSize="14" />
+                                    <TextBlock Text="{x:Bind Name}" FontSize="13" TextTrimming="CharacterEllipsis" />
                                     <FontIcon
                                         Glyph="&#xE735;"
-                                        FontSize="10"
+                                        FontSize="9"
                                         VerticalAlignment="Center"
                                         Visibility="{x:Bind FavoriteVisibility}"
                                         Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
@@ -246,13 +188,13 @@
 
                                 <TextBlock
                                     Grid.Column="2"
-                                    Text="{x:Bind MinecraftVersion}"
+                                    Text="{x:Bind Minecraft}"
                                     FontSize="12"
                                     VerticalAlignment="Center"
                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 <TextBlock
                                     Grid.Column="3"
-                                    Text="{x:Bind ModCountText}"
+                                    Text="{x:Bind ModsText}"
                                     FontSize="12"
                                     VerticalAlignment="Center"
                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
@@ -274,10 +216,29 @@
                                     Style="{StaticResource FograinIconButtonStyle}"
                                     Width="28"
                                     Height="28"
-                                    ToolTipService.ToolTip="更多">
-                                    <Viewbox Width="14" Height="14">
-                                        <SymbolIcon Symbol="More" />
-                                    </Viewbox>
+                                    ToolTipService.ToolTip="更多操作">
+                                    <SymbolIcon Symbol="More" />
+                                    <Button.Flyout>
+                                        <MenuFlyout>
+                                            <MenuFlyoutItem
+                                                Text="开始游戏"
+                                                Tag="{x:Bind Id}"
+                                                Click="RowPlay_Click" />
+                                            <MenuFlyoutItem
+                                                Text="管理实例…"
+                                                Tag="{x:Bind Id}"
+                                                Click="RowManage_Click" />
+                                            <MenuFlyoutSeparator />
+                                            <MenuFlyoutItem
+                                                Text="打开实例文件夹"
+                                                Tag="{x:Bind Id}"
+                                                Click="RowOpenFolder_Click" />
+                                            <MenuFlyoutItem
+                                                Text="{x:Bind FavoriteActionText}"
+                                                Tag="{x:Bind Id}"
+                                                Click="RowToggleFavorite_Click" />
+                                        </MenuFlyout>
+                                    </Button.Flyout>
                                 </Button>
                             </Grid>
                         </DataTemplate>
@@ -298,7 +259,7 @@
                                             VerticalAlignment="Center"
                                             Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                         <TextBlock
-                                            Text="{x:Bind Loader}"
+                                            Text="{x:Bind Title}"
                                             FontSize="13"
                                             FontWeight="SemiBold"
                                             VerticalAlignment="Center" />
@@ -321,99 +282,64 @@
                     </ListView.GroupStyle>
                 </ListView>
 
-                <TextBlock
-                    Grid.Row="3"
-                    Margin="12,8,0,0"
-                    Text="双击列表项进入实例管理"
-                    FontSize="11"
-                    Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                <!-- Empty / filtered-out state. -->
+                <StackPanel
+                    Grid.Row="1"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Spacing="8"
+                    Visibility="{x:Bind Model.LibraryEmptyVisibility, Mode=OneWay}">
+                    <TextBlock
+                        Text="没有匹配的实例"
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        HorizontalAlignment="Center" />
+                    <TextBlock
+                        Text="试试其他关键字，或添加第一个实例。"
+                        Style="{StaticResource FograinMutedTextStyle}"
+                        HorizontalAlignment="Center" />
+                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" Margin="0,6,0,0">
+                        <Button Content="清除搜索" Style="{StaticResource FograinCommandButtonStyle}" Click="ClearSearch_Click" />
+                        <Button Content="添加实例" Style="{StaticResource AccentButtonStyle}" Height="32" Padding="14,0" Click="AddInstance_Click" />
+                    </StackPanel>
+                </StackPanel>
             </Grid>
 
-            <!-- Quick preview: native controls only; selection drives the content. -->
-            <Border
-                Grid.Column="1"
-                Style="{StaticResource FograinCardStyle}"
-                VerticalAlignment="Top">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="150" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-
-                    <Grid>
-                        <Image Source="ms-appx:///Assets/hero-forest.jpg" Stretch="UniformToFill" />
-                        <Border
-                            HorizontalAlignment="Left"
-                            VerticalAlignment="Top"
-                            Margin="12"
-                            Padding="9,4"
-                            CornerRadius="4"
-                            Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}"
-                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            BorderThickness="1">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <Ellipse
-                                    Width="6"
-                                    Height="6"
-                                    VerticalAlignment="Center"
-                                    Fill="{ThemeResource SystemFillColorSuccessBrush}" />
-                                <TextBlock Text="已就绪" FontSize="11" />
-                            </StackPanel>
+            <!-- Inspector column: selection drives the preview. -->
+            <Grid Grid.Column="1">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="14" Visibility="{x:Bind Model.PreviewVisibility, Mode=OneWay}">
+                        <Border Height="140" CornerRadius="10">
+                            <Grid>
+                                <Image Source="ms-appx:///Assets/hero-forest.jpg" Stretch="UniformToFill" />
+                                <Border Background="{StaticResource FograinHeroScrimBrush}" />
+                                <StackPanel
+                                    VerticalAlignment="Bottom"
+                                    Padding="14,0,14,12"
+                                    Spacing="2">
+                                    <TextBlock
+                                        Text="{x:Bind Model.SelectedName, Mode=OneWay}"
+                                        FontSize="16"
+                                        FontWeight="SemiBold"
+                                        Foreground="White"
+                                        TextTrimming="CharacterEllipsis" />
+                                    <TextBlock
+                                        Text="{x:Bind Model.SelectedSubtitle, Mode=OneWay}"
+                                        FontSize="11"
+                                        Foreground="#CCFFFFFF"
+                                        TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                            </Grid>
                         </Border>
-                    </Grid>
-
-                    <StackPanel Grid.Row="1" Padding="16" Spacing="12">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock
-                                Text="{x:Bind ViewModel.SelectedInstance.Name, Mode=OneWay}"
-                                Style="{StaticResource SubtitleTextBlockStyle}"
-                                TextTrimming="CharacterEllipsis"
-                                VerticalAlignment="Center" />
-                            <Button
-                                Grid.Column="1"
-                                HorizontalAlignment="Right"
-                                Style="{StaticResource FograinIconButtonStyle}"
-                                Width="28"
-                                Height="28"
-                                Visibility="{x:Bind ViewModel.SelectedInstance.FavoriteVisibility, Mode=OneWay}"
-                                ToolTipService.ToolTip="收藏">
-                                <FontIcon
-                                    Glyph="&#xE735;"
-                                    FontSize="14"
-                                    Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
-                            </Button>
-                        </Grid>
-
-                        <TextBlock
-                            Text="{x:Bind ViewModel.SelectedInstance.Subtitle, Mode=OneWay}"
-                            FontSize="12"
-                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
 
                         <StackPanel Orientation="Horizontal" Spacing="6">
-                            <Ellipse
-                                Width="6"
-                                Height="6"
-                                VerticalAlignment="Center"
-                                Fill="{ThemeResource SystemFillColorSuccessBrush}" />
-                            <TextBlock
-                                Text="{x:Bind ViewModel.SelectedInstance.StatusDetail, Mode=OneWay}"
-                                FontSize="11"
-                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        </StackPanel>
-
-                        <Grid ColumnSpacing="8" Height="34">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="34" />
-                                <ColumnDefinition Width="34" />
-                            </Grid.ColumnDefinitions>
-                            <Button Style="{StaticResource AccentButtonStyle}" Height="34" HorizontalAlignment="Stretch">
+                            <Button
+                                Style="{StaticResource AccentButtonStyle}"
+                                Height="32"
+                                Padding="14,0"
+                                IsEnabled="{x:Bind Model.HasSelectedInstance, Mode=OneWay}"
+                                Click="PreviewPlay_Click">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <Viewbox Width="14" Height="14">
+                                    <Viewbox Width="13" Height="13">
                                         <SymbolIcon
                                             Symbol="Play"
                                             Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
@@ -425,37 +351,48 @@
                                 </StackPanel>
                             </Button>
                             <Button
-                                Grid.Column="1"
                                 Style="{StaticResource FograinIconButtonStyle}"
-                                Width="34"
-                                Height="34"
-                                Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
-                                BorderThickness="1"
-                                ToolTipService.ToolTip="实例设置">
-                                <Viewbox Width="15" Height="15">
+                                Width="32"
+                                Height="32"
+                                IsEnabled="{x:Bind Model.HasSelectedInstance, Mode=OneWay}"
+                                Click="PreviewManage_Click"
+                                ToolTipService.ToolTip="管理实例">
+                                <Viewbox Width="14" Height="14">
                                     <SymbolIcon Symbol="Setting" />
                                 </Viewbox>
                             </Button>
                             <Button
-                                Grid.Column="2"
                                 Style="{StaticResource FograinIconButtonStyle}"
-                                Width="34"
-                                Height="34"
-                                Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
-                                BorderThickness="1"
-                                ToolTipService.ToolTip="打开实例目录">
-                                <Viewbox Width="15" Height="15">
+                                Width="32"
+                                Height="32"
+                                IsEnabled="{x:Bind Model.HasSelectedInstance, Mode=OneWay}"
+                                Click="PreviewFolder_Click"
+                                ToolTipService.ToolTip="打开实例文件夹">
+                                <Viewbox Width="14" Height="14">
                                     <SymbolIcon Symbol="Folder" />
                                 </Viewbox>
                             </Button>
-                        </Grid>
+                            <Button
+                                Style="{StaticResource FograinIconButtonStyle}"
+                                Width="32"
+                                Height="32"
+                                IsEnabled="{x:Bind Model.HasSelectedInstance, Mode=OneWay}"
+                                Click="PreviewFavorite_Click"
+                                ToolTipService.ToolTip="收藏 / 取消收藏"
+                                Opacity="{x:Bind Model.SelectedFavoriteOpacity, Mode=OneWay}">
+                                <FontIcon Glyph="&#xE735;" FontSize="14" />
+                            </Button>
+                        </StackPanel>
+
+                        <TextBlock
+                            Text="双击列表项进入实例管理"
+                            Style="{StaticResource FograinTinyTextStyle}" />
 
                         <Rectangle Height="1" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
 
-                        <Grid RowSpacing="6">
+                        <Grid ColumnSpacing="10" RowSpacing="8">
                             <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
@@ -464,92 +401,100 @@
                                 <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="68" />
+                                <ColumnDefinition Width="72" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
 
-                            <TextBlock Text="模组" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Text="游戏版本" Style="{StaticResource FograinKeyTextStyle}" />
                             <TextBlock
                                 Grid.Column="1"
-                                Text="{x:Bind ViewModel.SelectedInstance.ModsDetail, Mode=OneWay}"
-                                FontSize="12"
+                                Text="{x:Bind Model.SelectedMinecraftText, Mode=OneWay}"
+                                Style="{StaticResource FograinValueTextStyle}"
                                 TextTrimming="CharacterEllipsis" />
 
-                            <TextBlock Grid.Row="1" Text="资源包" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Grid.Row="1" Text="加载器" Style="{StaticResource FograinKeyTextStyle}" />
                             <TextBlock
                                 Grid.Row="1"
                                 Grid.Column="1"
-                                Text="{x:Bind ViewModel.SelectedInstance.ResourcePacksText, Mode=OneWay}"
-                                FontSize="12" />
+                                Text="{x:Bind Model.SelectedLoaderText, Mode=OneWay}"
+                                Style="{StaticResource FograinValueTextStyle}"
+                                TextTrimming="CharacterEllipsis" />
 
-                            <TextBlock Grid.Row="2" Text="光影" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Grid.Row="2" Text="模组" Style="{StaticResource FograinKeyTextStyle}" />
                             <TextBlock
                                 Grid.Row="2"
                                 Grid.Column="1"
-                                Text="{x:Bind ViewModel.SelectedInstance.ShadersText, Mode=OneWay}"
-                                FontSize="12" />
+                                Text="{x:Bind Model.SelectedModsText, Mode=OneWay}"
+                                Style="{StaticResource FograinValueTextStyle}" />
 
-                            <TextBlock Grid.Row="3" Text="世界" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Grid.Row="3" Text="内存" Style="{StaticResource FograinKeyTextStyle}" />
                             <TextBlock
                                 Grid.Row="3"
                                 Grid.Column="1"
-                                Text="{x:Bind ViewModel.SelectedInstance.WorldsText, Mode=OneWay}"
-                                FontSize="12" />
+                                Text="{x:Bind Model.MemorySummary, Mode=OneWay}"
+                                Style="{StaticResource FograinValueTextStyle}"
+                                TextTrimming="CharacterEllipsis" />
 
-                            <TextBlock Grid.Row="4" Text="占用空间" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Grid.Row="4" Text="占用空间" Style="{StaticResource FograinKeyTextStyle}" />
                             <TextBlock
                                 Grid.Row="4"
                                 Grid.Column="1"
-                                Text="{x:Bind ViewModel.SelectedInstance.SizeText, Mode=OneWay}"
-                                FontSize="12" />
+                                Text="{x:Bind Model.SelectedSizeText, Mode=OneWay}"
+                                Style="{StaticResource FograinValueTextStyle}" />
 
-                            <TextBlock Grid.Row="5" Text="游玩时长" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Grid.Row="5" Text="游玩时长" Style="{StaticResource FograinKeyTextStyle}" />
                             <TextBlock
                                 Grid.Row="5"
                                 Grid.Column="1"
-                                Text="{x:Bind ViewModel.SelectedInstance.PlayTimeText, Mode=OneWay}"
-                                FontSize="12" />
+                                Text="{x:Bind Model.SelectedPlayTimeText, Mode=OneWay}"
+                                Style="{StaticResource FograinValueTextStyle}" />
+
+                            <TextBlock Grid.Row="6" Text="上次游玩" Style="{StaticResource FograinKeyTextStyle}" />
+                            <TextBlock
+                                Grid.Row="6"
+                                Grid.Column="1"
+                                Text="{x:Bind Model.SelectedLastPlayedText, Mode=OneWay}"
+                                Style="{StaticResource FograinValueTextStyle}" />
                         </Grid>
 
-                        <Border
-                            Background="{ThemeResource SystemFillColorAttentionBackgroundBrush}"
-                            CornerRadius="6"
-                            Padding="10,9"
-                            Visibility="{x:Bind ViewModel.SelectedInstance.UpdateVisibility, Mode=OneWay}">
-                            <Grid ColumnSpacing="10">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <Viewbox
-                                    Width="16"
-                                    Height="16"
-                                    VerticalAlignment="Center">
-                                    <SymbolIcon
-                                        Symbol="Refresh"
-                                        Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
-                                </Viewbox>
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                    <TextBlock
-                                        Text="{x:Bind ViewModel.SelectedInstance.UpdateTitle, Mode=OneWay}"
-                                        FontSize="12"
-                                        FontWeight="SemiBold" />
-                                    <TextBlock
-                                        Text="{x:Bind ViewModel.SelectedInstance.UpdateDetail, Mode=OneWay}"
-                                        FontSize="11"
-                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                </StackPanel>
-                                <Button
-                                    Grid.Column="2"
-                                    Content="更新"
-                                    Style="{StaticResource FograinSmallButtonStyle}"
-                                    VerticalAlignment="Center" />
-                            </Grid>
-                        </Border>
+                        <Rectangle Height="1" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="状态" Style="{StaticResource FograinKeyTextStyle}" />
+                            <TextBlock
+                                Text="{x:Bind Model.SelectedStatusText, Mode=OneWay}"
+                                Style="{StaticResource FograinValueTextStyle}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
                     </StackPanel>
-                </Grid>
-            </Border>
+                </ScrollViewer>
+
+                <StackPanel
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Spacing="8"
+                    Visibility="{x:Bind Model.NoPreviewVisibility, Mode=OneWay}">
+                    <TextBlock
+                        Text="未选择实例"
+                        Style="{StaticResource SubtitleTextBlockStyle}"
+                        HorizontalAlignment="Center" />
+                    <TextBlock
+                        Text="在左侧列表中选择一个实例查看详情。"
+                        Style="{StaticResource FograinMutedTextStyle}"
+                        HorizontalAlignment="Center" />
+                </StackPanel>
+            </Grid>
+        </Grid>
+
+        <Grid
+            Grid.RowSpan="2"
+            Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+            Opacity="0.92"
+            Visibility="{x:Bind Model.LoadingVisibility, Mode=OneWay}">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                <ProgressRing Width="24" Height="24" IsActive="True" />
+                <TextBlock Text="正在读取实例…" Style="{StaticResource FograinMutedTextStyle}" />
+            </StackPanel>
         </Grid>
     </Grid>
 </Page>

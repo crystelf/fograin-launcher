@@ -3,36 +3,50 @@
 Native Windows 11 client: C# + WinUI 3 (Windows App SDK), Mica backdrop, the
 native WinUI `TitleBar` control and `NavigationView`.
 
-## Status: M1 native shell
+## Status: M4 wiring (code-level)
 
-Milestone M1 (docs/design.md §14) is a prototype of the native shell. It covers:
+M4 (docs/design.md §14) is delivered for the Rust core and macOS. The Windows
+client now consumes the same `fg-ffi` C ABI and mirrors the macOS flow:
 
-- **Window** — native `TitleBar` control with system caption buttons (so
-  Windows 11 Snap Layouts work), Tall caption height, Mica backdrop, native
-  app icon and a native search box in the title bar.
-- **Navigation** — `NavigationView` with the same information architecture as
-  the Windows 11 reference frames in `fograin.pen`: 主页 / 实例库 / 服务器,
-  the 资源 group (下载 / Java 运行时) and 账户 / 设置 in the footer.
-- **Theme** — the Rust core is read through `fg_ffi.dll` before the first
-  window is created; `appearance.theme` is applied with
-  `Application.RequestedTheme` so the first frame uses the right appearance.
-  Without the DLL the shell starts with the system theme and says so on the
-  placeholder pages.
-- **主页 / 实例库** — implemented with static sample data (`Models/SampleData.cs`).
-  Both use native controls only: `ListView`, `SelectorBar`, `ComboBox`,
-  `AutoSuggestBox`, `ProgressBar`, `PersonPicture`, `InfoBadge`.
-- **File pickers** — 导入整合包 and 游戏目录 open the native
-  `FileOpenPicker` / `FolderPicker` through `WinRT.Interop` to prove the HWND
-  interop. No import logic yet.
-- **Other pages** — native placeholders that state which milestone will fill
-  them in.
+- **Startup** — `fg_settings_snapshot` is read before the first window; the
+  configured theme is applied to `Application.RequestedTheme`. Without
+  `fg_ffi.dll` the shell starts with empty data and an `InfoBar` warning.
+- **主页** — live current-instance hero with play/stop/settings/folder actions,
+  a 最近/收藏/全部 instance list (list or grid layout) and the queue / runtime /
+  release-headlines rail. `app.snapshot`, `gameConfig.get`, `versions.news` feed
+  the rail; `task.*` events drive the queue and the taskbar progress.
+- **实例库** — grouped live instance table (Fabric / Forge / NeoForge / 原版),
+  sort menu, title-bar search, preview inspector with play, settings, folder and
+  favorite actions. Double-click opens 游戏设置.
+- **下载** — HMCL/PCL flow: category switcher (游戏 / 模组 / 整合包 / 资源包 /
+  光影 / 数据包), version channel menu (正式版 / 快照 / 愚人节 / 远古版本),
+  version search, `version.plan` preview, install dialog (version, loader cards,
+  loader version placeholder, instance name) and the live task queue.
+- **游戏设置** — memory, JVM arguments, fullscreen and resolution write the
+  instance `[override]` section through `instances.settings.set`; `null` inherits
+  `[game]`. Content rows owned by M8/M9 stay disabled. Maintenance can open the
+  game directory or delete the instance.
+- **Sessions** — `launch.start`, `session.stop`, `game.started`,
+  `game.windowReady` and `game.exited` update the play/stop state, notices and
+  `play_seconds` (the row refreshes through `instances.list`).
+- **Import** — 游戏目录 opens the native `FolderPicker` and registers an existing
+  `.minecraft` through `instances.import` without moving files.
 
-Not in this milestone: real core data, launching, downloads, accounts,
-settings UI, MSIX packaging, UI automation tests.
+Play/stop lives on the 主页 hero row rather than inside `TitleBar.Content`
+(WinUI centers that slot): the information architecture and user path match the
+macOS toolbar capsule, the chrome follows Windows conventions.
+
+> **Verification caveat.** This change was prepared on macOS, where WinUI 3
+> cannot be built or run (the Windows App SDK XAML compiler calls Windows-only
+> APIs). The C# was compiled with Roslyn against the Windows App SDK 1.7 /
+> Windows SDK projection assemblies, and the XAML was checked statically for
+> binding paths, resources, event-handler signatures, enum values and element
+> properties. The Windows CI job remains the first real `msbuild` execution; UI
+> behaviour has not been exercised on Windows.
 
 ## Build
 
-Requires Windows 10 1809+ and the .NET 8 SDK. Windows 11 is the M1 target
+Requires Windows 10 1809+ and the .NET 8 SDK. Windows 11 is the M4 target
 (Mica, Snap Layouts and the tall title bar need Windows 11).
 
 ```powershell
@@ -55,7 +69,7 @@ CI uses the same MSBuild invocation (`.github/workflows/ci.yml`) and uploads
 The project is unpackaged (`WindowsPackageType=None`) with a self-contained
 Windows App SDK; MSIX packaging is a later release step.
 
-The shell works without the Rust core, but to exercise the settings snapshot:
+The shell works without the Rust core, but every data page needs it:
 
 ```powershell
 cargo build --release -p fg-ffi
@@ -71,14 +85,16 @@ the P/Invoke wiring is visible without opening a debugger.
 | Path | Purpose |
 | --- | --- |
 | `App.xaml(.cs)` | startup, core snapshot, theme, shared control styles |
-| `MainWindow.xaml(.cs)` | TitleBar, NavigationView, page navigation |
-| `Core/` | fg-ffi P/Invoke bridge and the settings snapshot |
-| `Models/` | instance models and M1 sample data |
-| `ViewModels/` | home and library view data |
+| `MainWindow.xaml(.cs)` | TitleBar, NavigationView, page navigation, notice InfoBar, dialogs, badges, taskbar progress |
+| `Core/` | fg-ffi P/Invoke bridge (`CoreBridge`), JSON wire models (`CoreWire`), settings and error payloads |
+| `App/` | `LauncherModel` (macOS `AppModel` equivalent), section metadata |
+| `Models/` | presentation rows (instances, tasks, versions), formatting, loader families |
 | `Features/Home/` | 主页 |
 | `Features/Library/` | 实例库 with grouped list and preview |
+| `Features/Downloads/` | 下载 page and the install dialog |
+| `Features/Instances/` | 游戏设置 dialog |
 | `Features/Placeholder/` | pages owned by later milestones |
-| `Platform/` | AppWindow sizing and native pickers |
+| `Platform/` | AppWindow sizing, DWM chrome, native pickers, taskbar progress |
 | `Assets/` | imagery exported from the pen file and the app icon |
 
 ## Rules
@@ -86,9 +102,9 @@ the P/Invoke wiring is visible without opening a debugger.
 - No WebView; no HTML/CSS.
 - Use WinUI 3 controls; do not reimplement native controls or caption buttons
   in XAML.
-- Colors and type come from WinUI theme resources (and `design/tokens.json`
-  when a value is not part of the Fluent ramp); the accent is the user's
-  system accent.
+- Colours and type come from WinUI theme resources (and `design/tokens.json`
+  when a value is not part of the Fluent ramp); the accent is the user's system
+  accent.
 - `SymbolIcon` has no `FontSize` (it derives from `IconElement :
   FrameworkElement`, not `Control`). To size one, wrap it in a `Viewbox` with
   the target `Width`/`Height`; `FontIcon` is the alternative when the glyph is

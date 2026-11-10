@@ -10,8 +10,8 @@ namespace Fograin.Windows.Platform;
 /// <summary>Window sizing and centering through the native AppWindow API.</summary>
 public static class WindowSizing
 {
-    // The reference window in fograin.pen is 1400x880 DIP; keep the M1 shell at
-    // the same content size.
+    // The reference window in fograin.pen is 1400x880 DIP; keep the shell at the
+    // same content size.
     private const int DesignWidth = 1400;
     private const int DesignHeight = 880;
 

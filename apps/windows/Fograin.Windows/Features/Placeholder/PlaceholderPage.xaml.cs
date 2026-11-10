@@ -3,7 +3,7 @@ using Microsoft.UI.Xaml.Navigation;
 
 namespace Fograin.Windows.Features.Placeholder;
 
-/// <summary>Navigation payload for a page that is not part of M1.</summary>
+/// <summary>Navigation payload for a page owned by a later milestone.</summary>
 public sealed record PlaceholderArgs(string Title, string Caption, Symbol Icon);
 
 public sealed partial class PlaceholderPage : Page
@@ -26,7 +26,7 @@ public sealed partial class PlaceholderPage : Page
 
         var settings = App.Current.Settings;
         CoreStatusText.Text = settings.FromCore
-            ? $"M1 原型 · 启动器核心 ABI v{settings.AbiVersion} · 主题：{settings.ThemeLabel}"
-            : "M1 原型 · 未连接启动器核心（fg_ffi.dll 未找到）";
+            ? $"M4 · 启动器核心 ABI v{settings.AbiVersion} · 主题：{settings.ThemeLabel} · 数据目录：{settings.DataRoot}"
+            : "M4 · 未连接启动器核心（fg_ffi.dll 未找到），界面以空数据运行";
     }
 }

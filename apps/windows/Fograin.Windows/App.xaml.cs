@@ -1,4 +1,6 @@
+using Fograin.Windows.Shell;
 using Fograin.Windows.Core;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 
 namespace Fograin.Windows;
@@ -20,10 +22,20 @@ public partial class App : Application
     /// <summary>Snapshot read from the Rust core before the first window exists.</summary>
     public CoreSettingsSnapshot Settings { get; private set; } = CoreSettingsSnapshot.Fallback;
 
+    /// <summary>
+    /// Process-wide launcher state. Created on the UI thread in
+    /// <see cref="OnLaunched"/> before the shell is constructed.
+    /// </summary>
+    public static LauncherModel Model { get; private set; } = null!;
+
     public static MainWindow? Shell { get; private set; }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        var dispatcher = DispatcherQueue.GetForCurrentThread()
+            ?? throw new InvalidOperationException("The WinUI dispatcher queue is unavailable.");
+
+        Model = new LauncherModel(Settings, dispatcher);
         Shell = new MainWindow();
         Shell.Activate();
     }

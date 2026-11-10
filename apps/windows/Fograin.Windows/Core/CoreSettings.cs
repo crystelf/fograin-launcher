@@ -26,7 +26,7 @@ public sealed record CoreSettingsSnapshot
 
     public string ConfigPath { get; init; } = string.Empty;
 
-    public CoreError? ConfigError { get; init; }
+    public CoreErrorPayload? ConfigError { get; init; }
 
     /// <summary>False when fg_ffi.dll is missing or returned unusable JSON.</summary>
     public bool FromCore { get; init; }
@@ -56,6 +56,3 @@ public sealed record CoreSettingsSnapshot
         }
     }
 }
-
-/// <summary>Error payload shared by every fg-ffi call (§3.1 of docs/design.md).</summary>
-public sealed record CoreError(string Kind, string MessageKey, string? Detail);

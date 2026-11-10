@@ -18,13 +18,14 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- M1 shell: the native WinUI TitleBar control supplies the caption
-             buttons, drag regions and pane toggle. The search box is native. -->
+        <!-- The native WinUI TitleBar control supplies the caption buttons, drag
+             regions and pane toggle. The search box is native and follows the
+             current section (主页 / 实例库), like the macOS toolbar search. -->
         <TitleBar
             x:Name="AppTitleBar"
             Height="48"
-            Title="Fograin Launcher"
-            Subtitle="雾雨启动器"
+            Title="雾雨启动器"
+            Subtitle="主页"
             IsBackButtonVisible="True"
             IsPaneToggleButtonVisible="False"
             BackRequested="AppTitleBar_BackRequested">
@@ -42,72 +43,81 @@
                     MaxWidth="420"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
-                    PlaceholderText="搜索实例、模组与资源"
-                    QueryIcon="Find" />
+                    PlaceholderText="搜索实例、模组…"
+                    QueryIcon="Find"
+                    Visibility="Collapsed"
+                    TextChanged="TitleBarSearchBox_TextChanged"
+                    QuerySubmitted="TitleBarSearchBox_QuerySubmitted" />
             </TitleBar.Content>
         </TitleBar>
 
-        <NavigationView
-            x:Name="RootNavigation"
-            Grid.Row="1"
-            PaneDisplayMode="Left"
-            IsPaneOpen="True"
-            OpenPaneLength="256"
-            IsBackButtonVisible="Collapsed"
-            IsPaneToggleButtonVisible="True"
-            IsSettingsVisible="False"
-            IsTitleBarAutoPaddingEnabled="False"
-            SelectionChanged="RootNavigation_SelectionChanged">
+        <Grid Grid.Row="1">
+            <NavigationView
+                x:Name="RootNavigation"
+                PaneDisplayMode="Left"
+                IsPaneOpen="True"
+                OpenPaneLength="256"
+                IsBackButtonVisible="Collapsed"
+                IsPaneToggleButtonVisible="True"
+                IsSettingsVisible="False"
+                IsTitleBarAutoPaddingEnabled="False"
+                SelectionChanged="RootNavigation_SelectionChanged">
 
-            <NavigationView.MenuItems>
-                <NavigationViewItem x:Name="HomeItem" Content="主页" Tag="home">
-                    <NavigationViewItem.Icon>
-                        <SymbolIcon Symbol="Home" />
-                    </NavigationViewItem.Icon>
-                </NavigationViewItem>
-                <NavigationViewItem Content="实例库" Tag="library">
-                    <NavigationViewItem.Icon>
-                        <SymbolIcon Symbol="Library" />
-                    </NavigationViewItem.Icon>
-                    <NavigationViewItem.InfoBadge>
-                        <InfoBadge Value="8" />
-                    </NavigationViewItem.InfoBadge>
-                </NavigationViewItem>
-                <NavigationViewItem Content="服务器" Tag="servers">
-                    <NavigationViewItem.Icon>
-                        <SymbolIcon Symbol="Globe" />
-                    </NavigationViewItem.Icon>
-                </NavigationViewItem>
-                <NavigationViewItemHeader Content="资源" />
-                <NavigationViewItem Content="下载" Tag="downloads">
-                    <NavigationViewItem.Icon>
-                        <SymbolIcon Symbol="Download" />
-                    </NavigationViewItem.Icon>
-                    <NavigationViewItem.InfoBadge>
-                        <InfoBadge Value="2" />
-                    </NavigationViewItem.InfoBadge>
-                </NavigationViewItem>
-                <NavigationViewItem Content="Java 运行时" Tag="java">
-                    <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE943;" />
-                    </NavigationViewItem.Icon>
-                </NavigationViewItem>
-            </NavigationView.MenuItems>
+                <NavigationView.MenuItems>
+                    <NavigationViewItem x:Name="HomeItem" Content="主页" Tag="home">
+                        <NavigationViewItem.Icon>
+                            <SymbolIcon Symbol="Home" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                    <NavigationViewItem x:Name="LibraryItem" Content="实例库" Tag="library">
+                        <NavigationViewItem.Icon>
+                            <SymbolIcon Symbol="Library" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                    <NavigationViewItem Content="服务器" Tag="servers">
+                        <NavigationViewItem.Icon>
+                            <SymbolIcon Symbol="Globe" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                    <NavigationViewItemHeader Content="资源" />
+                    <NavigationViewItem x:Name="DownloadsItem" Content="下载" Tag="downloads">
+                        <NavigationViewItem.Icon>
+                            <SymbolIcon Symbol="Download" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                    <NavigationViewItem Content="Java 运行时" Tag="java">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE943;" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                </NavigationView.MenuItems>
 
-            <NavigationView.FooterMenuItems>
-                <NavigationViewItem Content="账户" Tag="account">
-                    <NavigationViewItem.Icon>
-                        <SymbolIcon Symbol="Contact" />
-                    </NavigationViewItem.Icon>
-                </NavigationViewItem>
-                <NavigationViewItem Content="设置" Tag="settings">
-                    <NavigationViewItem.Icon>
-                        <SymbolIcon Symbol="Setting" />
-                    </NavigationViewItem.Icon>
-                </NavigationViewItem>
-            </NavigationView.FooterMenuItems>
+                <NavigationView.FooterMenuItems>
+                    <NavigationViewItem Content="账户" Tag="accounts">
+                        <NavigationViewItem.Icon>
+                            <SymbolIcon Symbol="Contact" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                    <NavigationViewItem Content="设置" Tag="settings">
+                        <NavigationViewItem.Icon>
+                            <SymbolIcon Symbol="Setting" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                </NavigationView.FooterMenuItems>
 
-            <Frame x:Name="RootFrame" />
-        </NavigationView>
+                <Frame x:Name="RootFrame" />
+            </NavigationView>
+
+            <!-- Transient status capsule (macOS notice overlay): queue, session
+                 and import feedback that must not block the page. -->
+            <InfoBar
+                x:Name="NoticeBar"
+                IsOpen="False"
+                IsClosable="True"
+                MaxWidth="640"
+                Margin="16,12"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Top" />
+        </Grid>
     </Grid>
 </Window>
