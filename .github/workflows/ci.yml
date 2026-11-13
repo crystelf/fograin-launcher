@@ -42,8 +42,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Build the host JNI library
         run: ./scripts/build-jni-desktop.sh
-      - name: Compile and test the shared UI
-        run: ./apps/compose/gradlew -p apps/compose :desktop:test
+      - name: Test the shared layer and the desktop shell
+        run: ./apps/compose/gradlew -p apps/compose :shared:desktopTest :desktop:test
 
   compose-android:
     name: Compose Android + Rust JNI

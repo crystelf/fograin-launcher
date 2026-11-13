@@ -1,3 +1,276 @@
 <resources>
     <string name="app_name">雾雨启动器</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">主页</string>
+    <string name="nav_library">实例</string>
+    <string name="nav_downloads">下载</string>
+    <string name="nav_settings">设置</string>
+
+    <!-- Common actions -->
+    <string name="action_ok">好</string>
+    <string name="action_cancel">取消</string>
+    <string name="action_close">关闭</string>
+    <string name="action_install">安装</string>
+    <string name="action_delete">删除</string>
+    <string name="action_more">更多操作</string>
+    <string name="action_start_game">开始游戏</string>
+    <string name="action_stop_game">停止游戏</string>
+    <string name="action_launching">启动中…</string>
+    <string name="action_game_settings">游戏设置</string>
+    <string name="action_add_instance">添加实例</string>
+    <string name="action_copy_instance_dir">复制实例目录路径</string>
+
+    <!-- Home -->
+    <string name="home_greeting_format">%1$s，%2$s</string>
+    <string name="greeting_morning">早上好</string>
+    <string name="greeting_noon">中午好</string>
+    <string name="greeting_afternoon">下午好</string>
+    <string name="greeting_evening">晚上好</string>
+    <string name="home_account_format">账户 %1$s</string>
+    <string name="home_switch_instance">切换实例</string>
+    <string name="home_instances">实例</string>
+    <string name="home_empty_all">还没有实例。添加一个版本后就能在这里启动。</string>
+    <string name="home_empty_filter">这个筛选条件下没有实例。</string>
+    <string name="home_summary_format">%1$d 个实例 · 上次游玩 %2$s</string>
+    <string name="home_filter_recent">最近</string>
+    <string name="home_filter_favorites">收藏</string>
+    <string name="home_filter_all">全部</string>
+    <string name="home_status_running">运行中</string>
+    <string name="home_status_launching">启动中…</string>
+    <string name="home_status_downloading">下载中</string>
+    <string name="home_status_not_installed">未安装</string>
+    <string name="home_status_ready">已就绪</string>
+    <string name="home_menu_open_in_library">在实例库中显示</string>
+    <string name="home_menu_favorite">收藏</string>
+    <string name="home_menu_unfavorite">取消收藏</string>
+    <string name="home_favorite_badge">已收藏</string>
+    <string name="home_no_instance_title">还没有实例</string>
+    <string name="home_no_instance_body">通过下载页选择 Minecraft 版本并安装，几分钟后就能开始游戏。</string>
+    <string name="home_task_queue">任务队列</string>
+    <string name="home_task_empty">没有进行中的任务</string>
+    <string name="home_runtime">运行环境</string>
+    <string name="home_runtime_java">Java</string>
+    <string name="home_runtime_memory">内存分配</string>
+    <string name="home_runtime_device">设备</string>
+    <string name="home_runtime_java_pending">Java 运行时自动下载将在 M6 接入；当前优先使用系统中已发现的运行时。</string>
+    <string name="home_news">版本动态</string>
+    <string name="home_account_pending">账户页将在 M7 接入</string>
+    <string name="home_speed_idle">空闲</string>
+    <string name="status_succeeded">已完成</string>
+    <string name="status_failed">失败</string>
+    <string name="status_paused">已暂停</string>
+    <string name="status_cancelled">已取消</string>
+
+    <!-- Instance summaries -->
+    <string name="summary_instances_count">%1$d 个实例 · 上次游玩 %2$s</string>
+    <string name="summary_library">%1$d 个实例 · 占用 %2$s</string>
+    <string name="summary_memory_auto">自动 · 物理内存 %1$s</string>
+    <string name="summary_memory_explicit">%1$d GB / %2$s</string>
+    <string name="summary_java_scanning">扫描中…</string>
+    <string name="summary_java_none">未发现 Java</string>
+    <string name="summary_java_found">已发现 %1$d 个运行时</string>
+    <string name="device_unknown">未知</string>
+    <string name="degree_gb">%1$d GB</string>
+
+    <!-- Library -->
+    <string name="library_title">实例库</string>
+    <string name="library_search">搜索实例</string>
+    <string name="library_close_search">关闭搜索</string>
+    <string name="library_clear_search">清除搜索</string>
+    <string name="library_search_placeholder">搜索实例、版本或加载器</string>
+    <string name="library_sort">排序</string>
+    <string name="library_import_directory">导入 .minecraft 目录…</string>
+    <string name="library_new_instance">新建实例</string>
+    <string name="library_empty_search_title">没有匹配的实例</string>
+    <string name="library_empty_search_body">换个关键词，或清除筛选条件再试一次。</string>
+    <string name="library_empty_title">这里还没有实例</string>
+    <string name="library_empty_body">新建一个实例，或导入现有的 .minecraft 目录。</string>
+    <string name="library_group_header">%1$s · %2$d</string>
+    <string name="library_scope_all">全部实例</string>
+    <string name="library_scope_favorites">收藏</string>
+    <string name="library_scope_fabric">Fabric</string>
+    <string name="library_scope_forge">Forge</string>
+    <string name="library_scope_neoforge">NeoForge</string>
+    <string name="library_scope_vanilla">原版</string>
+    <string name="library_sort_recent">最近游玩</string>
+    <string name="library_sort_name">名称</string>
+    <string name="library_sort_size">占用空间</string>
+    <string name="library_menu_start">开始游戏</string>
+    <string name="library_menu_manage">管理实例…</string>
+    <string name="library_menu_delete">删除实例…</string>
+    <string name="library_menu_favorite">收藏</string>
+    <string name="library_menu_unfavorite">取消收藏</string>
+
+    <!-- Preview sheet -->
+    <string name="preview_play">开始游戏</string>
+    <string name="preview_complete_and_play">补全资源并启动</string>
+    <string name="preview_copy_dir">复制实例目录路径</string>
+    <string name="preview_manage">管理实例</string>
+    <string name="preview_favorite">收藏</string>
+    <string name="preview_incomplete">游戏资源尚未安装完成。开始游戏会先补全资源，完成后可在游戏设置里调整内存与显示选项。</string>
+    <string name="preview_mods">模组</string>
+    <string name="preview_java">Java</string>
+    <string name="preview_memory">内存</string>
+    <string name="preview_size">占用空间</string>
+    <string name="preview_playtime">游玩时长</string>
+    <string name="preview_last_played">上次游玩</string>
+    <string name="preview_mods_not_installed">未安装</string>
+    <string name="preview_java_auto">自动发现</string>
+    <string name="preview_memory_auto">自动</string>
+    <string name="preview_content">内容管理</string>
+    <string name="preview_content_milestone">M8 / M9</string>
+    <string name="preview_content_body">模组、资源包、光影、世界与备份在后续里程碑接入；当前实例已可下载与启动。</string>
+
+    <!-- Directory picker -->
+    <string name="directory_picker_title">导入 .minecraft 目录</string>
+    <string name="directory_picker_body">选择一个现有的 .minecraft 目录。文件保留在原处，只登记为实例游戏目录。</string>
+    <string name="directory_picker_root_missing">数据目录尚未就绪</string>
+    <string name="directory_picker_core_missing">启动器核心尚未初始化，无法浏览目录。</string>
+    <string name="directory_picker_empty">这个目录下没有子目录。</string>
+    <string name="directory_picker_select">选择此目录</string>
+    <string name="directory_picker_up">上一级</string>
+
+    <!-- Downloads -->
+    <string name="downloads_title">下载</string>
+    <string name="downloads_subtitle">浏览与安装</string>
+    <string name="downloads_search">搜索版本</string>
+    <string name="downloads_close_search">关闭搜索</string>
+    <string name="downloads_clear_search">清除搜索</string>
+    <string name="downloads_search_placeholder">搜索版本</string>
+    <string name="downloads_settings">下载设置</string>
+    <string name="downloads_settings_pending">下载设置将在后续接入</string>
+    <string name="downloads_pick_version">选择一个版本后即可安装。</string>
+    <string name="downloads_version_list">版本列表</string>
+    <string name="downloads_versions_loading">版本清单加载中…</string>
+    <string name="downloads_no_match">没有匹配的版本</string>
+    <string name="downloads_install_hint">安装完成后会进入实例库，并在「游戏设置」里继续调整内存与显示选项。</string>
+    <string name="downloads_need_java">需要 Java</string>
+    <string name="downloads_java_major">Java %1$d</string>
+    <string name="downloads_files">文件</string>
+    <string name="downloads_file_count">%1$d 个</string>
+    <string name="downloads_size">体积</string>
+    <string name="downloads_plan_error">无法计算安装内容：%1$s</string>
+    <string name="downloads_plan_loading">正在计算安装内容…</string>
+    <string name="downloads_released">发布</string>
+    <string name="downloads_install_running">任务进行中…</string>
+    <string name="downloads_task_queue">任务队列</string>
+    <string name="downloads_milestone_chip">%1$s 接入</string>
+    <string name="downloads_kind_release">正式版</string>
+    <string name="downloads_kind_snapshot">快照</string>
+    <string name="downloads_category_game">游戏</string>
+    <string name="downloads_category_mod">模组</string>
+    <string name="downloads_category_modpack">整合包</string>
+    <string name="downloads_category_resourcepack">资源包</string>
+    <string name="downloads_category_shaderpack">光影</string>
+    <string name="downloads_category_datapack">数据包</string>
+    <string name="downloads_channel_release">正式版</string>
+    <string name="downloads_channel_snapshot">快照</string>
+    <string name="downloads_channel_april_fools">愚人节</string>
+    <string name="downloads_channel_old">远古版本</string>
+    <string name="downloads_channel_empty_release">暂无正式版</string>
+    <string name="downloads_channel_empty_snapshot">暂无快照</string>
+    <string name="downloads_channel_empty_april_fools">暂无愚人节版本</string>
+    <string name="downloads_channel_empty_old">暂无远古版本</string>
+    <string name="downloads_loader_all">全部加载器</string>
+    <string name="downloads_mod_body">在 Modrinth 与 CurseForge 中搜索模组，解析依赖后安装到实例。</string>
+    <string name="downloads_mod_body_filtered">筛选 %1$s 模组；搜索、依赖解析与安装将在 M8 接入。</string>
+    <string name="downloads_modpack_body">导入与更新 Modrinth、CurseForge、MultiMC 与 HMCL 整合包。</string>
+    <string name="downloads_modpack_body_filtered">筛选 %1$s 整合包；导入与更新将在 M9 接入。</string>
+    <string name="downloads_resourcepack_body">浏览资源包并按实例的 MC 版本过滤兼容性。</string>
+    <string name="downloads_shaderpack_body">为已安装光影加载器的实例选择光影包。</string>
+    <string name="downloads_datapack_body">把数据包放进存档或世界的 datapacks 目录。</string>
+    <string name="downloads_milestone_later">后续</string>
+
+    <!-- Install sheet -->
+    <string name="install_title">安装游戏</string>
+    <string name="install_subtitle">选择加载器与版本，然后下载</string>
+    <string name="install_game_version">游戏版本</string>
+    <string name="install_choose_version">选择版本</string>
+    <string name="install_loader">加载器</string>
+    <string name="install_loader_note">原版可直接安装；其余为 M5 预留位</string>
+    <string name="install_loader_versions">%1$s 版本</string>
+    <string name="install_loader_pending">%1$s 安装器将在 M5 接入；版本列表是预留位。当前请选择原版安装。</string>
+    <string name="install_instance_name">实例名称</string>
+    <string name="install_instance_name_hint">留空时使用版本号。内存、JVM 参数与显示选项在下载完成后的「游戏设置」里调整。</string>
+    <string name="install_summary">将安装 %1$s（原版）</string>
+    <string name="install_loader_unavailable">%1$s 暂不可用</string>
+
+    <!-- Settings -->
+    <string name="settings_title">设置</string>
+    <string name="settings_core_config_failed">核心配置读取失败</string>
+    <string name="settings_core_unavailable">启动器核心不可用</string>
+    <string name="settings_core_unavailable_body">原生库未加载，实例、下载与启动功能不可用。</string>
+    <string name="settings_appearance">外观</string>
+    <string name="settings_theme">主题</string>
+    <string name="settings_theme_system">跟随系统</string>
+    <string name="settings_theme_light">浅色</string>
+    <string name="settings_theme_dark">深色</string>
+    <string name="settings_dynamic_color">动态取色</string>
+    <string name="settings_dynamic_color_supported">使用壁纸生成的 Material You 配色（Android 12+）</string>
+    <string name="settings_dynamic_color_unsupported">需要 Android 12 或更高版本</string>
+    <string name="settings_launch_network">启动与网络</string>
+    <string name="settings_language">语言</string>
+    <string name="settings_language_value">简体中文</string>
+    <string name="settings_download_source">下载源</string>
+    <string name="settings_download_source_value">自动 · 官方优先</string>
+    <string name="settings_max_memory">最大内存</string>
+    <string name="settings_max_memory_value">6 GB</string>
+    <string name="settings_concurrency">并发下载</string>
+    <string name="settings_concurrency_value">8</string>
+    <string name="settings_log_level">日志级别</string>
+    <string name="settings_log_level_value">Info</string>
+    <string name="settings_build">构建</string>
+    <string name="settings_app_version">应用版本</string>
+    <string name="settings_ui">界面</string>
+    <string name="settings_ui_value">Compose Multiplatform</string>
+    <string name="settings_core">核心</string>
+    <string name="settings_core_value">Rust · fg-* crates</string>
+    <string name="settings_ffi">FFI</string>
+    <string name="settings_ffi_value">JNI · C ABI v%1$d</string>
+    <string name="settings_ffi_missing">JNI 未加载</string>
+    <string name="settings_platform">平台</string>
+    <string name="settings_java">Java</string>
+    <string name="settings_about">关于</string>
+    <string name="settings_about_title">雾雨启动器</string>
+    <string name="settings_about_body">Minecraft Java 版启动器。Rust 核心 + 一套 Compose Multiplatform UI；Android 与桌面共用全部页面。</string>
+    <string name="settings_thanks">开源与致谢</string>
+    <string name="settings_thanks_body">HMCL / HMCLCore（GPL-3.0）与 PCL.Core（Apache-2.0）为下载、Java 扫描与启动实现提供参考；fograin.pen 提供布局与信息架构参考。</string>
+    <string name="settings_trademark">Minecraft 是 Mojang Studios 的商标。雾雨启动器与 Mojang、Microsoft 无关联。</string>
+    <string name="settings_milestone_m10">M10</string>
+    <string name="settings_milestone_m2">M2</string>
+    <string name="settings_milestone_m6">M6</string>
+
+    <!-- Instance settings sheet -->
+    <string name="instance_settings_subtitle">游戏设置 · %1$s</string>
+    <string name="instance_settings_load_failed">读取设置失败：%1$s</string>
+    <string name="instance_settings_launch">启动</string>
+    <string name="instance_settings_memory">内存</string>
+    <string name="instance_settings_memory_auto">自动</string>
+    <string name="instance_settings_memory_value">%1$d GB</string>
+    <string name="instance_settings_jvm_args">JVM 参数</string>
+    <string name="instance_settings_jvm_args_placeholder">追加到启动命令的自定义参数</string>
+    <string name="instance_settings_java_runtime">Java 运行时</string>
+    <string name="instance_settings_java_auto">自动发现</string>
+    <string name="instance_settings_fullscreen">启动时全屏</string>
+    <string name="instance_settings_display">显示</string>
+    <string name="instance_settings_resolution">窗口分辨率</string>
+    <string name="instance_settings_resolution_default">跟随游戏默认</string>
+    <string name="instance_settings_resolution_value">%1$d × %2$d</string>
+    <string name="instance_settings_content">内容</string>
+    <string name="instance_settings_mods">模组管理</string>
+    <string name="instance_settings_resourcepacks">资源包管理</string>
+    <string name="instance_settings_shaderpacks">光影包管理</string>
+    <string name="instance_settings_worlds">世界管理</string>
+    <string name="instance_settings_schematics">原理图管理</string>
+    <string name="instance_settings_modpack_update">更新整合包</string>
+    <string name="instance_settings_logs">日志与崩溃报告</string>
+    <string name="instance_settings_backup">导出与备份</string>
+    <string name="instance_settings_maintenance">维护</string>
+    <string name="instance_settings_copy_note">目录路径会复制到剪贴板，可在文件管理器中粘贴打开。</string>
+    <string name="instance_settings_delete_title">删除实例？</string>
+    <string name="instance_settings_delete_body">将删除“%1$s”的实例记录与游戏目录。正在运行的游戏无法删除。</string>
+
+    <!-- Runtime messages surfaced by AppModel -->
+    <string name="message_account_pending">账户页将在 M7 接入</string>
 </resources>

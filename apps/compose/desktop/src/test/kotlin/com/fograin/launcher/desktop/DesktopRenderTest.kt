@@ -20,7 +20,7 @@ import org.jetbrains.skia.EncodedImageFormat
 class DesktopRenderTest {
     @Test
     fun rendersSharedShell() = runBlocking {
-        AppRuntime.dataRoot = Files.createTempDirectory("fograin-render").toFile().absolutePath
+        AppRuntime.dataRoot = TestDataRoot.path
         val core = createCoreClient()
         val scene = ImageComposeScene(width = 1120, height = 780, density = Density(1f)) {
             App(core)

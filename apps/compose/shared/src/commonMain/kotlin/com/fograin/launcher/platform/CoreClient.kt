@@ -1,43 +1,43 @@
 package com.fograin.launcher.platform
 
+import com.fograin.launcher.settings.ThemeMode
 import kotlinx.serialization.json.JsonObject
-
-/** Settings snapshot returned by `fg_settings_snapshot()`. */
-data class CoreSettings(
-    val abiVersion: Int,
-    val appVersion: String,
-    val platform: String,
-    val theme: String,
-    val dataRoot: String,
-    val configPath: String,
-)
 
 /**
  * The UI-facing view of the Rust core.
  *
  * `commonMain` only sees this interface; the JNI implementation lives in
- * `jvmMain` so Android and desktop share it, and each platform supplies nothing
- * more than a factory actual.
+ * `jvmMain` so Android and desktop share it, and each platform supplies a
+ * factory through [PlatformServices.coreFactory].
+ *
+ * Every method crosses `bindings/fg-ffi-jni` and returns the same JSON envelope
+ * as the C ABI. All payloads are decoded with `kotlinx.serialization`.
  */
 interface CoreClient {
     /** Non-null when the native library or the settings snapshot failed. */
     val initError: String?
 
-    val settings: CoreSettings?
+    /** Settings read before the first Compose frame; never null. */
+    val settings: CoreSettings
 
     val abiVersion: Int
 
-    /** `app.snapshot`: platform, version, data root and counters. */
-    suspend fun appSnapshot(): JsonObject
+    /** True once the JNI library loaded and `fg_settings_snapshot` answered. */
+    val isAvailable: Boolean
+
+    /**
+     * Dispatches one JSON command. Object results are merged into the
+     * envelope (`{"ok":true, ...fields}`); array/scalar results stay under
+     * `result`. Throws [CoreException] for `{ok:false,error}` responses.
+     */
+    suspend fun rpc(method: String, params: JsonObject = JsonObject(emptyMap())): JsonObject
+
+    /** Persists `appearance.theme` and returns the refreshed snapshot. */
+    suspend fun setTheme(theme: ThemeMode): CoreSettings
+
+    /** Drains pending progress/game events. Never blocks for long. */
+    fun nextEvents(): List<JsonObject>
 }
 
-expect fun createCoreClient(): CoreClient
-
-/**
- * Process-wide values the platform shell must provide before the first core
- * call. Android sets [dataRoot] to its app-private directory; desktop leaves it
- * null so the Rust core uses `dirs` (or `FOGRAIN_HOME`).
- */
-object AppRuntime {
-    var dataRoot: String? = null
-}
+/** Creates the process-wide client through the installed platform services. */
+fun createCoreClient(): CoreClient = platformServices().coreFactory.create()

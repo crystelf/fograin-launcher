@@ -1,15 +1,44 @@
 # Compose client
 
 One Compose Multiplatform UI for Android, Windows, macOS and Linux. The Rust
-core and the JSON RPC contract are unchanged; this project owns only the UI and
-the platform shells. The shared UI currently contains the FFI smoke screen; the
-four destinations are being moved in from the legacy Android client.
+core and the JSON RPC contract are unchanged; this project owns the UI and the
+platform shells. R1/R2 moved the complete M4 surface (home, library, downloads,
+settings, instance settings, install sheet and the two inspector sheets) into
+`shared/src/commonMain`.
+
+## Layout
 
 ```text
-shared/    KMP library: commonMain (Compose UI) + jvmMain + androidMain + desktopMain
-android/   Android application shell (Activity, manifest, res, jniLibs)
-desktop/   JVM application shell (main, window, jpackage)
+shared/
+  commonMain/   models, AppModel, 9 platform interfaces, theme, pages, sheets
+                composeResources/ (strings + hero image)
+  jvmMain/      JNI client, kotlinx.serialization wire models, JVM helpers
+  androidMain/  AndroidPlatform: Activity back, clipboard, SharedPreferences,
+                device info, dynamic colour, system bars, System.loadLibrary
+  desktopMain/  DesktopPlatform: AWT clipboard, java.util.prefs, File browser,
+                classpath native loading, no-op back/system bars
+android/        Android application shell (Activity, manifest, res, jniLibs)
+desktop/        JVM application shell (main, window, jpackage)
 ```
+
+`commonMain` contains no `android.*` or `java.*` imports. Platform behaviour is
+expressed through the nine interfaces in
+`commonMain/kotlin/com/fograin/launcher/platform/PlatformServices.kt`:
+
+| # | Interface | Android | Desktop |
+| --- | --- | --- | --- |
+| 1 | `NativeLibrary` | `System.loadLibrary` | classpath resource + `System.load` |
+| 2 | `CoreClientFactory` | shared JNI client | shared JNI client |
+| 3 | `DeviceInfoProvider` | `ActivityManager` / `Build` | OS bean / `os.arch` |
+| 4 | `ClipboardService` | `ClipboardManager` | AWT clipboard |
+| 5 | `LocalPreferences` | `SharedPreferences` | `java.util.prefs` |
+| 6 | `DirectoryBrowser` | `java.io.File` over the data root | `java.io.File` |
+| 7 | `AppLogger` | `android.util.Log` | stdout |
+| 8 | `SystemAppearance` | Material You + bar icon contrast | Fograin palette, no-op bars |
+| 9 | `BackDispatcher` | `androidx.activity.compose.BackHandler` | no-op until R4 |
+
+The JSON layer uses `kotlinx.serialization` everywhere; `org.json` is gone from
+the shared client.
 
 ## Requirements
 
@@ -34,11 +63,18 @@ needed.
 
 ```bash
 ./scripts/build-jni-desktop.sh
+
+# Pure commonMain tests (models, formatting, wire parsing)
+./apps/compose/gradlew -p apps/compose :shared:desktopTest
+
+# JNI smoke tests + off-screen render of all four pages and three sheets
 ./apps/compose/gradlew -p apps/compose :desktop:test
 ```
 
-The smoke test creates a temporary data root, loads the JNI library and calls
-`app.snapshot` through the Rust service.
+`CoreClientSmokeTest` creates an instance in a temporary data root through the
+real JNI service and asserts `instances.list` returns it. `ScreensRenderTest`
+renders the four destinations and the three sheets with a deterministic fake
+core and writes the PNGs to the temp directory (paths are printed).
 
 ## Android
 
@@ -47,8 +83,11 @@ The smoke test creates a temporary data root, loads the JNI library and calls
 ./apps/compose/gradlew -p apps/compose :android:assembleDebug
 ```
 
-The Android shell passes `getExternalFilesDir(null)` as the data root before the
-first RPC, because Android has no usable `$HOME` for the `dirs` crate.
+The Android shell installs its application context with
+`AndroidPlatform.install(this)` and passes `getExternalFilesDir(null)` as the
+data root before the first RPC, because Android has no usable `$HOME` for the
+`dirs` crate. R3 migrates the manifest/res/jniLibs/Activity fully and retires
+the legacy module in R6.
 
 ## Package the desktop app
 

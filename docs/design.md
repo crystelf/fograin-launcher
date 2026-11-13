@@ -130,7 +130,7 @@ fograin-launcher/
 │   │   ├── shared/               # KMP：common / jvm / android / desktop
 │   │   ├── android/              # Android 薄壳：Activity、manifest、res、jniLibs
 │   │   └── desktop/              # JVM 薄壳：main、窗口、菜单、jpackage
-│   └── android/                  # 旧 Android 客户端（R2 迁移完成后删除）
+│   └── android/                  # 旧 Android 客户端（仅参照，R6 删除）
 ├── design/                       # tokens.json / assets / screens
 ├── docs/                         # 本文件、ADR、backlog
 └── .github/workflows/            # Rust + Compose Android + macOS 桌面
@@ -451,19 +451,19 @@ M0–M4 见 §1.1。M4 的实例管理、安装、启动链路已经在 macOS / 
 
 ### 7.2 重构阶段（R0–R6）
 
-每一步单独可合并、可回滚。三个桌面原生客户端已在 2026-11-13 删除；旧 Android 客户端保留到 R2 迁移完成。
+每一步单独可合并、可回滚。三个桌面原生客户端已在 2026-11-13 删除；旧 Android 客户端在 R2 迁移完成后只作参照保留，R6 删除。
 
 | 阶段 | 内容 | 工期 | 验收 |
 | --- | --- | --- | --- |
 | **R0 技术验证** ✅ | 新建 `apps/compose` 三模块；Kotlin 2.4 / CMP 1.12 / AGP 9 / Gradle 9.3 / JDK 21；桌面 JNI 加载；`app.snapshot` 打通；macOS DMG 打包 | 完成 2026-11-12 | Android 模拟器与 macOS 应用均显示核心数据；基线见 §7.4 |
-| **R1 共享层** | JSON 层迁 kotlinx.serialization；`CoreNative`/`AppModel` 去 Android 化；抽 9 个平台接口；单测迁 `commonTest` | 3–4 天 | `commonMain` 无 `android.*` / `java.*`；桌面可列实例 |
-| **R2 UI 迁移** | theme/components/home/library/downloads/settings/instances 逐页搬；字符串与图片资源化；Material3 API 差异处理 | 6–8 天 | 四页 + 3 个 sheet 渲染；Android 端 26.3 流程回归 |
+| **R1 共享层** ✅ | JSON 层迁 kotlinx.serialization；`CoreNative`/`AppModel` 去 Android 化；抽 9 个平台接口；单测迁 `commonTest` | 完成 2026-11-13 | `commonMain` 无 `android.*` / `java.*`；桌面经 JNI 列出实例 |
+| **R2 UI 迁移** ✅ | theme/components/home/library/downloads/settings/instances 逐页搬；字符串与图片资源化；Material3 API 差异处理 | 完成 2026-11-13 | 四页 + 3 个 sheet 渲染（含离屏截图测试）；Android 模拟器 26.3 页面回归 |
 | **R3 Android 切换** | manifest/res/jniLibs/Activity 迁入薄壳；构建脚本与 CI 更新（旧 `apps/android` 已在 R0 翻新到 AGP 9 工具链） | 2–3 天 | `assembleDebug` + 单测；模拟器全流程 |
 | **R4 桌面外壳** | 窗口状态、菜单与快捷键、macOS 透明标题栏、Windows 深色标题栏、FileKit 目录导入、打开数据目录 | 5–7 天 | 三 OS 各完成一次 M4 全流程 |
 | **R5 打包与 CI** | jpackage、图标、JRE/jlink、DMG/MSI/DEB、签名与公证、CI 矩阵 | 4–6 天 | 干净机器安装可用；三 OS + Android CI 绿 |
 | **R6 清理** | 删除旧 `apps/android`（R2 后）；更新 README/design；打 tag | 2–3 天 | `cargo test --workspace` + Gradle 构建通过 |
 
-合计约 25–36 人天（一人全职 5–7 周，加 20% buffer 约 6–8 周）。R0 已通过（见 §7.4），继续 R1。
+合计约 25–36 人天（一人全职 5–7 周，加 20% buffer 约 6–8 周）。R0–R2 已通过（R0 基线见 §7.4），下一步 R3（Android 薄壳切换）。
 
 ### 7.3 后续核心里程碑
 
@@ -490,7 +490,7 @@ M5+ 只改 Rust 核心与共享 UI，不再有"每端各接一次"的工作。
 | 安装后体积 | ≤ 160 MB | 132 MB |
 | 冷启动到首帧 | ≤ 2.5 s | 1.61 s（进程启动到首次组合） |
 | 空闲 RSS | ≤ 300 MB | 196 MB（启动 8 s 后） |
-| 中文输入法 | 可用 | 待 R1 页面迁移后回归 |
+| 中文输入法 | 可用 | 页面已迁入 `commonMain`，待三 OS 人工回归（R4/R5） |
 | Android APK 体积 | 与现状相当（±15%） | 54 MB（debug，arm64 + x86_64） |
 
 ## 8. 风险与待决问题

@@ -14,11 +14,13 @@ Minecraft Java 版启动器：一套 Rust 核心 + 一套 Compose Multiplatform 
 | M3 | 原版安装与启动（`fg-game`、`fg-java`、`fg-auth`、`fg-cli`） | 完成（核心与 CLI） |
 | M4 | 实例管理、安装/启动 UI 接线、任务队列、外部导入 | 完成 |
 | R0 | Compose Multiplatform 重构：技术验证 | 完成（2026-11-12） |
-| R6 | 清理桌面原生客户端与旧文档 | 桌面部分完成（2026-11-13） |
+| R1 | 共享层：kotlinx.serialization、9 个平台接口、`AppModel` 去 Android 化、commonTest | 完成（2026-11-13） |
+| R2 | UI 迁移：四页 + 3 个 sheet、字符串与图片资源化、Material 3 差异 | 完成（2026-11-13） |
+| R6 | 清理桌面原生客户端与旧文档 | 桌面部分完成（2026-11-13）；旧 Android 客户端待 R6 删除 |
 
-M0–M4 早期实现了四套原生 UI（SwiftUI / WinUI 3 / GTK4 / Compose）。四端 UI 合计约 3 万行，同一个页面要写四遍，维护成本过高。2026-11-12 起按 [ADR 0004](docs/adr/0004-compose-multiplatform-ui.md) 收敛为**一套 Compose Multiplatform UI**：Rust 核心、FFI 契约、数据目录与配置不变；Android 端保留原有 Compose 页面，桌面端用同一份 `commonMain` 运行并各自打包。
+M0–M4 早期实现了四套原生 UI（SwiftUI / WinUI 3 / GTK4 / Compose）。四端 UI 合计约 3 万行，同一个页面要写四遍，维护成本过高。2026-11-12 起按 [ADR 0004](docs/adr/0004-compose-multiplatform-ui.md) 收敛为**一套 Compose Multiplatform UI**：Rust 核心、FFI 契约、数据目录与配置不变；Android 端与桌面端运行同一份 `commonMain` 页面，平台外壳各自打包。
 
-R0 已跑通：新工程三模块、Android/desktop 共用 UI、JNI FFI、DMG（71 MB）、冷启动 1.61 s、空闲 RSS 196 MB。三个桌面原生客户端已删除；旧 `apps/android` 保留到 UI 迁移完成。
+R0 已跑通：新工程三模块、Android/desktop 共用 UI、JNI FFI、DMG（71 MB）、冷启动 1.61 s、空闲 RSS 196 MB。R1/R2 把业务模型、`AppModel`、主题、组件与四个页面全部迁入 `commonMain`，桌面与 Android 渲染同一棵 Compose 树；iOS 之外的平台外壳只保留 Activity/Window、原生库与系统外观。三个桌面原生客户端已删除；旧 `apps/android` 作为迁移参照保留，R6 删除。
 
 ## 目录
 
@@ -33,7 +35,7 @@ crates/fg-cli      无 UI 的调试与 CI 入口
 bindings/fg-ffi    C ABI / JSON 契约
 bindings/fg-ffi-jni JVM JNI 桥（Android .so + 桌面 .dylib/.dll/.so）
 apps/compose/      Compose Multiplatform 工程（shared + android + desktop）
-apps/android/      旧 Android 客户端（UI 迁移完成后删除）
+apps/android/      旧 Android 客户端（R6 删除，仅作迁移参照）
 design/            设计令牌与参考图
 docs/              设计文档、ADR、backlog
 ```
@@ -56,6 +58,9 @@ cargo test --workspace
 # Android
 ./scripts/build-android.sh
 ./apps/compose/gradlew -p apps/compose :android:assembleDebug
+
+# 共享层单测（commonTest，在 desktop JVM 上执行）
+./apps/compose/gradlew -p apps/compose :shared:desktopTest
 ```
 
 ## 原版安装与启动手测（M3）

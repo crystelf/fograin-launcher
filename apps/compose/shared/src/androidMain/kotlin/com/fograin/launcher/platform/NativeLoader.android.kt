@@ -8,5 +8,3 @@ actual fun ensureNativeLibraryLoaded() {
     System.loadLibrary("fg_ffi_jni")
     loaded = true
 }
-
-actual fun createCoreClient(): CoreClient = createJvmCoreClient()

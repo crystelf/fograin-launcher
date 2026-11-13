@@ -44,6 +44,7 @@ kotlin {
         implementation(libs.compose.foundation)
         implementation(libs.compose.material3)
         implementation(libs.compose.components.resources)
+        implementation(libs.compose.material.icons.extended)
         implementation(libs.kotlinx.coroutines.core)
         implementation(libs.kotlinx.serialization.json)
         implementation(libs.kotlinx.datetime)
@@ -51,6 +52,13 @@ kotlin {
 
     sourceSets.commonTest.dependencies {
         implementation(kotlin("test"))
+    }
+
+    // Android needs the Main dispatcher for AppModel and the activity
+    // BackHandler behind the shared `BackDispatcher` interface.
+    sourceSets.getByName("androidMain").dependencies {
+        implementation(libs.androidx.activity.compose)
+        implementation(libs.kotlinx.coroutines.android)
     }
 
     sourceSets.getByName("desktopMain").dependencies {

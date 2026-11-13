@@ -1,14 +1,13 @@
 package com.fograin.launcher.platform
 
+import com.fograin.launcher.settings.ThemeMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 
 /**
  * JNI-backed [CoreClient], shared by Android and desktop.
@@ -19,61 +18,151 @@ import kotlinx.serialization.json.jsonPrimitive
  */
 internal class JvmCoreClient : CoreClient {
     override val initError: String?
-    override val settings: CoreSettings?
     override val abiVersion: Int
+    override val isAvailable: Boolean
+
+    @Volatile
+    private var currentSettings: CoreSettings
+
+    override val settings: CoreSettings
+        get() = currentSettings
 
     init {
         var failure: String? = null
-        var parsed: CoreSettings? = null
+        var snapshot = CoreSettings.fallback(
+            dataRoot = AppRuntime.dataRoot.orEmpty(),
+            platform = runCatching { platformServices().platformName }.getOrDefault("unknown"),
+        )
         var abi = 0
+        var available = false
 
         try {
             ensureNativeLibraryLoaded()
-            AppRuntime.dataRoot?.let { CoreNative.nativeSetDataRoot(it) }
+
+            AppRuntime.dataRoot?.takeIf { it.isNotBlank() }?.let { root ->
+                val raw = CoreNative.nativeSetDataRoot(root)
+                    ?: throw IllegalStateException("fg_set_data_root returned null")
+                val response = raw.asObject()
+                if (response.booleanOrNull("ok") != true) {
+                    // The service may already own another root (e.g. the shell
+                    // was recreated). Keep going; the snapshot still works.
+                    failure = response.errorPayload()?.userMessage ?: "无法设置数据目录"
+                }
+            }
+
             val raw = CoreNative.nativeSettingsSnapshot()
                 ?: throw IllegalStateException("fg_settings_snapshot returned null")
-            parsed = parseSettings(json.parseToJsonElement(raw).jsonObject)
+            val response = raw.asObject()
+            snapshot = if (response.booleanOrNull("ok") == false) {
+                throw CoreException(response.errorPayload() ?: CoreErrorPayload())
+            } else {
+                response.decode()
+            }
             abi = CoreNative.nativeAbiVersion()
+            available = true
+            snapshot.configError?.let { error ->
+                failure = "读取 launcher.toml 失败，已使用默认外观。${error.localizedDescription}"
+            }
         } catch (t: Throwable) {
             failure = t.message ?: t::class.simpleName
+            println("Fograin core initialization failed: ${t.message ?: t::class.simpleName}")
         }
 
         initError = failure
-        settings = parsed
+        currentSettings = snapshot
         abiVersion = abi
+        isAvailable = available
     }
 
-    override suspend fun appSnapshot(): JsonObject = withContext(Dispatchers.IO) {
-        val raw = CoreNative.nativeRpcCall("""{"method":"app.snapshot","params":{}}""")
-            ?: throw IllegalStateException("fg_rpc_call returned null")
-        val root = json.parseToJsonElement(raw).jsonObject
-        if (root["ok"]?.jsonPrimitive?.booleanOrNull != true) {
-            val failure = root["error"]?.jsonObject
-            val key = failure?.get("messageKey")?.jsonPrimitive?.contentOrNull ?: "error.rpc"
-            val detail = failure?.get("detail")?.jsonPrimitive?.contentOrNull
-            throw IllegalStateException(if (detail.isNullOrBlank()) key else "$key: $detail")
+    override suspend fun rpc(method: String, params: JsonObject): JsonObject =
+        withContext(Dispatchers.IO) {
+            if (!isAvailable) {
+                throw CoreException("internal", "error.core.unavailable", initError)
+            }
+            val request = buildJsonObject {
+                put("method", method)
+                put("params", params)
+            }
+            val raw = try {
+                CoreNative.nativeRpcCall(request.toString())
+            } catch (error: Throwable) {
+                throw CoreException("internal", "error.core.unavailable", error.message)
+            } ?: throw CoreException("internal", "error.core.unavailable", "core returned NULL")
+
+            val response = try {
+                raw.asObject()
+            } catch (error: Throwable) {
+                throw CoreException("internal", "error.rpc.parse", error.message)
+            }
+            if (response.booleanOrNull("ok") != true) {
+                throw CoreException(response.errorPayload() ?: CoreErrorPayload())
+            }
+            response
         }
-        // Object results are merged into the envelope ({"ok":true, ...fields});
-        // array/scalar results are nested under "result".
-        (root["result"] ?: root) as? JsonObject
-            ?: throw IllegalStateException("app.snapshot did not return an object")
+
+    override suspend fun setTheme(theme: ThemeMode): CoreSettings = withContext(Dispatchers.IO) {
+        if (!isAvailable) {
+            throw CoreException("internal", "error.core.unavailable", initError)
+        }
+        val raw = try {
+            CoreNative.nativeSetTheme(theme.wireValue)
+        } catch (error: Throwable) {
+            throw CoreException("internal", "error.core.unavailable", error.message)
+        } ?: throw CoreException("internal", "error.settings.write", "core returned NULL")
+
+        val response = raw.asObject()
+        if (response.booleanOrNull("ok") != true) {
+            throw CoreException(response.errorPayload() ?: CoreErrorPayload())
+        }
+        val snapshot = response["snapshot"]?.jsonObject?.decode<CoreSettings>()
+            ?: throw CoreException("internal", "error.settings.write", "missing snapshot")
+        currentSettings = snapshot
+        snapshot
     }
 
-    private fun parseSettings(root: JsonObject): CoreSettings = CoreSettings(
-        abiVersion = root["abiVersion"]?.jsonPrimitive?.intOrNull ?: 0,
-        appVersion = root["appVersion"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-        platform = root["platform"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-        theme = root["theme"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-        dataRoot = root["dataRoot"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-        configPath = root["configPath"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-    )
+    override fun nextEvents(): List<JsonObject> {
+        if (!isAvailable) return emptyList()
+        val raw = try {
+            CoreNative.nativeEventsNext()
+        } catch (error: Throwable) {
+            println("Fograin events_next failed: ${error.message}")
+            return emptyList()
+        } ?: return emptyList()
+        return try {
+            when (val element = CoreJson.parseToJsonElement(raw)) {
+                is JsonArray -> element.mapNotNull { it as? JsonObject }
+                is JsonObject -> {
+                    println("Fograin events_next error: ${element.errorPayload()?.localizedDescription}")
+                    emptyList()
+                }
 
-    private companion object {
-        val json = Json { ignoreUnknownKeys = true }
+                else -> emptyList()
+            }
+        } catch (error: Throwable) {
+            println("Fograin malformed event payload: $raw")
+            emptyList()
+        }
     }
 }
 
+/** Parses a native string into a JSON object, mapping failures to [CoreException]. */
+private fun String.asObject(): JsonObject = try {
+    CoreJson.parseToJsonElement(this).jsonObject
+} catch (error: Throwable) {
+    throw CoreException("internal", "error.rpc.parse", error.message)
+}
+
+/** Extracts the `error` payload from a failed envelope, if present. */
+internal fun JsonObject.errorPayload(): CoreErrorPayload? =
+    this["error"]?.let { element ->
+        try {
+            element.jsonObject.decode<CoreErrorPayload>()
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
 private val sharedClient: CoreClient by lazy { JvmCoreClient() }
 
-/** Called by the Android/desktop actual factories. */
+/** Called by the Android/desktop platform service factories. */
 internal fun createJvmCoreClient(): CoreClient = sharedClient

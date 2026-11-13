@@ -17,7 +17,10 @@
 
 ## 性能与打包
 
-- ✅ P0 — 记录 R0 基线：安装包体积、安装后体积、冷启动、空闲 RSS（中文输入法待 R1 页面迁移后回归）。
+- ✅ P0 — 记录 R0 基线：安装包体积、安装后体积、冷启动、空闲 RSS。
+- P1 — 中文输入法在三 OS 的回归测试（R1/R2 页面已迁入 `commonMain`，待人工验收）。
+- P2 — `AppModel` 的运行期提示/错误文案仍内嵌中文；随 M10 i18n 一起迁入 `composeResources`。
+- P2 — 模型内展示元数据（`LoaderKind.title`、`Instance.meta`、加载器占位版本）随 M5/M8 改为核心下发后资源化。
 - P1 — jlink 裁剪运行时模块；AppCDS；ZGC 参数调优。
 - P1 — 桌面图标（`.icns` / `.ico` / PNG）从 `design/app-icon.png` 生成。
 - P2 — 自动更新（签名清单 + 增量下载）。
@@ -36,4 +39,6 @@
 - P1 — CI 增加 Windows/Linux 的 Compose Desktop job（macOS 与 Android 已接入）。
 - P1 — FFI 契约测试同时覆盖 C ABI 与 JNI。
 - P2 — Compose 截图测试（四条导航 + 三个 sheet）。
-- P2 — UI 迁移完成后删除旧 `apps/android` 与对应的生成脚本残留。
+- ✅ P0 — R1/R2 将模型、`AppModel`、四页与 3 个 sheet 迁入 `apps/compose/shared`；单测迁 `commonTest`。
+- P1 — R3 切换 Android 薄壳（manifest/res/jniLibs/Activity）并让 CI 双跑。
+- P2 — R6 删除旧 `apps/android` 与对应的生成脚本残留。

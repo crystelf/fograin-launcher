@@ -49,5 +49,3 @@ private fun hostTriple(): String {
         else -> "linux-$arch"
     }
 }
-
-actual fun createCoreClient(): CoreClient = createJvmCoreClient()
