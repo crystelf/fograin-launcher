@@ -65,7 +65,7 @@ import com.fograin.launcher.ui.components.SectionHeader
 
 /**
  * Instance library: search, loader filters, sort, grouped table and the
- * inspector sheet. Mirrors the macOS library page on a single phone column.
+ * inspector sheet. Mirrors the desktop library page on a single phone column.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

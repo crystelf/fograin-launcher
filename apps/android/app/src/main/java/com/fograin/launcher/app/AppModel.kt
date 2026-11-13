@@ -45,11 +45,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Process-wide launcher state, the Android counterpart of the macOS `AppModel`.
+ * Process-wide launcher state, the Android counterpart of the desktop `AppModel`.
  *
  * The Rust core is the source of truth: every instance, task and session value
  * comes from RPC responses or the event queue. The model owns the event pump
- * (250 ms, matching macOS), the install/launch flows and the transient
+ * (250 ms, matching desktop), the install/launch flows and the transient
  * notice/alert channels; Compose only renders [state].
  */
 class AppModel private constructor(private val appContext: Context) {

@@ -5,7 +5,7 @@ package com.fograin.launcher.model
  *
  * Instances, tasks and game config all come from `fg-ffi` in M4. Accounts land
  * in M7 and version news is a curated list until the news feed is wired; both
- * mirror the macOS client so the four shells show the same information.
+ * mirror the desktop shell so all shells show the same information.
  */
 object SampleData {
     data class Account(

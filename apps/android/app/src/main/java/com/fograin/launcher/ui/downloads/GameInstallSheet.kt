@@ -57,7 +57,7 @@ import kotlinx.coroutines.launch
 /**
  * Install dialog: the only place that asks for loader / loader version /
  * instance name. Memory and display options belong to 游戏设置 after install.
- * Mirrors the macOS `GameInstallSheet`.
+ * Mirrors the desktop `GameInstallSheet`.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

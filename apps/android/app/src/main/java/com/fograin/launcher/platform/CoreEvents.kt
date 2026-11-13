@@ -5,7 +5,7 @@ import org.json.JSONObject
 /**
  * Event pushed by the core event queue (camelCase, `bindings/fg-ffi`).
  *
- * Mirrors `CoreEvent` in the macOS client so both shells react to the same
+ * Mirrors `CoreEvent` in the desktop shell so both shells react to the same
  * `task.*` and `game.*` payloads.
  */
 sealed interface CoreEvent {

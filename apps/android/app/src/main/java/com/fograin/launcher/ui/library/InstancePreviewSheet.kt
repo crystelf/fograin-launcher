@@ -49,7 +49,7 @@ import com.fograin.launcher.ui.components.MilestoneChip
 import com.fograin.launcher.ui.components.StatusPill
 import com.fograin.launcher.ui.components.StatusTone
 
-/** Inspector sheet shown when a library row is tapped (the macOS preview pane). */
+/** Inspector sheet shown when a library row is tapped (the desktop preview pane). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InstancePreviewSheet(

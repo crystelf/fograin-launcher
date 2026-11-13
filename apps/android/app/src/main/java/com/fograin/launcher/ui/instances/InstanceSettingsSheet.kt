@@ -52,7 +52,7 @@ import org.json.JSONObject
 
 /**
  * Instance detail · 游戏设置 (M4 scope): 启动/内存/显示/启动行为, the M8/M9 content
- * placeholders and maintenance actions. The sheet mirrors the macOS instance
+ * placeholders and maintenance actions. The sheet mirrors the desktop instance
  * settings form and writes every change through `instances.settings.set`.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -90,7 +90,7 @@ fun InstanceSettingsSheet(
         }
     }
 
-    // Debounce JVM arguments: macOS persists on every keystroke, which would
+    // Debounce JVM arguments: desktop persists on every keystroke, which would
     // mean one RPC per character on Android. 600 ms after typing stops.
     LaunchedEffect(jvmArgs, loaded) {
         val current = loaded ?: return@LaunchedEffect

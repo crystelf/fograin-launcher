@@ -25,7 +25,7 @@ import kotlinx.coroutines.flow.map
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         // The core is initialized before the first frame so the stored theme
-        // and data root are available to the starting window (macOS does the
+        // and data root are available to the starting window (desktop does the
         // same through AppModel.init).
         val model = AppModel.get(applicationContext)
         val appearance = AppearancePreferences(this)

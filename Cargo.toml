@@ -1,7 +1,6 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "bindings/fg-ffi", "bindings/fg-ffi-jni"]
-exclude = ["apps/linux"]
 
 [workspace.package]
 version = "0.1.0"
@@ -69,3 +68,9 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+# The macOS linker used by this toolchain produces a cdylib that dyld rejects
+# ("mis-aligned LINKEDIT string pool") when Cargo strips it. Keep symbols here
+# and let scripts/build-jni-desktop.sh strip with the platform tool instead.
+[profile.release.package.fg-ffi-jni]
+strip = "none"

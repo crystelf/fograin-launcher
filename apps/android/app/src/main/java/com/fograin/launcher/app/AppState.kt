@@ -59,7 +59,7 @@ data class DownloadRow(
         }
 }
 
-/** Scope of the home instance list, matching macOS `RecentFilter`. */
+/** Scope of the home instance list, matching desktop `RecentFilter`. */
 enum class HomeFilter(val title: String) {
     RECENT("最近"),
     FAVORITES("收藏"),

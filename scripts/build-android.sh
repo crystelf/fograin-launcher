@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Builds the Rust core as an Android JNI library and stages it for Gradle.
 #
-# The Android client talks to the core through `bindings/fg-ffi-jni`, which
-# wraps the JSON contract in `bindings/fg-ffi`. Desktop clients use the plain C
-# ABI; only the `.so` below is Android-specific.
+# The Compose UI talks to the core through `bindings/fg-ffi-jni`, which wraps
+# the JSON contract in `bindings/fg-ffi`. Desktop uses the same JNI crate built
+# for the host; only the `.so` below is Android-specific.
 #
 # Requirements:
 #   - Rust targets: aarch64-linux-android and/or x86_64-linux-android
@@ -16,7 +16,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_JNI_DIR="$ROOT/apps/android/app/src/main/jniLibs"
+APP_JNI_DIR="$ROOT/apps/compose/android/src/main/jniLibs"
 API_LEVEL="${ANDROID_API_LEVEL:-26}"
 PROFILE="release"
 CARGO_PROFILE_FLAG="--release"
@@ -54,8 +54,8 @@ sdk_root() {
     printf '%s\n' "$ANDROID_HOME"
   elif [[ -n "${ANDROID_SDK_ROOT:-}" ]]; then
     printf '%s\n' "$ANDROID_SDK_ROOT"
-  elif [[ -f "$ROOT/apps/android/local.properties" ]]; then
-    sed -n 's/^sdk\.dir=//p' "$ROOT/apps/android/local.properties" | tail -1
+  elif [[ -f "$ROOT/apps/compose/local.properties" ]]; then
+    sed -n 's/^sdk\.dir=//p' "$ROOT/apps/compose/local.properties" | tail -1
   else
     printf '%s\n' "$HOME/Library/Android/sdk"
   fi
@@ -161,8 +161,11 @@ for abi in "${ABIS[@]}"; do
 
   mkdir -p "$APP_JNI_DIR/$abi"
   cp "$ROOT/target/$target/$PROFILE/libfg_ffi_jni.so" "$APP_JNI_DIR/$abi/libfg_ffi_jni.so"
+  if [[ "$PROFILE" == "release" && -x "$TOOLCHAIN/bin/llvm-strip" ]]; then
+    "$TOOLCHAIN/bin/llvm-strip" --strip-unneeded "$APP_JNI_DIR/$abi/libfg_ffi_jni.so"
+  fi
   echo "    staged $APP_JNI_DIR/$abi/libfg_ffi_jni.so"
 done
 
 echo "Done. Rebuild the APK with:"
-echo "  ANDROID_HOME=\"$SDK\" ./apps/android/gradlew -p apps/android assembleDebug"
+echo "  ANDROID_HOME=\"$SDK\" ./apps/compose/gradlew -p apps/compose :android:assembleDebug"

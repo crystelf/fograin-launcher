@@ -10,7 +10,7 @@ import java.util.Locale
 /**
  * Human-readable values shared by every Android page and covered by unit tests.
  *
- * The formats match the pen screens and the macOS client: `8.4 GB`,
+ * The formats match the pen screens and the desktop shell: `8.4 GB`,
  * `2 小时前`, `昨天`, `从未游玩`.
  */
 object InstanceFormat {

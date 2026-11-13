@@ -6,7 +6,7 @@ M4 wires:
 - `CoreNative` — `external` methods implemented by `bindings/fg-ffi-jni`.
 - `CoreBridge` — loads the library, installs the app-private data root with
   `fg_set_data_root`, dispatches JSON RPC and drains events.
-- `CoreWire` / `CoreEvents` — camelCase models shared with the macOS client.
+- `CoreWire` / `CoreEvents` — camelCase models shared with the desktop shell.
 
 Still owned by later milestones:
 

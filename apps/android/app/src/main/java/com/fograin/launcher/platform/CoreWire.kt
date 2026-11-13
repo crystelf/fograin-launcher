@@ -6,7 +6,7 @@ import org.json.JSONObject
 /**
  * Strict camelCase wire models decoded from `bindings/fg-ffi` JSON (§13).
  *
- * The shapes mirror `apps/macos/Sources/FograinKit/Models/CoreWire.swift`.
+ * The shapes mirror the `fg-ffi` JSON contract.
  * Dynamic download payloads stay as [JSONObject] until they reach a screen.
  */
 data class CoreInstanceRow(

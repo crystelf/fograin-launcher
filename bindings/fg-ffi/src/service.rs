@@ -1304,7 +1304,13 @@ fn total_memory_bytes() -> u64 {
     if unsafe { libc::sysinfo(&mut value) } != 0 {
         return 0;
     }
-    u64::from(value.totalram) * u64::from(value.mem_unit)
+    // `totalram` is `c_ulong`: already `u64` on 64-bit targets, but `u32` on
+    // 32-bit ones. Keep the widening conversion so both stay correct; clippy
+    // only sees the 64-bit case in CI.
+    #[allow(clippy::useless_conversion)]
+    {
+        u64::from(value.totalram) * u64::from(value.mem_unit)
+    }
 }
 
 #[cfg(not(unix))]

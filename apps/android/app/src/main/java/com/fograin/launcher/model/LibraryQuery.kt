@@ -1,6 +1,6 @@
 package com.fograin.launcher.model
 
-/** Filter above the instance library, matching the macOS `LibraryScope`. */
+/** Filter above the instance library, matching the desktop `LibraryScope`. */
 enum class LibraryScope(val title: String) {
     ALL("全部实例"),
     FAVORITES("收藏"),

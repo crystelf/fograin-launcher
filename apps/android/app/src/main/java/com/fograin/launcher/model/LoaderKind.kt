@@ -3,7 +3,7 @@ package com.fograin.launcher.model
 /**
  * Mod loader families the launcher knows about.
  *
- * Mirrors the shared core's loader kind and the macOS `LoaderKind`. The library
+ * Mirrors the shared core's loader kind and the desktop `LoaderKind`. The library
  * groups OptiFine with vanilla and Quilt with Fabric, matching the pen's four
  * groups.
  */

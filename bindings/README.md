@@ -1,23 +1,22 @@
 # Native bindings
 
-One Rust core, four native UI clients. This folder owns the boundary between
-them.
+One Rust core, one Compose Multiplatform UI (Android + desktop). This folder
+owns the boundary between them.
 
 ## Contract
 
-- Rust crates expose domain operations through `fg-ffi`; UI clients never link
-  `fg-*` crates directly except on Linux, where GTK and the core are both Rust
-  (the Linux client may depend on the crates directly to avoid an FFI hop).
-- Swift links the C ABI directly through `CFograinFFI`.
-- Kotlin calls the same JSON payloads through the JNI shim in
-  `bindings/fg-ffi-jni` (`libfg_ffi_jni.so`); no UniFFI code generation is
-  required for the Android milestone.
-- C# uses a stable C ABI with P/Invoke (generated with `csbindgen` once the
-  command surface exists).
-- Long-running operations return an opaque task id and push progress through a
-  callback/event sink; no UI client blocks on a network or install call.
-- Errors cross the boundary as `{ kind, messageKey, detail }`. UI clients map
+- Rust crates expose domain operations through `fg-ffi`; UI code never links
+  `fg-*` crates directly.
+- `fg-ffi` keeps a stable C ABI for the CLI, tests and future native hosts.
+- The Kotlin UI (Android and desktop JVM) calls the same JSON payloads through
+  the JNI shim in `bindings/fg-ffi-jni` (`libfg_ffi_jni.so` / `.dylib` / `.dll`);
+  no UniFFI code generation is required.
+- Long-running operations return an opaque task id and push progress through an
+  event queue; no UI call blocks on a network or install operation.
+- Errors cross the boundary as `{ kind, messageKey, detail }`. The UI maps
   `messageKey` to localized copy.
+- The JNI package/object names are part of the ABI: `com.fograin.launcher.platform.CoreNative`
+  must not be renamed, or the Rust `Java_*` exports stop resolving.
 
 ## Current state
 
@@ -69,10 +68,11 @@ All strings returned by the C ABI are owned by the caller and released with
 `fg_string_free`. The JNI shim allocates JVM strings instead, so Kotlin never
 sees a raw pointer.
 
-### Android JNI shim
+### JVM JNI shim
 
 `bindings/fg-ffi-jni` is a small `cdylib` that forwards to the safe JSON
-functions in `fg-ffi`. Kotlin loads it as `fg_ffi_jni`:
+functions in `fg-ffi`. Kotlin loads it as `fg_ffi_jni` on both Android and the
+desktop JVM:
 
 ```text
 com.fograin.launcher.platform.CoreNative
@@ -86,7 +86,7 @@ com.fograin.launcher.platform.CoreNative
 ```
 
 Every function catches Rust panics before returning to the JVM. Build the
-library for the device ABIs with:
+library for Android with:
 
 ```bash
 ./scripts/build-android.sh              # arm64-v8a + x86_64, release
@@ -94,7 +94,20 @@ library for the device ABIs with:
 ```
 
 The script stages `libfg_ffi_jni.so` under
-`apps/android/app/src/main/jniLibs/<abi>/`; Gradle packages it into the APK.
-The Android client calls `fg_set_data_root` with
-`getExternalFilesDir(null)` (falling back to `filesDir`) because Android apps
-have no usable `$HOME` for the `dirs` crate.
+`apps/compose/android/src/main/jniLibs/<abi>/`; Gradle packages it into the APK.
+
+For desktop the same crate is built for the host:
+
+```bash
+./scripts/build-jni-desktop.sh          # macOS / Windows / Linux host
+```
+
+The desktop library is staged under
+`apps/compose/desktop/src/main/resources/native/<os>-<arch>/` and extracted to
+a cache directory at runtime before `System.load` (jpackage does not put JAR
+resources on `java.library.path`).
+
+The Android client calls `fg_set_data_root` with `getExternalFilesDir(null)`
+(falling back to `filesDir`) because Android apps have no usable `$HOME` for the
+`dirs` crate. Desktop leaves the data root to the core (`dirs`), unless
+`FOGRAIN_HOME` is set.

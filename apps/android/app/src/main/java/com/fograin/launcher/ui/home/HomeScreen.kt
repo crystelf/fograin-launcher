@@ -78,7 +78,7 @@ import java.time.LocalTime
 
 /**
  * Home tab: the current instance hero, the instance list, the task queue and
- * the runtime/news column. Mirrors the macOS home page and keeps every action
+ * the runtime/news column. Mirrors the desktop home page and keeps every action
  * on native Material 3 controls.
  */
 @OptIn(ExperimentalMaterial3Api::class)

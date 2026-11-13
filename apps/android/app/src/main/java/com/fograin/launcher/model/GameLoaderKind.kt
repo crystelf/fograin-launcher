@@ -5,7 +5,7 @@ package com.fograin.launcher.model
  *
  * Only 原版 is installable in M4; the other entries are reserved slots with
  * placeholder versions so the flow and naming are settled before the installers
- * land in M5. Mirrors macOS `GameLoaderKind`.
+ * land in M5. Mirrors desktop `GameLoaderKind`.
  */
 enum class GameLoaderKind(
     val title: String,

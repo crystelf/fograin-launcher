@@ -1,11 +1,12 @@
 # 雾雨启动器（Fograin Launcher）设计文档
 
-> 状态：草案 v0.2 · 2026-10-31（原生 UI 架构）
-> 范围：Minecraft Java 版启动器，**Rust 核心 + 四个原生 UI 客户端**：macOS（SwiftUI + AppKit）、Windows（C# + WinUI 3）、Linux（Rust + GTK4/libadwaita）、Android（Kotlin + Compose）。桌面三端为第一阶段，Android 为第二阶段。
+> 状态：v1.0 · 2026-11-12 · 单 UI（Compose Multiplatform）架构
+> 范围：Minecraft Java 版启动器。一套 Rust 核心（`fg-*`），一套 Compose Multiplatform UI（Android / Windows / macOS / Linux），平台外壳按平台适配；Android 的游戏运行时（内置 JRE + LWJGL 移植）仍是第二阶段。
+> 架构决策：[ADR 0004](adr/0004-compose-multiplatform-ui.md)。早期四端原生 UI 的决策记录已随重构删除，内容保留在 §1。
 
 ## 0. 目标与非目标
 
-目标
+### 0.1 产品目标
 
 - 安装、管理、启动 Minecraft Java 版的全部版本（含快照、远古版本）。
 - 加载器：Fabric、Quilt、Forge、NeoForge、OptiFine（LiteLoader、LegacyFabric、Cleanroom 视需求再加）。
@@ -15,201 +16,258 @@
 - 账户：离线、LittleSkin、authlib-injector（Yggdrasil 外置登录）。
 - 服务器列表（收藏、局域网发现、状态 Ping）。
 - 国内网络友好：BMCLAPI 等镜像源、自动回退。
-- 以 `fograin.pen` 的布局、信息架构和视觉语言为参考，由四个平台原生客户端实现；**不做 WebView + CSS 皮肤**。平台原生控件、窗口行为和交互优先于逐像素复刻。
+- 以 `fograin.pen` 的布局、信息架构和视觉语言为参考，用**一套 Compose Multiplatform UI** 覆盖四个平台；平台外壳（窗口、菜单、文件选择、标题栏）按平台适配；**不做 WebView + CSS 皮肤**。控件使用 Material 3，页面层级、信息密度和操作路径保持一致。
 
-非目标（第一阶段）
+### 0.2 非目标（第一阶段）
 
-- 微软正版登录（见 §12「待决问题」，延后到 M11）。
-- 基岩版、iOS。
-- 内置联机（EasyTier / Terracotta 类方案），列入 M12 以后。
+- 微软正版登录：延后到 M11（需 Mojang 审核 Azure 应用）。
+- 基岩版、iOS：不提供。iOS 无法运行 Minecraft Java 的 JVM/子进程。
+- Web 端：浏览器不能启动游戏进程，WebAssembly 目标不在范围内。
+- 内置联机（EasyTier / Terracotta 类方案）：M12 以后。
+- 自绘皮肤/主题编辑器：使用设计令牌与系统深色模式即可。
 
-## 1. 参考源码与许可边界
+## 1. 现状、重构动机与结论
 
-| 来源 | 许可 | 用法 |
+### 1.1 已完成
+
+| 里程碑 | 内容 | 状态 |
 | --- | --- | --- |
-| `temp/HMCL`（HMCLCore） | GPL-3.0 | 与本仓库许可一致，可参考实现细节（下载候选源、Forge processors、崩溃规则等），在关于页致谢 |
-| `temp/PCL-CE/PCL.Core` 等 | Apache-2.0 | 可参考实现（Java 扫描、Yggdrasil 客户端、McPing、ModDependencyResolver 等），保留 NOTICE 与署名 |
-| `temp/PCL-CE/Plain Craft Launcher 2/` | 《PCL 分发有限许可》 | 不移植代码与算法。重度参考会要求产品名以 PCL 开头、主色必须为蓝色，与雾雨品牌冲突。只看公开协议层面的思路 |
+| M0 | Rust workspace、四端骨架、FFI 健康检查、CI | 完成 |
+| M1 | 四端原生外壳（导航、主题、窗口行为） | 完成 |
+| M2 | 下载引擎与任务图（`fg-net`、`fg-task`） | 完成 |
+| M3 | 原版安装、Java 发现、离线启动（`fg-game`、`fg-java`、`fg-auth`、`fg-cli`） | 完成 |
+| M4 | 实例 CRUD、设置继承、安装/启动 UI 接线、任务队列、外部 `.minecraft` 导入 | 完成（core + 四端） |
 
-规则：
+### 1.2 为什么重构
 
-- 所有协议级知识（Mojang 版本清单格式、Yggdrasil、Modrinth API）以官方文档 / wiki.vg / minecraft.wiki 为准，源码只作对照。
-- 内存自动分配、崩溃识别规则自研，规则数据独立成文件。
-- 本仓库保持 GPL-3.0。各平台 UI 依赖须兼容 GPL-3.0（MIT / Apache-2.0 / BSD 均可）。
+M0–M4 早期实现了四套原生 UI：SwiftUI/AppKit、WinUI 3、GTK4/libadwaita、Jetpack Compose。
 
-## 2. 技术栈
+- 四端 UI 合计约 3 万行，同一个页面要写四遍；M4 的实例管理、安装对话框、任务队列在四端各接一次。
+- 四个工具链（Xcode、.NET/WinUI、GTK4+Rust、Android Gradle）意味着四套 CI、四套发布流程、四套截图验收。
+- 功能修复与交互调整在四端反复回归；Android 上先修好的问题无法复用到桌面。
+- 设计令牌虽然共享，但控件行为、间距、菜单位置仍在漂移。
+
+结论：**保留 Rust 核心与 FFI 契约，UI 收敛为一套 Compose Multiplatform 代码**。这与原目标（页面层级与信息架构一致、不做 WebView）不冲突，只是把"四份原生实现"换成"一份共享 Compose + 平台外壳"。
+
+### 1.3 代价（必须接受）
+
+桌面端从原生应用变成带 JRE 的 JVM 应用：
+
+| 指标 | 原生桌面（现状） | Compose Desktop（预期） |
+| --- | --- | --- |
+| 安装包 | 5–20 MB | 60–100 MB |
+| 安装后体积 | 15–40 MB | 100–160 MB |
+| 冷启动 | 0.1–0.5 s | 0.8–2.5 s |
+| 空闲内存 | 50–100 MB | 150–300 MB |
+
+以上为估算，P0 会在 macOS / Windows / Linux 上实测并把结果写进 §7.2。若体积或启动超出可接受范围，再评估 jlink/AppCDS 优化或回退方案。
+
+## 2. 总体架构
+
+架构决策见 [ADR 0004](adr/0004-compose-multiplatform-ui.md)，取代早期的四端原生 UI 方案。
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│ Compose Multiplatform UI（:shared commonMain）                │
+│  主页 / 实例库 / 下载 / 设置 / 实例设置 / 安装对话框            │
+│  AppModel（状态、事件泵、安装与启动流程）                       │
+└───────────────┬──────────────────────────────┬───────────────┘
+                │ expect/actual                 │
+     ┌──────────▼──────────┐        ┌──────────▼──────────┐
+     │ :android 薄壳        │        │ :desktop 薄壳        │
+     │ MainActivity         │        │ main / Window / 菜单 │
+     │ edge-to-edge / 动态色 │        │ jpackage / 窗口状态   │
+     └──────────┬──────────┘        └──────────┬──────────┘
+                │ JNI                           │ JNI
+                └──────────────┬────────────────┘
+                     libfg_ffi_jni(.so/.dylib/.dll)
+                               │
+                     ┌─────────▼─────────┐
+                     │ fg-ffi（JSON RPC） │
+                     │  + 事件队列        │
+                     └─────────┬─────────┘
+        ┌──────────┬───────────┼───────────┬──────────┐
+     fg-core    fg-net      fg-task     fg-game     fg-java
+     fg-auth    fg-content  fg-loader   fg-world    fg-diag
+```
+
+### 2.1 分层原则
+
+1. `crates/fg-*` 不依赖任何 UI 框架，也不依赖 Android/iOS SDK。
+2. UI 只通过 `bindings/fg-ffi` 的 JSON 契约访问核心；不再有"Linux 直接链接 crate"的特例。
+3. 共享 UI 放在 `:shared`，平台外壳只保留窗口、生命周期、文件选择、通知等平台能力。
+4. 平台差异用 `expect/actual` 表达，不把 `Context`、`java.awt`、`Activity` 等类型泄漏到 `commonMain`。
+5. 设计令牌、FFI 契约、测试夹具是跨端唯一共享的"横向"资产。
+
+### 2.2 技术栈
 
 | 层 | 选型 | 说明 |
 | --- | --- | --- |
-| 核心 | Rust stable，tokio 多线程运行时 | `fg-*` crate，包含下载、安装、Java、账户、实例、启动等全部业务逻辑 |
-| 边界 | `fg-ffi`：UniFFI + 稳定 C ABI | Swift/Kotlin 用 UniFFI，C# 用 P/Invoke；Linux Rust 可直接依赖 crate |
-| macOS UI | Swift + SwiftUI，AppKit 仅做窗口/材质/菜单桥 | 原生红绿灯、`NSVisualEffectView`、原生菜单与快捷键 |
-| Windows UI | C# + WinUI 3（Windows App SDK） | 原生标题栏、Mica、Snap Layout、`NavigationView` |
-| Linux UI | Rust + GTK4 + libadwaita | 原生 `Adw.HeaderBar`、Adwaita 控件、GApplication |
-| Android UI | Kotlin + Jetpack Compose + Material 3 | Compose 页面、`GameActivity` 独立进程 |
-| HTTP | reqwest + rustls | 关闭 native-tls，避免 Linux 上的 OpenSSL 依赖 |
-| 序列化 | serde / serde_json / toml | |
-| 压缩 | zip、flate2 | jar、natives、整合包、NBT(gzip) |
-| NBT | fastnbt | servers.dat、level.dat |
-| 哈希 | sha1、sha2、md-5、自实现 murmur2 | murmur2 用于 CurseForge 指纹 |
-| 日志 | tracing + tracing-appender | 滚动文件日志；各原生 UI 通过 FFI 订阅日志/崩溃事件 |
-| 设计令牌 | `design/tokens.json` → 各平台常量 | 单一来源；不手写十六进制颜色 |
-| 3D 皮肤预览 | 各平台原生 3D API | macOS SceneKit、Windows D3D11、Linux `GtkGLArea`、Android GLES；待原型确认 |
+| 核心 | Rust stable 1.90+，tokio | `fg-*` crate：下载、安装、Java、账户、实例、启动 |
+| 边界 | `fg-ffi`（C ABI）+ `fg-ffi-jni`（JVM） | 两者共用 JSON 请求/响应；JNI 只做字符串与异常封送 |
+| UI | Kotlin 2.4.x + Compose Multiplatform 1.12.x + Material 3 | Android 与桌面共享 `commonMain` |
+| 构建 | Gradle 9.3.x + AGP 9.1.x + JDK 21 | 版本与 Animeko 的已验证组合对齐 |
+| Android | minSdk 26、compileSdk 37、AGP 内建 Kotlin | 原生库按 ABI 打进 APK |
+| 桌面 | Compose Desktop（Skiko）+ jpackage | 每个 OS 上各自打包；JRE 用 JBR/Temurin 21 |
+| 桌面平台库 | JNA、FileKit、jSystemThemeDetector | Win32/DWM、文件与目录选择、系统深浅色 |
+| HTTP | reqwest + rustls | 关掉 native-tls，避免 Linux OpenSSL 依赖 |
+| 序列化 | serde / serde_json / toml（Rust）；kotlinx.serialization（Kotlin） | UI 侧不再使用 Android 的 `org.json` |
+| 压缩 / NBT / 哈希 | zip、flate2、fastnbt、sha1/sha2/md-5/murmur2 | 与原设计一致 |
+| 日志 | tracing + tracing-appender | UI 通过事件队列消费 `game.line` / 日志摘要 |
+| 设计令牌 | `design/tokens.json` → `Tokens.kt` | 单一来源；桌面与 Android 共用 |
 
-依赖版本由 `Cargo.toml` 和 `Cargo.lock` 锁定；各原生 App 锁定自己的 SDK/Gradle/Windows App SDK 版本。
-
-## 3. 总体架构
-
-架构决策记录见 [ADR 0001](adr/0001-native-ui-clients.md)：Rust 核心 + 四个原生 UI 客户端。
+### 2.3 模块与目录
 
 ```text
 fograin-launcher/
-├─ Cargo.toml                 # Rust workspace：crates/* + bindings/fg-ffi
-├─ crates/
-│  ├─ fg-core/                # 模型、路径、配置、错误（无 UI、无异步运行时）
-│  ├─ fg-net/                 # HTTP、镜像、下载引擎、缓存
-│  ├─ fg-task/                # 任务图、进度、取消、持久化
-│  ├─ fg-game/                # 版本清单、安装器、启动参数
-│  ├─ fg-loader/              # Fabric / Forge / NeoForge / OptiFine
-│  ├─ fg-java/                # Java 扫描、运行时下载
-│  ├─ fg-auth/                # 离线、Yggdrasil、authlib-injector
-│  ├─ fg-content/             # Modrinth、CurseForge、模组、整合包
-│  ├─ fg-world/               # NBT、服务器列表、世界备份
-│  ├─ fg-diag/                # 日志、崩溃分析
-│  └─ fg-cli/                 # 无 UI 的调试/CI 入口
-├─ bindings/
-│  ├─ fg-ffi/                 # C ABI / UniFFI 边界；唯一 UI 入口
-│  └─ README.md               # 契约与生成说明
-├─ apps/
-│  ├─ macos/                  # SwiftUI + AppKit；Swift Package / Xcode
-│  ├─ windows/                # C# + WinUI 3；.csproj
-│  ├─ linux/                  # Rust + GTK4/libadwaita；独立 Cargo workspace
-│  └─ android/                # Kotlin + Compose；Gradle
-├─ design/
-│  ├─ tokens.json             # 颜色/字号/间距/圆角/窗口尺寸
-│  ├─ assets/                 # 位图资源
-│  └─ screens/                # pen 导出参考
-├─ docs/
-└─ .github/workflows/
+├── Cargo.toml                    # Rust workspace
+├── crates/                       # fg-core / net / task / game / java / auth / content / loader / world / diag / cli
+├── bindings/
+│   ├── fg-ffi/                   # C ABI + JSON RPC（CLI、测试、未来宿主）
+│   └── fg-ffi-jni/               # Android + 桌面 JVM 的 JNI 薄层
+├── apps/
+│   ├── compose/                  # 唯一 UI 工程（Gradle root）
+│   │   ├── shared/               # KMP：common / jvm / android / desktop
+│   │   ├── android/              # Android 薄壳：Activity、manifest、res、jniLibs
+│   │   └── desktop/              # JVM 薄壳：main、窗口、菜单、jpackage
+│   └── android/                  # 旧 Android 客户端（R2 迁移完成后删除）
+├── design/                       # tokens.json / assets / screens
+├── docs/                         # 本文件、ADR、backlog
+└── .github/workflows/            # Rust + Compose Android + macOS 桌面
 ```
 
-分层原则：
+`shared` 的 source set：
 
-- `fg-*` 不依赖任何 UI 框架。UI 只能通过 `fg-ffi` 调用；Linux GTK 客户端作为同一语言的特例，可以直接依赖 `fg-*`，但仍不得把 GTK 类型带入核心 crate。
-- 四个 UI 客户端**不共享 UI 代码**，只共享 Rust 核心、FFI 契约、设计令牌和测试夹具。
-- 每个客户端独立拥有自己的窗口、导航、列表、菜单、快捷键、无障碍和动画；不模拟其他平台的窗口控件。
-- 版本号、发布节奏和 i18n 资源可以统一；界面布局按平台适配。
+```text
+commonMain      Compose 页面、AppModel、模型、FFI 客户端
+ └── jvmMain    java.io / java.time / JNI 加载 / JNA（Android 与桌面共用）
+      ├── androidMain   Context、Activity、SharedPreferences、动态取色
+      └── desktopMain   AWT/Swing 窗口、FileKit、系统主题、jpackage 资源
+commonTest
+ └── jvmTest
+      ├── androidHostTest
+      └── desktopTest
+```
 
-### 3.1 FFI 契约
+**JNI 符号约束**：Rust 导出 `Java_com_fograin_launcher_platform_CoreNative_*`。`CoreNative` 的包名、对象名、方法名在重构中保持不变，因此 `fg-ffi-jni` 无需改 Rust 代码，只需增加桌面目标。
 
-- 操作按领域分组：`instance_*`、`download_*`、`java_*`、`account_*`、`launch_*`、`content_*`、`server_*`、`settings_*`。
-- 长任务返回 `TaskId`；进度通过每帧/节流回调推送，不在 UI 线程阻塞。
-- 事件：`task.progress`、`task.state`、`game.log`、`game.exit`。原生客户端把它们转成自己的状态容器。
-- 大列表（模组、资源、世界）分页返回；图标/缩略图通过缓存文件路径返回，不把二进制塞进 FFI。
-- 错误统一为 `fg_core::Error { kind, message_key, detail }`；UI 按 `message_key` 做本地化。
-- ABI 版本从 `fg_abi_version()` 读取；破坏性变更必须升版本，四个客户端同时升级。
-- 不把 UI 类型（颜色、字体、控件状态）放进 FFI。
+### 2.4 FFI 契约
 
-## 4. 原生 UI 与平台适配
+`fg-ffi` 暴露一个异步服务：`fg_service_current` + `fg_rpc_call` + `fg_events_next`。所有命令是 `{"method": "...", "params": {...}}`，返回 `{"ok": true, ...}` 或 `{"ok": false, "error": {kind, messageKey, detail}}`。完整方法表见 [bindings/README.md](../bindings/README.md)。
 
-设计稿 `fograin.pen` 有 54 个画面：桌面 3 套布局 × 13 个画面，Android 15 个画面。它只回答两件事：**这个页面有哪些元素**，以及**这些元素如何分组、排序**。它不是像素稿，不是控件规范，也不是要在四个平台复刻的 CSS。
+已实现的方法（M4）：
 
-- 控件一律使用平台原生实现。macOS 使用 `NSToolbar`、`NSSearchField`、`NSSegmentedControl`、`NSMenu`、`NSButton`、`Table`/`List` 等；Windows 使用 WinUI 3 对应控件；Linux 使用 GTK4/libadwaita；Android 使用 Material 3。
-- 不要用自绘胶囊、玻璃块或假按钮去模仿 pen 的视觉。原生控件的尺寸、材质、焦点环、键盘行为、输入法和无障碍语义优先于笔稿像素。
-- 页面层级、信息密度和操作路径保持一致；控件外观按平台调整。视觉验收看关键页面截图，不要求像素一致。
-- pen 中的 `Glass Group`、`Search Field` 等图层名只描述功能位置，不规定实现方式。例如 macOS 顶部搜索用原生搜索框，视图切换用原生 segmented control，排序用原生菜单。
-- 只有在平台控件无法表达某个内容型视觉（例如封面图、状态胶囊、实例图标）时才自绘，并且不把自绘结果伪装成系统控件。
-- macOS 客户端最低 macOS 14。顶部动作组使用原生 `NSToolbarItemGroup` 胶囊（26/27 由系统渲染 Liquid Glass，14/15 渲染原生分组胶囊）；通过 `#if compiler(>=6.2)` 与 `#available(macOS 26.0, *)` 双重判断，旧 Xcode/SDK 也能构建；Liquid Glass 分支需要 Xcode 26+（Swift 6.2）才会编译进二进制。
+- 应用：`app.snapshot`
+- 实例：`instances.list` / `.summary` / `.create` / `.import` / `.rename` / `.favorite` / `.delete` / `.settings.get` / `.settings.set` / `.verify` / `.dir`
+- 版本与安装：`versions.list` / `versions.news` / `version.plan` / `install.start`
+- 任务：`tasks.list` / `tasks.cancel`
+- 启动：`launch.start` / `launch.status` / `session.wait` / `session.stop`
+- 日志与设置：`game.log.recent` / `gameConfig.get` / `gameConfig.set`
 
-### 4.1 设计令牌
+约定：
 
-`design/tokens.json` 是唯一来源，生成各平台常量：
+- 长任务返回 `taskId`，进度通过 `task.progress` / `task.finished` 事件推送；UI 不阻塞等待网络或安装。
+- 事件还包括 `game.started`、`game.windowReady`、`game.line`、`game.exited`。
+- 事件队列每 250 ms 拉取一次（Android 桌面一致）。
+- 大列表分页；图标/缩略图用缓存文件路径，不把二进制塞进 FFI。
+- 破坏性变更必须提升 `fg_abi_version()`，四个平台同时升级。
+- 字符串由调用方释放（C ABI 用 `fg_string_free`；JNI 直接返回 `jstring`）。
 
-- Swift：`GeneratedTokens.swift`
-- Kotlin：`Tokens.kt`
-- C#：`DesignTokens.cs`
-- Rust/GTK：`tokens.rs`
+### 2.5 线程模型
 
-内容：
+- JNI 调用是阻塞的（RPC 在核心的 Tokio 运行时上派发），Kotlin 侧统一走 `Dispatchers.IO`。
+- `AppModel` 的协程作用域：Android 用 `Dispatchers.Main.immediate`；桌面用 `Dispatchers.Main.immediate` + `kotlinx-coroutines-swing`，保证回到 AWT 事件线程。
+- 事件泵、下载轮询、启动会话轮询都在 `AppModel` 内，Compose 只订阅 `StateFlow`。
+- 首帧前完成 `fg_settings_snapshot()`（主题、数据目录），避免启动闪烁。
 
-- 桌面暗色基色：`background #1F1F22`、`surface #242426`、`textPrimary #F5F5F7`、`textSecondary #EBEBF599`、`textTertiary #EBEBF55C`、`separator #FFFFFF14`。
-- 平台强调色：macOS `#0A84FF`、Windows 11 `#60CDFF`、GNOME `#3584E4`、Android M3 `#8ED5AE`（深色）/ `#1B6B4A`（浅色）。
-- 字体使用系统字体：SF Pro（macOS）、Segoe UI Variable（Windows）、Adwaita Sans（GNOME）、Roboto（Android）。品牌字可单独打包，但正文不再打包 Inter。
-- 浅色令牌仍是初稿，等 pen 补浅色画面后由四个平台共同更新。
+## 3. 单 UI 设计
 
-### 4.1.1 深浅色主题
+### 3.1 共享范围
 
-- 设置项 `appearance.theme = "system" | "light" | "dark"`，默认 `system`。
-- 统一由 Rust 核心读取 `launcher.toml`，在创建窗口前通过 FFI 暴露给 UI；各客户端在首帧前设置 `colorScheme` / `RequestedTheme` / `AdwColorScheme`，避免闪烁。
-- 跟随系统：
-  - macOS：SwiftUI `@Environment(\.colorScheme)` + `NSApp.effectiveAppearance`。
-  - Windows：`Application.RequestedTheme` + `UISettings.ColorValuesChanged`。
-  - Linux：`AdwStyleManager` / `GtkSettings:gtk-application-prefer-dark-theme`。
-  - Android：`Configuration.uiMode` + `isSystemInDarkTheme()`；可选 Material You 动态色。
-- 手动切换时同时设置原生窗口外观（macOS `NSAppearance`、Windows `AppWindow`/DWM、GTK `AdwStyleManager`、Android `AppCompatDelegate`），不需要重启。
-- 原生窗口材质、红绿灯/标题栏、菜单都跟随主题，不再有 CSS 令牌同步。
+`commonMain` 包含：
 
-### 4.2 每个平台的原生能力
+- 四个目的地：主页、实例库、下载、设置（Android 现有底栏结构）。
+- 实例预览 sheet、实例设置 sheet、安装对话框、目录导入对话框、提示与告警。
+- 主题（颜色/字体/圆角/间距）、通用组件（状态胶囊、进度条、实例封面、下拉框、账户头像）。
+- 模型与格式化：`Instance`、`LibraryQuery`、`DownloadFilters`、`InstanceFormat`（kotlinx-datetime）。
+- `AppModel` / `AppState`：实例 CRUD、安装、启动、任务、事件、notice/alert。
 
-| 能力 | macOS | Windows 11 | Linux GNOME | Android |
+不共享：
+
+- 窗口与标题栏、应用菜单、Dock/任务栏、托盘。
+- 文件/目录选择器的原生实现。
+- 系统深浅色检测、动态取色、状态栏/导航栏。
+- 原生库加载路径、数据根目录、剪贴板/通知。
+
+### 3.2 平台适配清单
+
+| 能力 | Android | macOS | Windows | Linux |
 | --- | --- | --- | --- | --- |
-| 窗口材质 | SwiftUI Material / `NSVisualEffectView` | WinUI 3 `MicaBackdrop` / Acrylic | libadwaita 表面；无系统模糊 | M3 surface / elevation |
-| 标题栏 | 原生 `NSWindow` 红绿灯；首版用原生标题栏，后续再评估内容延伸 | 原生 `AppWindowTitleBar`；需要时自定义 | `Adw.HeaderBar` | Material 3 `TopAppBar` |
-| 窗口拖拽 | 原生标题栏 + SwiftUI | 原生标题栏 | 原生 headerbar | 系统状态栏/手势 |
-| Dock/任务栏进度 | `NSDockTile` | `ITaskbarList3` | Unity LauncherEntry DBus（可用时） | 前台服务通知 |
-| 通知 | `UNUserNotificationCenter` | Windows App SDK AppNotification | `GNotification` / libnotify | `NotificationChannel` |
-| 凭据存储 | Keychain | Credential Manager | libsecret / Secret Service | Android Keystore |
-| 文件选择 | `NSOpenPanel` | WinUI FileOpenPicker / Win32 | GTK `FileDialog` / portal | SAF |
-| 单实例/深链接 | `NSApplicationDelegate` | AppInstance / 协议注册 | `GApplication` | Intent / deep link |
-| 自动更新 | Sparkle 或自建签名更新 | WinAppSDK/MSIX 或自建 | AppImage 自更新 / 包管理器 | APK 更新检查 |
-| GPU 信息 | Metal / IOKit | DXGI | sysfs / `lspci` | GLES / Vulkan 扩展 |
-| 游戏进程 | 子进程 | 子进程 | 子进程 | `:game` 独立进程 + JNI |
+| 数据根 | `getExternalFilesDir` | `~/Library/Application Support/Fograin` | `%APPDATA%\Fograin` | `$XDG_DATA_HOME/fograin` |
+| 主题 | `isSystemInDarkTheme` + Material You | jSystemThemeDetector | jSystemThemeDetector | jSystemThemeDetector / GTK |
+| 窗口 | 系统窗口 | `Window` + 透明标题栏 | `Window` + 深色标题栏 | `Window` + 系统装饰 |
+| 文件选择 | 应用内目录浏览（路径直传 Rust） | FileKit / NSOpenPanel 语义 | FileKit / Win32 | FileKit / portal |
+| 剪贴板 | Compose ClipboardManager | 同左 | 同左 | 同左 |
+| 返回 | 系统返回 / BackHandler | Esc / BackHandler | Esc / BackHandler | Esc / BackHandler |
+| 原生库 | `System.loadLibrary` | 解压 resource 后 `System.load` | 同 macOS（dll） | 同 macOS（so） |
+| 动态取色 | 支持（Android 12+） | 关闭 | 关闭 | 关闭 |
+| 通知/角标 | 通知渠道 | 可选 Dock 徽标 | 可选任务栏进度 | 可选 DBus |
 
-### 4.3 平台适配代码
+### 3.3 设计令牌与主题
 
-- macOS：`apps/macos/Sources/Fograin/Platform/`，AppKit 桥接（窗口、材质、Dock、菜单、文件面板）。
-- Windows：`apps/windows/Fograin.Windows/Platform/`，Win32/WinUI 互操作（Mica、任务栏、Snap Layout、文件选择）。
-- Linux：`apps/linux/src/platform/`，GTK/Adwaita、GApplication、libsecret、portal。
-- Android：`apps/android/app/src/main/java/com/fograin/launcher/platform/`，SAF、Keystore、通知、GameActivity。
-- 共享的纯 Rust 查询（内存、CPU、GPU 命令解析）可以放进 `fg-diag` 或后续 `fg-sys`；平台句柄不跨 FFI。
+- `design/tokens.json` 是唯一来源，只生成 `apps/compose/shared/src/commonMain/.../generated/Tokens.kt`。
+- 语义色、字号、间距、圆角、窗口尺寸全部来自令牌；代码里不写十六进制颜色。
+- `appearance.theme = system | light | dark` 由 Rust 核心写入 `launcher.toml`，UI 首帧前读取。
+- Android 保留可选的 Material You 动态色；桌面不提供动态色开关。
+- 字体：默认使用系统字体（Android Roboto、macOS PingFang/SF、Windows Microsoft YaHei、Linux Noto Sans CJK）。Linux 包内自带 Noto Sans SC 回退，避免缺字。
+- 浅色令牌仍是初稿；等 `fograin.pen` 补浅色画面后统一更新。
 
-### 4.4 原生 UI 差异
+### 3.4 桌面外壳（v1 范围）
 
-- 不再有 WebView、CSS 皮肤、`data-platform`、Tailwind、React 组件库。
-- 图标使用平台原生集合：SF Symbols / Fluent Icons / Adwaita symbolic / Material Symbols。
-- 控件必须使用平台原生焦点、键盘、输入法、拖放和无障碍语义；不要用自绘控件模拟。
-- 布局允许因平台控件尺寸不同而调整，但页面层级、信息密度和操作路径保持一致。
-- 视觉验收：每个平台对关键页面截原生窗口图，与 pen 的布局参考比对；不要求像素级一致。
+- 窗口：默认 1280×860，最小 960×640；位置/大小持久化到数据目录。
+- 菜单：文件（新建实例、导入模组包、导入 .minecraft、打开数据目录）、转到（四个目的地）、视图（主题）、帮助（关于）。
+- 快捷键：`Cmd/Ctrl+N`、`Cmd/Ctrl+F`、`Cmd/Ctrl+,`、`Esc` 返回。
+- macOS：AWT client property 实现透明标题栏 + 红绿灯内边距；不使用私有 API。
+- Windows：DWM 深色标题栏（`DwmSetWindowAttribute`），不做 Mica/自定义 caption（v2）。
+- Linux：使用系统窗口装饰；不强制 CSD。
+- 托盘、任务栏进度、单实例锁、通知：v2，进 `docs/backlog.md`。
 
-## 5. 数据目录与配置
+### 3.5 已知差异与优化项
 
-### 5.1 目录布局
+- 桌面端沿用 Android 的 4 项底栏。宽窗口下会显得空；**自适应布局（≥840dp 切 NavigationRail / 侧栏）列入待办，不在本次重构内实现**，见 [backlog](backlog.md)。
+- Android 的 `LargeTopAppBar`、`ModalBottomSheet` 在桌面可用，但手势与滚动回弹按桌面习惯调优属于 v2。
+- 桌面端不做像素级复刻；以页面结构、信息密度和操作路径一致为准。
+
+## 4. 数据目录与配置
+
+### 4.1 目录布局
 
 根目录（可在设置中更改）：
 
-- macOS `~/Library/Application Support/Fograin`
-- Windows `%APPDATA%\Fograin`
-- Linux `$XDG_DATA_HOME/fograin`（默认 `~/.local/share/fograin`）
-- Android：应用私有目录 `/data/data/<pkg>/files`，可选外部 `Android/data/<pkg>/files`
+- macOS：`~/Library/Application Support/Fograin`
+- Windows：`%APPDATA%\Fograin`
+- Linux：`$XDG_DATA_HOME/fograin`（默认 `~/.local/share/fograin`）
+- Android：应用私有目录；首次 RPC 前 `fg_set_data_root(getExternalFilesDir(null))`
+- 便携模式：`FOGRAIN_HOME` 环境变量覆盖
 
-```
+```text
 <root>/
 ├─ launcher.toml              # 全局设置
-├─ accounts.json              # 账户元数据（不含令牌，令牌在系统凭据库）
+├─ accounts.json              # 账户元数据（令牌在系统凭据库）
 ├─ servers.json               # 启动器级服务器收藏
-├─ shared/                    # 多实例共享（设计稿设置页「多个实例共享资源文件」）
-│  ├─ versions/<id>/<id>.json, <id>.jar
-│  ├─ libraries/              # Maven 布局
+├─ shared/
+│  ├─ versions/<id>/
+│  ├─ libraries/
 │  ├─ assets/{indexes,objects,log_configs,virtual/legacy}
 │  └─ natives/<instance-hash>/
-├─ instances/<instance-id>/
-│  ├─ instance.toml           # 实例元数据与覆盖设置
-│  ├─ .minecraft/             # 游戏工作目录（mods、resourcepacks、shaderpacks、saves、schematics、config、logs、crash-reports、options.txt、servers.dat）
+├─ instances/<id>/
+│  ├─ instance.toml
+│  ├─ .minecraft/             # mods / resourcepacks / shaderpacks / saves / logs / crash-reports …
 │  └─ icon.png
-├─ runtimes/<vendor>-<version>-<arch>/   # 启动器管理的 Java
+├─ runtimes/<vendor>-<version>-<arch>/
 ├─ cache/
-│  ├─ sha1/<aa>/<sha1>        # 内容寻址缓存，所有下载按 SHA-1 去重
-│  ├─ http/                   # ETag / Last-Modified 元数据缓存（清单、API 响应）
+│  ├─ sha1/<aa>/<sha1>        # 内容寻址缓存
+│  ├─ http/                   # ETag / Last-Modified
 │  └─ icons/
 ├─ backups/<instance-id>/<timestamp>.zip
 └─ logs/launcher-YYYY-MM-DD.log
@@ -217,543 +275,273 @@ fograin-launcher/
 
 说明：
 
-- 「共享资源」模式下 `versions`、`libraries`、`assets` 只存一份，实例只放自己的游戏目录。关闭共享时，每个实例的 `.minecraft` 自带完整目录，方便整体拷走。
-- 支持“导入外部 .minecraft 目录”：把它登记为只读的外部仓库，不迁移文件。HMCL / PCL / 官方启动器的现有目录都能直接识别。
-- 内容寻址缓存借鉴 HMCL `DefaultCacheRepository`：下载前先按 SHA-1 查缓存，命中则硬链接或拷贝；BMCLAPI 响应头 `x-bmclapi-hash` 也可用于提前命中缓存（HMCL `FetchTask` 的做法）。
+- 共享模式下 `versions`、`libraries`、`assets` 只存一份；关闭共享时每个实例自带完整目录，方便整体拷走。
+- 外部 `.minecraft` 只登记、不迁移，作为只读外部仓库。
+- 缓存按 SHA-1 去重；BMCLAPI 的 `x-bmclapi-hash` 可用于提前命中。
 
-### 5.2 配置格式
+### 4.2 配置格式
 
-- `launcher.toml`：分区 `[general] [game] [java] [download] [appearance] [network] [notify] [advanced]`，与设置页的 8 个分组一一对应。
-- `instance.toml`：
-  ```toml
-  id = "01JBX..."            # ULID
-  name = "雾林生存"
-  icon = "icon.png"
-  minecraft = "1.21.4"
-  [loader]
-  kind = "fabric"            # vanilla|fabric|quilt|forge|neoforge
-  version = "0.16.9"
-  optifine = ""              # 可与 forge 叠加
-  [override]                 # 留空表示继承全局
-  java = "temurin-21"
-  memory_mb = 6144
-  jvm_args = "-XX:+UseG1GC"
-  resolution = [1920, 1080]
-  fullscreen = false
-  [meta]
-  created = 2025-10-31T17:00:00Z
-  last_played = 2025-10-31T19:00:00Z
-  play_seconds = 453600
-  favorite = true
-  source = { kind = "modrinth", project = "xxx", version = "yyy" }  # 整合包来源，用于「更新整合包」
-  ```
-- 配置读写：先写 `*.tmp` 再原子 rename，避免崩溃时写坏文件。每个文件带 `schema_version` 字段，用迁移函数链做升级。
+`launcher.toml` 分区：`[general] [game] [java] [download] [appearance] [network] [notify] [advanced]`，与设置页分组对应。
 
-## 6. 下载子系统（fg-net）
+`instance.toml`：
 
-### 6.1 下载源与镜像规则
+```toml
+id = "01JBX..."
+name = "雾林生存"
+icon = "icon.png"
+minecraft = "1.21.4"
 
-源选项：「自动」「官方优先」「镜像优先」，版本列表和文件下载分开设置（与 HMCL 相同的两个维度）。
+[loader]
+kind = "fabric"            # vanilla|fabric|quilt|forge|neoforge
+version = "0.16.9"
+optifine = ""
 
-镜像规则表（前缀替换，数据驱动，放在 `fg-net/src/mirrors.toml`，支持远程热更新）：
+[override]                 # 留空表示继承全局
+java = "temurin-21"
+memory_mb = 6144
+jvm_args = "-XX:+UseG1GC"
+resolution = [1920, 1080]
+fullscreen = false
 
-| 官方前缀 | BMCLAPI 替换 |
-| --- | --- |
-| `https://launchermeta.mojang.com`、`https://piston-meta.mojang.com`、`https://piston-data.mojang.com`、`https://launcher.mojang.com` | `https://bmclapi2.bangbang93.com` |
-| `https://resources.download.minecraft.net` | `.../assets` |
-| `https://libraries.minecraft.net` | `.../libraries` |
-| `https://maven.minecraftforge.net`、`https://files.minecraftforge.net/maven` | `.../maven` |
-| `https://maven.neoforged.net/releases` | `.../maven`（另有 `neoforged.forgecdn.net` 备用） |
-| `https://meta.fabricmc.net` | `.../fabric-meta` |
-| `https://maven.fabricmc.net` | `.../maven` |
-| `https://meta.quiltmc.org` | `.../quilt-meta`（需验证） |
-| `https://authlib-injector.yushi.moe` | `.../mirrors/authlib-injector` |
-| `https://api.modrinth.com` / `cdn.modrinth.com` | MCIM 镜像 `https://mod.mcimirror.top/modrinth`、`https://mod.mcimirror.top`（回退） |
-| `https://api.curseforge.com` / `edge.forgecdn.net` | 只走 MCIM：`https://mod.mcimirror.top/curseforge`、`https://mod.mcimirror.top`（不内置 API Key，不直连官方） |
-| Maven Central | 腾讯云 Nexus 镜像 |
-
-候选源生成（参考 HMCL `HMCLDownloadProvider.getCandidates`）：
-
-- 每个文件生成有序的候选 URL 列表 `Vec<Candidate { url, retry, timeout }>`。
-- 「自动」模式：区域判断为 CN（系统 locale + 时区 + 首次启动测速），则镜像在前、官方在后；否则只用官方，失败后再回退镜像。
-- 「官方优先」：官方在前、镜像在后。「镜像优先」：镜像在前。
-- 自动测速：启动时并行请求一个小文件（版本清单 HEAD），记录 RTT 和成功率，存进 `cache/source-health.json`。连续失败 3 次的源熔断 5 分钟，期间排到列表末尾。
-
-### 6.2 下载引擎
-
-核心类型：
-
-```rust
-pub struct DownloadRequest {
-    pub candidates: Vec<Candidate>,
-    pub dest: PathBuf,
-    pub integrity: Option<Integrity>,   // Sha1 / Sha256 / Sha512 / Size
-    pub size_hint: Option<u64>,
-    pub cache: CachePolicy,             // ContentAddressed | HttpConditional | None
-    pub priority: Priority,             // 清单 > 依赖库 > 资源对象 > 模组
-}
+[meta]
+created = 2025-10-31T17:00:00Z
+last_played = 2025-10-31T19:00:00Z
+play_seconds = 453600
+favorite = true
 ```
 
-并发与调度：
+写入方式：先写 `*.tmp` 再原子 rename；每个文件带 `schema_version`，用迁移函数链升级。
 
-- 全局 `tokio::sync::Semaphore` 控制同时连接数，默认 `min(cpu × 4, 64)`（同 HMCL `FetchTask.DEFAULT_CONCURRENCY`），设置项可调 1–128。
-- 按主机名二级限流：BMCLAPI 每主机不超过 32；Modrinth / CurseForge API 每主机 16（HMCL 两个 API 仓库同为 16）。
-- reqwest 单一 `Client` 复用连接池，开启 HTTP/2，`pool_max_idle_per_host = 32`。
-- 全局限速：令牌桶，作用在 `bytes_stream()` 读取循环上。
-- 大文件（大于 16 MB，如游戏 jar、JDK 包）在服务器支持 `Accept-Ranges: bytes` 时分 4 段并行下载；小文件单连接。
+## 5. 核心子系统
 
-可靠性：
+### 5.1 下载引擎（`fg-net`）
 
-- 每个候选源默认重试 5 次，连接与读取超时 10s；退避 200ms × 2ⁿ，上限 5s。全部候选失败才判失败（HMCL 的做法是逐候选、逐次重试）。
-- 断点续传：写 `dest.part` 加旁路文件 `dest.part.meta { url, etag, last_modified, len }`。续传时带 `Range` 与 `If-Range`，返回 416 或 ETag 变化时从头下载。
-- 校验：边下边算哈希，不对就删掉文件，换下一个候选源。
-- 条件请求：清单、API 响应用 `If-None-Match` / `If-Modified-Since`，命中 304 直接读缓存。
-- 写盘：`tokio::fs` + 64 KB 缓冲，完成后 `fsync` 再 rename。
-- 文件数巨大的阶段（资源对象常有 3000–4000 个）合并进度事件，不按单文件推。
+- 源选项：自动 / 官方优先 / 镜像优先；版本列表与文件下载分开设置。
+- 镜像前缀表数据驱动（`fg-net/src/mirrors.toml`，支持热更新）：Mojang → BMCLAPI；资源 → `/assets`；库 → `/libraries`；Forge/NeoForge/Fabric/Quilt 各自 maven；Modrinth/CurseForge 走 MCIM。
+- 候选源：每个文件生成有序 `Candidate` 列表；CN 区域镜像优先，否则官方优先；连续失败 3 次熔断 5 分钟。
+- 并发：全局信号量 `min(cpu×4, 64)`；按主机二级限流（BMCLAPI 32、Modrinth/CurseForge 16）；reqwest 连接池 + HTTP/2。
+- 可靠性：每候选重试 5 次（200ms×2ⁿ，上限 5s）；`.part` + `Range`/`If-Range` 续传；边下边校验 SHA-1；条件请求；`fsync` 后 rename。
+- 大文件（>16 MB）在支持 `Accept-Ranges` 时 4 段并行；资源对象等海量小文件合并进度事件。
 
-### 6.3 任务系统（fg-task）
+### 5.2 任务系统（`fg-task`）
 
-参考 HMCL `Task` 的组合模型（`thenCompose`、`runSequentially`、依赖与被依赖任务）和 PCL.Core `App/Tasks`，在 Rust 里做成 DAG：
+- DAG：节点 + 依赖边，同层并行、拓扑序执行；失败策略 `FailFast` / `ContinueOthers`。
+- `Task`：`name`（i18n key）、`weight`、`run(TaskCx)`；`TaskCx` 提供进度、取消令牌、子任务、日志 span。
+- 暂停 = 取消 + 可恢复标记，依赖断点续传；未完成图序列化到 `cache/tasks/*.json`。
+- 进度聚合 `Σ(weight × fraction) / Σweight`；速度用 1 秒滑动窗口。
 
-```rust
-pub trait Task: Send {
-    fn name(&self) -> Cow<str>;          // i18n key
-    fn weight(&self) -> u32;             // 进度权重
-    async fn run(&mut self, cx: TaskCx) -> Result<()>;
-}
-// TaskGraph：节点 + 依赖边；同层并行、拓扑序执行；任一失败按策略 FailFast / ContinueOthers
-```
+### 5.3 原版安装（`fg-game`）
 
-- `TaskCx` 提供：进度上报、取消令牌（`tokio_util::sync::CancellationToken`）、子任务派生、日志 span。
-- 暂停：通过取消令牌加「可恢复」标记实现，依赖下载引擎的断点续传。下载页「全部暂停」就是对所有活动图发暂停。
-- 持久化：未完成的安装任务图序列化到 `cache/tasks/*.json`，重启后可在下载页续上。
-- 进度聚合：`Σ(weight × fraction) / Σweight`；速度用 1 秒滑动窗口。
+1. 拉取 `version_manifest_v2.json`（条件请求 + 缓存）。
+2. 下载 `versions/<id>/<id>.json` 并校验。
+3. 解析：`inheritsFrom` 递归合并（子覆盖父、libraries 子在前、arguments 拼接）；按 OS/arch/features 过滤 rules；处理新旧 natives 格式；log4j 配置（1.7–1.18.1 强制修复配置）。
+4. 下载 assetIndex；`virtual`/`map_to_resources` 老版本生成对应布局。
+5. 并行下载 libraries 与 assets；写入 `instance.toml`，标记安装完成。
+6. 资源补全：重算清单，只补缺失/哈希不符文件；默认只比大小与 mtime，严格模式算哈希。
 
-## 7. 游戏安装（fg-game）
-
-### 7.1 原版安装流程
-
-1. 获取 `version_manifest_v2.json`（`piston-meta.mojang.com/mc/game/version_manifest_v2.json`），条件请求加缓存。下载页「版本动态」卡片也用它。
-2. 下载 `versions/<id>/<id>.json`，按清单里的 sha1 校验。
-3. 解析 version json：
-   - `inheritsFrom` 递归合并（子覆盖父，`libraries` 子在前，`arguments` 拼接）。合并逻辑独立成 `resolve_version()`，加载器 json 也走这里。
-   - `libraries[].rules` 按 OS 名（osx/windows/linux）、arch、`features` 过滤。
-   - natives：旧格式 `natives` + `classifiers`（`${arch}` 替换为 32/64）；1.19+ 起直接以普通库形式出现、名字带 `natives-<os>` 分类器。
-   - `downloads.client` 得到主 jar；`downloads.client_mappings` 只在 Forge 安装时需要。
-   - `javaVersion.majorVersion`、`component` 用于 Java 匹配。
-   - `logging.client` 下载 log4j 配置；对 1.7–1.18.1 强制附加修复后的配置，防 Log4Shell。
-4. 下载 `assetIndex`。`virtual`/`map_to_resources` 的老版本需要把对象复制成 `assets/virtual/legacy` 或 `<instance>/resources` 的文件名布局。
-5. 并行下载 libraries 与 assets 对象（任务图两个分支并行）。
-6. 写入 `instance.toml`，标记安装完成。
-
-「资源补全」（主页卡片、启动前校验）：重算上述清单，只下载缺失或哈希不符的文件。启动前校验默认只比对大小和修改时间，用户可开严格模式算哈希。
-
-### 7.2 加载器安装（fg-loader）
+### 5.4 加载器（`fg-loader`）
 
 | 加载器 | 版本列表 | 安装方式 |
 | --- | --- | --- |
-| Fabric | `meta.fabricmc.net/v2/versions/loader/<mc>` | 拉 `/v2/versions/loader/<mc>/<loader>/profile/json`，作为 `inheritsFrom` 子版本写入；库走 maven.fabricmc.net |
-| Quilt | `meta.quiltmc.org/v3/versions/loader/<mc>` | 同 Fabric（profile json） |
-| NeoForge | `maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge`（1.20.1 用 `.../forge`） | 下载 installer jar，执行 install_profile processors（同新版 Forge） |
-| Forge（1.13+） | BMCLAPI `/forge/minecraft/<mc>` 或 `files.minecraftforge.net` 的 promotions + maven metadata | installer jar：解析 `install_profile.json` 与 `version.json`；下载 `libraries`；按 `data` 表替换变量后依次运行 `processors` |
-| Forge（1.5–1.12） | 同上 | 旧版 installer：取 `install_profile.json.versionInfo` 加 universal jar 写入；更老的版本直接把补丁并入 jar（列为低优先级） |
-| OptiFine | BMCLAPI `/optifine/<mc>`（官方无 API） | 下载 jar，用其自带 `optifine.Patcher` / `LaunchWrapper` 方式生成库；与 Forge 共存时作为 mod 放入 mods 目录 |
+| Fabric | `meta.fabricmc.net/v2/versions/loader/<mc>` | profile json 作为 `inheritsFrom` 子版本 |
+| Quilt | `meta.quiltmc.org/v3/versions/loader/<mc>` | 同 Fabric |
+| NeoForge | `maven.neoforged.net` maven metadata | installer jar + processors |
+| Forge 1.13+ | BMCLAPI / promotions | installer、`install_profile.json`、processors |
+| Forge 1.5–1.12 | 同上 | 旧 installer 的 `versionInfo` + universal jar |
+| OptiFine | BMCLAPI `/optifine/<mc>` | 自带 Patcher/LaunchWrapper；与 Forge 共存时放 mods |
 
-Forge / NeoForge processors 要点（对照 HMCL `ForgeNewInstallTask`）：
+进入 M5 的细节：`data` 变量替换、`{SIDE}` 等内置变量、只跑 client processor、`DOWNLOAD_MOJMAPS` 自处理、outputs 哈希校验、原版 jar 临时副本。
 
-- `data` 中的值：`[maven:coord]` 解析为 libraries 路径；`'literal'` 去引号；`/path` 表示从 installer jar 里解压出来的文件。
-- 内置变量：`{SIDE}=client`、`{MINECRAFT_JAR}`、`{MINECRAFT_VERSION}`、`{ROOT}`、`{INSTALLER}`、`{LIBRARY_DIR}`。
-- 只执行 `sides` 为空或包含 `client` 的 processor。
-- 每个 processor 是一个 jar：读它 manifest 的 `Main-Class`，用 `java -cp <jar + classpath> Main-Class args` 运行。这一步需要一个可用的 Java，安装器要先确保 Java 已就绪。
-- `DOWNLOAD_MOJMAPS` 任务直接由启动器自己下载 `client_mappings`（走镜像），不让 processor 联网。
-- 运行前把原版 jar 复制到临时目录再交给 processor，避免改坏共享 jar（HMCL 的做法）。
-- `outputs` 中的哈希逐个校验；校验通过的可以跳过重复执行。
+### 5.5 Java 运行时（`fg-java`）
 
-## 8. Java 运行时（fg-java）
+- 发现：`PATH`、`JAVA_HOME`；Windows 注册表与常见目录；macOS `/usr/libexec/java_home` 与 Homebrew；Linux `/usr/lib/jvm`、SDKMAN；HMCL/PCL/Prism 的 runtime（只读）；启动器 `runtimes/`。
+- 解析：优先 `<home>/release`；缺失时 `java -XshowSettings:properties -version`（5s 超时）；Windows 读 PE 头、macOS 读 Mach-O 头判断架构。
+- 匹配：优先 version json 的 `javaVersion.majorVersion`；缺失时按版本推断（≤1.16.5→8，1.17→16，1.18–1.20.4→17，1.20.5+→21）。精确优先，其次最近的高/低 major；不强制，先尝试运行，缺 Java 时才报 `error.java.none_installed` 并引导下载（M6）。
+- 内存：自动策略按总内存/可用内存/模组数给建议；上限为物理内存减 2 GB（Android 另算）；预设 G1GC、ZGC Generational、Aikar flags。
 
-### 8.1 发现
+### 5.6 启动流程（`fg-game::launch`）
 
-扫描器列表（参考 PCL.Core `Minecraft/Java/Scanner`，Apache-2.0）：
+1. 预检：账户、Java、内存、游戏目录可写。
+2. 资源补全（可关闭）。
+3. 解压 natives 到 `shared/natives/<hash>/`，遵守 `extract.exclude`；1.19+ 用 `-Djava.library.path` / `-Dorg.lwjgl.librarypath`。
+4. 构建 classpath：去重（同 `group:artifact` 取最后版本，加载器库优先）+ 主 jar；分隔符按平台。
+5. 拼参数：新旧 `arguments` 格式、全部占位符、`-Xmx/-Xms`、UTF-8 编码参数、macOS `-XstartOnFirstThread`、log4j 修复、authlib-injector。
+6. 命令过长时写 `@argfile`（Java 9+）或 manifest classpath（Java 8）。
+7. 启动子进程：`tokio::process::Command`，`current_dir = 实例游戏目录`；Windows `CREATE_NO_WINDOW`，Linux 可选 `gamemoderun`/独显变量。
+8. 日志：逐行读 stdout/stderr，识别 log4j XML 事件并转结构化；批量推 `game.line`。
+9. 窗口行为：检测游戏窗口出现后按设置隐藏/最小化；退出后恢复。
+10. 退出：非 0 退出码或新 crash-report 时跑崩溃分析（M9），提供诊断包导出。
+11. 统计：累加 `play_seconds`、更新 `last_played`。
 
-- `PATH`、`JAVA_HOME`
-- Windows：注册表 `HKLM\SOFTWARE\JavaSoft`、`Eclipse Adoptium`、`Azul Systems`、`Microsoft`；常见目录 `Program Files\{Java,Eclipse Adoptium,Zulu,Microsoft}`；官方启动器自带运行时 `%LOCALAPPDATA%\Packages\Microsoft.4297127D64EC6_*\LocalCache\Local\runtime`
-- macOS：`/usr/libexec/java_home -V`、`/Library/Java/JavaVirtualMachines`、Homebrew（`/opt/homebrew/opt/openjdk*`）
-- Linux：`/usr/lib/jvm`、`/usr/lib64/jvm`、`/opt`、SDKMAN `~/.sdkman/candidates/java`
-- 其它启动器目录：HMCL、PCL、Prism 的 runtime 目录（只读引用）
-- 启动器自己的 `runtimes/`
+Android 的启动实现是第二阶段：`fg-game::launch` 抽象出 `Launcher` trait，Android 生成启动描述 JSON，交给 `:game` 进程，见 §6。
 
-解析：
+### 5.7 账户（`fg-auth`）
 
-- 优先读 `<home>/release` 文件（`JAVA_VERSION`、`IMPLEMENTOR`、`OS_ARCH`），不用启动 JVM。
-- 没有 release 文件时才执行 `java -XshowSettings:properties -version`，超时 5s。
-- Windows 上用 PE 头判断 x86 / x64 / ARM64（同 PCL.Core `PeHeaderParser` 的思路）。macOS 读 Mach-O 头判断 arm64 / x86_64，避免 Apple 芯片误选 Rosetta 版 Java。
+- 离线：UUID v3（`OfflinePlayer:<name>`），可选自定义 UUID、本地皮肤。
+- Yggdrasil / authlib-injector：ALI 发现、`authenticate/refresh/validate/invalidate/signout`、`availableProfiles` 选角色、皮肤查询与上传、authlib-injector jar 下载校验、LittleSkin 预设、拖入链接。
+- 存储：`accounts.json` 只放元数据；令牌进系统凭据库（keyring / Android Keystore）。
+- Microsoft：M11；数据模型预留 `AccountKind::Microsoft`。
 
-### 8.2 自动匹配规则
+### 5.8 内容与实例（`fg-content` / `fg-world`）
 
-- 首选 version json 的 `javaVersion.majorVersion`。缺失时按版本推断：≤1.16.5 → 8，1.17 → 16，1.18–1.20.4 → 17，1.20.5+ → 21，以后的新版以 json 为准。
-- 推荐版本不是硬性门槛：优先精确 major，其次最近的更高 major，再次最近的更低 major；同 major 优先 host arch。没有精确版本时返回 `TooNew` / `TooOld` warning 而不是阻止启动，先用环境中已有的 Java 尝试运行，失败后再由 M6 的 Java 安装引导补装。只有完全没有发现任何 Java 时才报 `error.java.none_installed`。
-- Forge 1.16.5 及以下需要 Java 8；部分旧 Forge 在 Java 9+ 上会失败，规则表单独标出。
-- 优先选同架构；Apple 芯片上 1.18 以下原版缺少 arm64 natives，需要为 LWJGL 2 / 3.2 替换 arm64 natives，或回退到 x86_64 Java（Rosetta）。这里给出提示，见 §12。
-- 都没有时提示一键下载：
-  1. Mojang 官方运行时清单 `piston-meta.mojang.com/v1/products/java-runtime/.../all.json`（按文件清单逐个下载，可走镜像）。
-  2. Adoptium API（Temurin）、Azul API（Zulu，提供 Java 8 arm64）作为发行版选项，与设计稿「可安装」列表一致。
+- 模组解析：Fabric/Quilt/Forge/NeoForge/旧 Forge/LiteLoader 元数据，只读 jar 内条目；图标缓存。
+- 启用/禁用：`*.jar.disabled`（与 HMCL/PCL/Prism 兼容）。
+- 更新检查：Modrinth `version_files/update`（sha1）、CurseForge fingerprints（murmur2），缓存 6 小时。
+- 资源包/光影：`pack.mcmeta`、`options.txt`、`iris.properties`。
+- 世界：`level.dat`、`icon.png`、`session.lock`、zip 备份与保留策略。
+- 原理图：`.litematic` / `.schem` / `.nbt` 元数据。
+- 文件监听：`notify` + 500ms 去抖。
+- Modrinth / CurseForge：只走 MCIM 镜像访问 CurseForge；镜像不可用时置灰并提示；murmur2 指纹；依赖解析与安装计划。
 
-### 8.3 内存分配
+### 5.9 日志与崩溃（`fg-diag`）
 
-- 默认「自动」：自研策略，按系统总内存、可用内存和实例模组数给出建议区间。设计稿提示「建议为该整合包分配 4–6 GB」。
-- 上限不超过物理内存减 2 GB（Android 另算，见 §11）。32 位 Java 上限 1 GB。
-- 预设 JVM 参数模板：G1GC（默认）、ZGC Generational（Java 21+）、Aikar flags。
+- 数据源：最近 stdout、`logs/latest.log`、`crash-reports/*.txt`、`hs_err_pid*.log`。
+- 规则：`fg-diag/rules/*.toml`，字段 `id` / `pattern` / `source` / `captures` / `message_key` / `fix`。
+- 首批规则：Java 版本、内存、显卡/OpenGL、文件损坏、模组缺依赖/重复/冲突、Mixin、OptiFine 冲突、加载器重复、ID 超限、tick 崩溃。
+- 输出：按置信度排序，附模组与一键修复动作。
 
-## 9. 启动流程（fg-game::launch）
+### 5.10 整合包与服务器
 
-点击「开始游戏」后按顺序执行，每步都是任务图节点，主页卡片显示当前步骤：
+- 导入：Modrinth `.mrpack`、CurseForge `.zip`、MultiMC/Prism、HMCL、直接拖入 `.minecraft`。
+- 导出：`.mrpack` 优先，可选目录；更新整合包做增量。
+- 服务器：`servers.json` + `servers.dat` 双向同步；SLP Ping（1.7+ 与旧协议）、SRV、局域网组播发现、Quick Play。
+- 联机：M12+（EasyTier 类方案）。
 
-1. 预检：账户可用（离线账户直接通过；Yggdrasil 账户先 `validate`，失败则 `refresh`，再失败就弹登录框）；Java 存在（精确版本优先，但不强制，见 §8.2）；内存设置合法；游戏目录可写。
-2. 资源补全：按 §7.1 补齐缺失文件，可在设置里关闭。
-3. 解压 natives 到 `shared/natives/<hash>/`：遵守 `extract.exclude`（排除 `META-INF/`）。1.19+ 的 LWJGL natives 不用解压，由 `-Djava.library.path` 加 `-Dorg.lwjgl.librarypath` 指向。
-4. 构建 classpath：解析后的 libraries（去重时同一 `group:artifact` 取最后出现的版本，加载器库优先）+ 主 jar。分隔符 Windows 为 `;`，其它系统为 `:`。
-5. 拼参数：
-   - 新格式 `arguments.jvm` / `arguments.game`：字符串或 `{rules, value}`，`features` 包括 `is_demo_user`、`has_custom_resolution`、`has_quick_plays_support`、`is_quick_play_singleplayer|multiplayer|realms`。
-   - 旧格式 `minecraftArguments`：按空格拆分；JVM 参数自己补上 `-Djava.library.path`、`-cp`。
-   - 占位符：`${auth_player_name} ${version_name} ${game_directory} ${assets_root} ${assets_index_name} ${auth_uuid} ${auth_access_token} ${auth_session} ${user_type} ${version_type} ${user_properties} ${natives_directory} ${launcher_name} ${launcher_version} ${classpath} ${classpath_separator} ${library_directory} ${resolution_width} ${resolution_height} ${game_assets} ${clientid} ${auth_xuid} ${quickPlayPath} ${quickPlaySingleplayer} ${quickPlayMultiplayer}`
-   - 启动器附加：`-Xmx/-Xms`、用户 JVM 参数、`-Dfile.encoding=UTF-8`、`-Dstdout.encoding=UTF-8`、`-Dstderr.encoding=UTF-8`（Windows 中文路径与日志乱码问题）、macOS `-XstartOnFirstThread`、`-Dlog4j2.formatMsgNoLookups=true`。
-   - authlib-injector：`-javaagent:<authlib-injector.jar>=<api-root>` 加 `-Dauthlibinjector.yggdrasil.prefetched=<base64(api 元数据)>`。
-   - 快速启动（设计稿「跳过主菜单直接进入游戏」）：1.20+ 用 Quick Play 参数，旧版只支持直连服务器，用 `--server/--port`。
-6. 命令长度：Windows 命令行上限 32767 字符，超长时把 classpath 写入 `@argfile`（Java 9+），Java 8 用 `-cp` 指向一个只含 `Class-Path` manifest 的 jar（HMCL 有 `CommandTooLongException` 这一类处理）。
-7. 进程启动：`tokio::process::Command`，`current_dir = 实例游戏目录`。
-   - Linux：可选 `gamemoderun` 包装，可选 `__NV_PRIME_RENDER_OFFLOAD=1` 等独显变量。
-   - Windows：`CREATE_NO_WINDOW`，使用 `javaw` 或 `java`；设置进程优先级。
-   - 包装命令与环境变量都可以在实例设置里自定义（高级）。
-8. 进程管理：stdout / stderr 逐行读取，识别 log4j XML 事件格式（`<log4j:Event>`）并转成结构化日志，批量推送 `game.log`。「启动时显示日志」时由各原生客户端打开独立日志窗口。
-9. 窗口行为：检测到游戏窗口出现（日志中出现 `Setting user:`、`LWJGL Version`，或首帧事件），再按设置隐藏 / 最小化启动器。游戏退出后恢复窗口。
-10. 退出处理：非 0 退出码或出现 `crash-reports/` 新文件时，运行崩溃分析（§10.4），弹出结果并提供「导出诊断包」（日志、崩溃报告、启动命令（令牌打码）、系统信息、模组列表）。
-11. 统计：累加 `play_seconds`，更新 `last_played`。
+## 6. Android
 
-## 10. 内容与实例管理
+### 6.1 启动器 UI
 
-### 10.1 账户（fg-auth）
+与桌面共用 `commonMain`：底栏、主页、实例库、下载、设置、实例设置、安装流程全部一致。Android 薄壳只负责：
 
-第一阶段：
+- `MainActivity`：`enableEdgeToEdge`、状态栏/导航栏图标、动态色、首帧前读设置。
+- manifest、启动图标、`jniLibs/<abi>/libfg_ffi_jni.so`。
+- 数据根：`getExternalFilesDir(null)`；外部 `.minecraft` 导入用应用内目录浏览（SAF 的 URI 不能直接交给 Rust）。
+- 通知、前台服务、Keystore 等后续能力。
 
-- 离线：UUID = `UUID v3("OfflinePlayer:" + name)`（与原版服务端规则一致）。可选自定义 UUID、本地皮肤（只对单人生效，通过本地 Yggdrasil 模拟服务配合 authlib-injector 实现，见下）。
-- Yggdrasil / authlib-injector（LittleSkin、Blessing Skin 及任何兼容服务器）：
-  - API 地址发现（ALI）：GET 用户输入的 URL，读取响应头 `X-Authlib-Injector-API-Location`，跟随到真实 API 根地址。设计稿「已识别为 Blessing Skin 服务器」读的就是 API 根元数据里的 `meta.serverName`、`meta.implementationName`、`skinDomains`、`feature.non_email_login`。
-  - 接口：`/authserver/authenticate`（`requestUser: true`，`clientToken` 用启动器安装级 UUID）、`/refresh`、`/validate`、`/invalidate`、`/signout`；多角色时 `availableProfiles` 让用户选（设计稿「已绑定 1 个角色」）。
-  - 皮肤：`/sessionserver/session/minecraft/profile/<uuid>?unsigned=false` 取 textures；上传皮肤用 `PUT /api/user/profile/<uuid>/skin`（authlib-injector 规范）。
-  - authlib-injector jar：从 BMCLAPI 镜像或官方 `authlib-injector.yushi.moe/artifact/latest.json` 下载并校验 sha256。
-  - LittleSkin 内置为预设服务器 `https://littleskin.cn/api/yggdrasil`。
-  - 深链接 / 拖放：支持 `authlib-injector:yggdrasil-server:<urlencoded>` 拖入（设计稿「把 Yggdrasil 链接直接拖到这里」）。
-- 存储：`accounts.json` 只放元数据，`accessToken` / `clientToken` 存进系统凭据库（keyring，key = `fograin/<account-id>`）。
-- Microsoft：放到 M11，见 §12。数据模型先预留 `AccountKind::Microsoft`。
+### 6.2 游戏运行时（第二阶段）
 
-### 10.2 资源平台（fg-content）
+Android 上跑 Java 版需要：内置交叉编译的 OpenJDK（Pojav/Amethyst 的 `android-openjdk-build`）、LWJGL Android 移植、GLES/Vulkan 转译层（GL4ES/Zink/MobileGlues）、触控映射、`:game` 独立进程与 `ANativeWindow`、低内存设备策略。这些不自研。
 
-Modrinth（`api.modrinth.com/v2`，无需密钥，必须设置 `User-Agent: Fograin/<ver> (contact)`）：
+- `fg-game::launch` 抽象 `Launcher` trait：桌面 = 子进程；Android = 生成启动描述（classpath、JVM 参数、游戏参数、渲染器、环境变量）交给 `:game`。
+- `fg-java`：Android 只用内置 JRE，不做扫描；8/17/21 按需下载，不全部打进 APK。
+- 存储：私有目录；导入导出走 SAF；不申请 `MANAGE_EXTERNAL_STORAGE`。
+- 分发：Google Play 禁止下载并执行可执行代码，Android 版走 GitHub Release / 国内商店。
 
-- 搜索：`/search?query&facets=[["project_type:mod"],["versions:1.21.4"],["categories:fabric"]]&index=relevance&offset&limit`
-- 版本：`/project/<id>/version?game_versions=[..]&loaders=[..]`
-- 批量反查本地文件：`POST /version_files { hashes, algorithm: "sha1" }`，用于识别已装模组与检查更新（`/version_files/update`）。
-- 依赖：`dependencies[].dependency_type = required|optional|incompatible|embedded`。
+### 6.3 Android 分步骤
 
-CurseForge（只通过 MCIM 镜像 `https://mod.mcimirror.top/curseforge/v1` 访问，接口路径与官方 v1 相同，不需要 API Key）：
-
-- MCIM 是第三方社区服务，客户端要做可用性探测：不可用时 CurseForge 来源在下载页置灰并提示，Modrinth 不受影响。
-- MCIM 的数据是缓存的，新发布的文件可能有延迟；搜索结果以镜像为准。
-- 请求带 `User-Agent: Fograin/<ver>`，遵守镜像方的限流约定（具体限额需向 MCIM 确认）。
-
-- 搜索 `/mods/search?gameId=432&classId=6&gameVersion&modLoaderType&searchFilter&sortField`
-- 本地识别：`POST /fingerprints/432`，fingerprint = 去掉空白字节（0x09 0x0A 0x0D 0x20）后的 MurmurHash2，种子为 1。
-- 文件下载：`downloadUrl` 为 null（作者禁止第三方分发）时只能提示用户手动下载，并打开浏览器到对应页面。
-- API Key 风险见 §12。
-
-依赖解析（参考 PCL.Core `ModDependencyResolver`，Apache-2.0）：
-
-- 安装一个模组时，递归解析 required 依赖，按「同 MC 版本 + 同加载器 + 最新 release」挑选版本。
-- 已安装的同 ID 模组视为已满足；版本冲突时列出来让用户选。
-- 检测 incompatible，提前拦截。
-- 结果以「待安装清单」展示后再执行（下载页「安装到：雾林生存」）。
-
-中文名与搜索：
-
-- Modrinth / CurseForge 本身没有中文名。可选接入 MC百科的公开数据，或社区维护的映射表（需要确认许可与可用性，见 §12）。第一阶段先支持中文搜索词转英文关键词的简单映射，名称以官方英文为准。
-
-### 10.3 本地实例内容管理
-
-- 模组解析（只读 jar 内的元数据，不解压整个文件）：
-  - Fabric `fabric.mod.json`；Quilt `quilt.mod.json`
-  - Forge 1.13+ / NeoForge `META-INF/mods.toml`、`META-INF/neoforge.mods.toml`（`${file.jarVersion}` 从 `MANIFEST.MF` 的 `Implementation-Version` 补全）
-  - 旧 Forge `mcmod.info`；LiteLoader `litemod.json`
-  - 图标：从元数据的 `icon` / `logoFile` 取，缓存到 `cache/icons/`
-- 启用 / 禁用：重命名为 `*.jar.disabled`（与 HMCL、PCL、Prism 兼容）。
-- 更新检查：sha1 批量走 Modrinth `version_files/update`，murmur2 走 CurseForge fingerprints；结果缓存 6 小时（设计稿「3 个可更新」）。
-- 资源包：读 `pack.mcmeta` 的 `pack_format`（及 `supported_formats`）与 `pack.png`；按 MC 版本对照表判断是否兼容（设计稿「包格式 42 · 1.21.x · 已兼容」）。启用状态写入 `options.txt` 的 `resourcePacks:[...]`。
-- 光影：`shaderpacks/` 下的 zip 或目录；当前选中的光影读 `config/iris.properties` 或 `optionsshaders.txt`。
-- 世界：`saves/<name>/level.dat`（fastnbt 读 `LevelName`、`GameType`、`LastPlayed`、`Version.Name`、`SizeOnDisk`）；`icon.png`；运行时检测 `session.lock` 是否被占用；备份为 zip，支持定时与保留份数（Android 设计稿「每天 1 次 · 保留 5 份」）。
-- 原理图：`schematics/` 下的 `.litematic`、`.schem`、`.nbt`，读取尺寸与作者元数据。
-- 文件监听：`notify` crate 监听实例目录，外部改动后刷新列表（去抖 500ms）。
-
-### 10.4 日志与崩溃分析（fg-diag）
-
-- 数据源：最近一次游戏 stdout、`logs/latest.log`、`crash-reports/*.txt`、`hs_err_pid*.log`。
-- 规则引擎：规则定义在 `fg-diag/rules/*.toml`，每条规则包括 `id`、`pattern`（正则）、`source`（log/crash/jvm）、`captures`（提取模组名等）、`message_key`、`fix`（可选的一键修复动作，如「切换 Java 17」「删除重复模组」）。
-- 第一批规则按类别覆盖（类别清单参考 HMCL `CrashReportAnalyzer` 的公开规则，GPL 兼容；规则文本自行编写）：Java 版本过高或过低、内存不足、显卡驱动 / OpenGL、文件损坏或被修改、模组缺依赖 / 重复 / 冲突、Mixin 注入失败、OptiFine 与 Forge / Sodium 不兼容、加载器重复安装、mod 被解压、ID 超限、实体 / 方块 tick 崩溃（提取坐标）。
-- 结果展示：把可能原因按置信度排序，并给出对应模组和操作按钮。
-
-### 10.5 整合包
-
-导入：
-
-- Modrinth `.mrpack`：`modrinth.index.json`（`files[]` 带 `hashes`、`downloads`、`env`）加 `overrides/`、`client-overrides/`。
-- CurseForge `.zip`：`manifest.json`（`minecraft.modLoaders`、`files[{projectID, fileID, required}]`）加 `overrides`。用 `/mods/files` 批量换下载地址，拿不到的列表让用户手动下载。
-- MultiMC / Prism：`instance.cfg` + `mmc-pack.json`。
-- HMCL 整合包：`modpack.json`（第二优先级）。
-- 直接拖入 `.minecraft` 文件夹或 zip：识别其中的 versions 目录。
-
-导出：Modrinth `.mrpack`（首选，可从 Modrinth 解析的模组只写 URL），以及 CurseForge 格式；可选包含哪些目录（config、resourcepacks、saves…）。
-
-「更新整合包」：记录来源项目与版本，新版本出来时对比文件清单做增量更新，保留用户自己加的文件。
-
-### 10.6 服务器
-
-- 列表来源：启动器级 `servers.json` 加各实例 `servers.dat`（NBT），可选择双向同步。
-- 状态 Ping：1.7+ 的 SLP 协议（握手 + status JSON + ping），老版本用 `0xFE 0x01` 旧协议（参考 PCL.Core `Link/McPing`，Apache-2.0）。支持 SRV 记录（`hickory-resolver`）。设计稿展示的 MOTD 颜色码、人数、延迟、图标都来自 status 响应。
-- 局域网发现：监听 UDP 组播 `224.0.2.60:4445` 的 `[MOTD]..[/MOTD][AD]port[/AD]` 广播。
-- 「使用实例」：给服务器绑定默认实例，加入时用 Quick Play 直连。
-
-## 11. Android 计划（第二阶段）
-
-### 11.1 可行性与关键问题
-
-在 Android 上运行 Java 版 Minecraft，需要的不只是一个启动器：
-
-1. JVM：Android 没有标准 JRE，需要内置为 Android（bionic / aarch64）交叉编译的 OpenJDK 8 / 17 / 21。可用来源：Pojav / Amethyst 社区维护的 `android-openjdk-build`（GPL-2.0 with Classpath Exception），需要确认二进制分发义务。
-2. LWJGL：官方 LWJGL 没有 Android 版，需要用移植版 LWJGL 3（Pojav 系的 `lwjgl3` fork，含 GLFW 的 Android 实现），并在启动时替换 version json 中的 LWJGL 库。
-3. 图形：Minecraft 需要桌面 OpenGL，Android 只有 GLES / Vulkan。需要转译层：GL4ES、Zink（Mesa，OpenGL→Vulkan）、MobileGlues、ANGLE 等，按 GPU 选择。
-4. 输入：触控转键鼠事件，虚拟按键布局编辑器，游戏手柄映射，软键盘输入（聊天）。
-5. 进程模型：游戏要在独立进程中跑（`android:process=":game"`），用 `SurfaceView` / `ANativeWindow` 交给转译层渲染，JVM 通过 JNI 在该进程中创建（`JNI_CreateJavaVM`）。
-6. 内存：低端设备 4–6 GB RAM，可分配给游戏的大约是物理内存的一半，且受系统 LMK 管理。
-7. 商店政策：Google Play 不允许下载并执行可执行代码（模组 jar 就属于这类），Pojav 系项目都选择 GitHub / 侧载分发。我们的 Android 版也建议只做 GitHub Release 与国内应用商店，见 §12。
-
-以上大部分属于 Pojav / Amethyst 的现成工作，自己重写几乎不现实。建议路线：复用它们的原生层（JRE、LWJGL 移植、渲染器 so），启动器 UI 用 Kotlin Compose，逻辑复用 Rust 核心。许可上 Amethyst 为 LGPL-3.0（需确认具体组件），与 GPL-3.0 兼容。
-
-### 11.2 Android 架构
-
-```
-Kotlin Compose App（主进程 :main）
- ├─ Jetpack Compose UI：Material 3（设计稿 15 个 Android 画面）
- ├─ Rust：fg-* crate 复用（下载、安装、模组、账户、配置），经 UniFFI/JNI 调用
- └─ Android 平台层（Kotlin）
-     ├─ GameLauncherService：启动 :game 进程的 Activity，传入启动参数（Intent / 文件）
-     ├─ StorageBridge：SAF 文件选择、导入导出整合包、分享
-     ├─ KeystoreBridge：令牌加密存储（Android Keystore）
-     └─ DeviceInfo：RAM、GPU（GLES/Vulkan 扩展）、ABI
-
-GameActivity（进程 :game，原生层复用 Amethyst）
- ├─ 解包后的 JRE（首次运行时从 assets 解压到私有目录）
- ├─ LWJGL Android 移植 + 渲染器 so（gl4es / zink / mobileglues）
- ├─ 触控控制层（Kotlin 自绘 Overlay，布局 JSON 可编辑）
- └─ 退出码、日志通过文件 + Binder 回传给主进程
-```
-
-Rust 侧的差异点：
-
-- `fg-game::launch` 抽象出 `Launcher` trait：桌面实现 = 起子进程；Android 实现 = 生成启动描述 JSON（classpath、JVM 参数、游戏参数、渲染器、环境变量），交给 Android 平台层。
-- `fg-java`：Android 只用内置 JRE，不做扫描。版本映射 8 / 17 / 21 按需下载额外的 JRE 包（体积大，不全部打进 APK）。
-- 参数改写：替换 LWJGL 库路径、移除桌面 natives、注入 `-Dorg.lwjgl.opengl.libname=<renderer>.so`、设置 `POJAV_RENDERER` 一类环境变量（以复用组件的约定为准）。
-- 下载：设计稿「仅 Wi-Fi 下载」，用 `ConnectivityManager` 回调控制下载引擎暂停与恢复。
-- 存储：默认私有目录；导入导出走 SAF；不申请 `MANAGE_EXTERNAL_STORAGE`。
-
-### 11.3 Android 分步骤
-
-| 步骤 | 内容 | 产出 / 验收 |
+| 步骤 | 内容 | 验收 |
 | --- | --- | --- |
-| A0 | 评估：编译 Amethyst 跑通 1.21 原版；确定复用组件清单与许可；确定 minSdk 26、只出 arm64-v8a | 评估报告；许可清单 |
-| A1 | Compose 外壳（底部导航、Large Top App Bar、FAB），通过 UniFFI 对接现有 fg-* crate | 能浏览实例、下载原版文件 |
-| A2 | Android 平台层骨架：Kotlin ↔ Rust（UniFFI/JNI）调用、事件回传 | 双向调用 demo |
-| A3 | 内置 JRE 17 / 21：打包为可选下载资源，首次运行解压、校验、`chmod` | `java -version` 在设备上跑通 |
-| A4 | GameActivity：集成 LWJGL 移植与 gl4es / zink，启动原版 1.21.4 进入主菜单 | 主菜单可交互 |
-| A5 | 触控层：默认布局、编辑器、手柄映射、软键盘输入 | 能玩生存 |
-| A6 | 加载器：Fabric / Quilt 优先（纯 Java，兼容性最好）；Forge / NeoForge 安装器 processors 在设备上跑（耗时长，需要后台服务和前台通知） | Sodium 整合包可运行 |
-| A7 | 渲染器选择与 GPU 适配表（Adreno / Mali / Xclipse），崩溃回退策略 | 设置页「渲染器」选项 |
-| A8 | 账户（离线、外置）、整合包、世界备份、服务器；Keystore 存储 | 与桌面功能对齐（除 Java 管理页） |
-| A9 | 性能与发热：内存默认值、后台降级、前台服务通知、电池优化豁免引导 | 30 分钟稳定游玩 |
-| A10 | 分发：签名、GitHub Release、国内商店（如需要）、自写 APK 更新检查 | 1.0 Android 预览版 |
+| A0 | 评估 Amethyst，确定复用组件与许可 | 评估报告 + 许可清单 |
+| A1 | Compose 外壳接入现有 `fg-*`（本次重构已完成 UI 部分） | 浏览/安装/启动错误分支 |
+| A2 | Android 平台层骨架 | 双向调用 demo |
+| A3 | 内置 JRE 17/21 | 设备上 `java -version` 通过 |
+| A4 | GameActivity + 渲染器 | 1.21.4 进主菜单 |
+| A5 | 触控层 | 能玩生存 |
+| A6 | Fabric/Quilt 优先，Forge/NeoForge 后台安装 | Sodium 包可运行 |
+| A7 | GPU 适配表与回退 | 设置页可选渲染器 |
+| A8 | 账户、整合包、世界备份、服务器 | 与桌面对齐（除 Java 管理） |
+| A9 | 性能与发热 | 30 分钟稳定 |
+| A10 | 签名与分发 | Android 预览版 |
 
-## 12. 风险与待决问题
+## 7. 里程碑
 
-1. 微软正版登录（已决定延后）：新建的 Azure 应用必须通过 Mojang 审核表单（`aka.ms/mce-reviewappid`）才能调用 `api.minecraftservices.com`，否则返回 403。建议现在就注册 Azure 应用并提交审核，M11 时再接入。流程：设备码 OAuth → XBL → XSTS → `login_with_xbox` → entitlements → profile。
-2. CurseForge：已决定只走 MCIM 镜像，不申请也不内置 API Key。风险是依赖第三方服务的可用性与数据延迟；MCIM 停服时 CurseForge 搜索、安装、CurseForge 整合包导入、指纹识别都会不可用。需要时可再补自建代理方案。
-3. PCL 许可：`Plain Craft Launcher 2/` 目录不能作为实现参考，只用 PCL.Core。团队成员需要知道这一点。
-4. Apple 芯片旧版本：1.18 以下没有官方 arm64 natives，需要自带一套 LWJGL arm64 natives 做替换（HMCL、Prism 都有类似做法），否则只能用 x86_64 Java 走 Rosetta。
-5. Liquid Glass 私有 API：仅在非 App Store 分发的 macOS 构建中启用，并做运行时探测，失败时回退 `NSVisualEffectView`。
-6. 签名与公证：macOS 需要 Developer ID 证书和公证；Windows 建议 EV / OV 代码签名，否则 SmartScreen 会拦截；Linux 出 AppImage、deb、rpm，Flatpak 可后续再做。
-7. Android 复用组件许可（JRE 构建、LWJGL 移植、渲染器）需逐项确认，A0 阶段输出清单。
-8. 中文模组名数据源：MC百科数据的使用许可未确认，第一阶段不内置。
-9. UI 框架：已改为**四个原生客户端**——macOS SwiftUI/AppKit、Windows C#/WinUI 3、Linux Rust/GTK4、Android Kotlin/Compose。原 React/Tauri 方案不再使用，54 个画面按平台原生实现；后台核心仍是一套 Rust crate。
-10. 浅色主题：已决定支持「跟随系统 / 浅色 / 深色」（§4.1.1）。设计稿只有暗色，§4.1.1 的浅色令牌是初稿，需要在 pen 里补浅色画面后再定稿。
+### 7.1 已完成
 
-## 13. 页面与后端能力对照
+M0–M4 见 §1.1。M4 的实例管理、安装、启动链路已经在 macOS / Windows（代码级）/ Linux / Android 上验证或接线；本次重构不改变 Rust 核心与 RPC 契约。
 
-| 设计稿画面 | 主要 FFI 操作 / 事件 | 依赖模块 |
+### 7.2 重构阶段（R0–R6）
+
+每一步单独可合并、可回滚。三个桌面原生客户端已在 2026-11-13 删除；旧 Android 客户端保留到 R2 迁移完成。
+
+| 阶段 | 内容 | 工期 | 验收 |
+| --- | --- | --- | --- |
+| **R0 技术验证** ✅ | 新建 `apps/compose` 三模块；Kotlin 2.4 / CMP 1.12 / AGP 9 / Gradle 9.3 / JDK 21；桌面 JNI 加载；`app.snapshot` 打通；macOS DMG 打包 | 完成 2026-11-12 | Android 模拟器与 macOS 应用均显示核心数据；基线见 §7.4 |
+| **R1 共享层** | JSON 层迁 kotlinx.serialization；`CoreNative`/`AppModel` 去 Android 化；抽 9 个平台接口；单测迁 `commonTest` | 3–4 天 | `commonMain` 无 `android.*` / `java.*`；桌面可列实例 |
+| **R2 UI 迁移** | theme/components/home/library/downloads/settings/instances 逐页搬；字符串与图片资源化；Material3 API 差异处理 | 6–8 天 | 四页 + 3 个 sheet 渲染；Android 端 26.3 流程回归 |
+| **R3 Android 切换** | manifest/res/jniLibs/Activity 迁入薄壳；构建脚本与 CI 更新（旧 `apps/android` 已在 R0 翻新到 AGP 9 工具链） | 2–3 天 | `assembleDebug` + 单测；模拟器全流程 |
+| **R4 桌面外壳** | 窗口状态、菜单与快捷键、macOS 透明标题栏、Windows 深色标题栏、FileKit 目录导入、打开数据目录 | 5–7 天 | 三 OS 各完成一次 M4 全流程 |
+| **R5 打包与 CI** | jpackage、图标、JRE/jlink、DMG/MSI/DEB、签名与公证、CI 矩阵 | 4–6 天 | 干净机器安装可用；三 OS + Android CI 绿 |
+| **R6 清理** | 删除旧 `apps/android`（R2 后）；更新 README/design；打 tag | 2–3 天 | `cargo test --workspace` + Gradle 构建通过 |
+
+合计约 25–36 人天（一人全职 5–7 周，加 20% buffer 约 6–8 周）。R0 已通过（见 §7.4），继续 R1。
+
+### 7.3 后续核心里程碑
+
+| 里程碑 | 内容 | 约工期 |
 | --- | --- | --- |
-| 主页 | `instance_list(recent)`、`launch_start`、`download_queue`、`system_info`、`news_list` | fg-game、fg-net、fg-native |
-| 实例库 | `instance_list(group_by=loader)`、`instance_create`、`instance_import` | fg-game、fg-content |
-| 实例详情 · 模组管理 | `mods_list`、`mods_toggle`、`mods_check_updates`、`mods_update`、`mods_remove` | fg-content |
-| 实例详情 · 资源包 / 光影 / 世界 / 原理图 | `resourcepacks_*`、`shaders_*`、`worlds_*`、`schematics_*` | fg-content、fg-world |
-| 实例详情 · 游戏设置 | `instance_settings_get/set`、`java_list` | fg-core、fg-java |
-| 实例详情 · 维护 | `modpack_update`、`open_dir`、`logs_list`、`crash_analyze`、`instance_export`、`backup_*` | fg-content、fg-diag |
-| 服务器 | `servers_list`、`server_ping`、`lan_discover`（event）、`servers_sync` | fg-world |
-| 下载 | `content_search`、`content_versions`、`content_install_plan`、`content_install`、`task_*` | fg-content、fg-net |
-| Java 运行时 | `java_scan`、`java_install`、`java_test_run`、`java_remove`、`java_rules` | fg-java |
-| 账户 / 添加账户 / 添加认证服务器 | `account_*`、`yggdrasil_discover`、`skin_upload` | fg-auth |
-| 设置 | `settings_get/set`、`cache_clean`、`storage_usage`、`updater_check` | fg-core、updater |
-| 关于 | `app_info` | — |
+| M5 | Fabric/Quilt/NeoForge/Forge/OptiFine 安装器 | 2–3 周 |
+| M6 | Java 运行时自动下载与管理页 | 1 周 |
+| M7 | Yggdrasil / authlib-injector、账户页、皮肤 | 1 周 |
+| M8 | 模组、资源包、光影、世界、原理图、下载页六类资源 | 3 周 |
+| M9 | 整合包、服务器、崩溃分析 | 2 周 |
+| M10 | 设置、i18n、自动更新、签名、发布打磨 | 2 周 |
+| M11 | 微软正版登录（审核通过后） | 1 周 |
+| M12+ | Android 游戏运行时（A0–A10）、联机、更多加载器 | 3–4 个月 / 待定 |
 
-## 14. 里程碑与逐步拆解
+M5+ 只改 Rust 核心与共享 UI，不再有"每端各接一次"的工作。
 
-每一步都应能单独合并、单独验证。「验收」是该步完成的判断标准。
+### 7.4 P0/R0 实测基线
 
-### M0 工程骨架与四端工作区（约 1 周）
+> 2026-11-12 首测：macOS 27 arm64、JDK 21、Compose Desktop 1.12.1；Windows/Linux 在 R5 的 CI 或本地补测。
 
-1. Cargo workspace：`crates/fg-*` 与 `bindings/fg-ffi`；`cargo fmt`、`clippy -D warnings`、`test` 可用。
-2. 建立四个独立 App 工程：`apps/macos`（SwiftUI）、`apps/windows`（C#/WinUI 3）、`apps/linux`（Rust/GTK4，独立 Cargo workspace）、`apps/android`（Kotlin/Compose/Gradle）。
-3. `fg-ffi` 暴露 ABI 版本和健康检查；Swift/Kotlin/C# 各写一个调用 demo（只验证链接，不接业务）。
-4. 设计令牌 `design/tokens.json` 与生成脚本；四个 App 使用同一套颜色/字号/圆角。
-5. CI：Rust fmt/clippy/test；macOS `swift build`；Windows `dotnet build`；Linux `cargo build`；Android Compose 编译（SDK 就绪后）。
-6. 日志与崩溃：`fg-diag` 写数据目录；原生 UI 通过 FFI 订阅日志/崩溃事件；各平台写自己的崩溃报告入口。
-7. 删除旧 Tauri/React 工程与依赖，仓库只保留原生 App + Rust 核心。
+| 指标 | 目标 | 实测（2026-11-12，macOS 27 arm64 / JDK 21） |
+| --- | --- | --- |
+| macOS DMG 体积 | ≤ 100 MB | 71 MB |
+| 安装后体积 | ≤ 160 MB | 132 MB |
+| 冷启动到首帧 | ≤ 2.5 s | 1.61 s（进程启动到首次组合） |
+| 空闲 RSS | ≤ 300 MB | 196 MB（启动 8 s 后） |
+| 中文输入法 | 可用 | 待 R1 页面迁移后回归 |
+| Android APK 体积 | 与现状相当（±15%） | 54 MB（debug，arm64 + x86_64） |
 
-验收：四个 App 都能启动一个空壳窗口；`fg-cli` 能跑核心单元测试；`fg_abi_version()` 在四个客户端中可调用。
+## 8. 风险与待决问题
 
-### M1 四端原生外壳（约 3 周）
+| 风险 | 影响 | 对策 |
+| --- | --- | --- |
+| JVM 体积/启动/内存不达标 | 高 | R0 实测；jlink 裁剪 + AppCDS + ZGC；不达标则评估回退（见 §1.3） |
+| 桌面中文输入法 | 高 | R0 在三 OS 的 `TextField` 实测；必要时调 Skiko IME 参数或等待上游 |
+| macOS 签名/公证 + JRE + dylib | 中 | JBR 21；dylib 一并签名；`notarytool` 脚本化；预留 2 天 |
+| Windows MSI/WiX/SmartScreen | 中 | 固定 WiX 版本；EV/OV 证书；v1 不做 Mica |
+| Linux 字体/GL/Wayland | 中 | 包内 Noto Sans SC；X11/XWayland 基线；声明依赖 |
+| 桌面无障碍弱于原生 | 中 | Compose 语义 + 键盘导航；发布前人工测试；v2 补 |
+| AGP 9 / Kotlin 2.4 迁移断裂 | 中 | 新工程独立；旧工程分支升级；CI 双跑 |
+| 微软正版登录审核 | 中 | 现在注册 Azure 应用并提交审核，M11 接入 |
+| CurseForge 依赖 MCIM | 中 | 可用性探测与降级提示；必要时自建代理 |
+| PCL 许可边界 | 低 | 不参考 `Plain Craft Launcher 2/`，只用 PCL.Core |
+| Apple 芯片旧版本 natives | 中 | 自带 LWJGL arm64 natives 或 x86_64 Java + Rosetta |
+| Android 复用组件许可 | 中 | A0 输出清单（JRE、LWJGL、渲染器） |
+| 浅色令牌未定稿 | 低 | 等 pen 浅色画面；先按现有令牌 |
 
-1. macOS：SwiftUI `NavigationSplitView` + AppKit 窗口桥；原生红绿灯、Vibrancy、原生菜单/快捷键、`NSOpenPanel`。顶部操作放在原生 `NSToolbar` 中：原生搜索框、segmented control、菜单与图标按钮，不使用自绘玻璃胶囊。
-2. Windows：C#/WinUI 3 `NavigationView`；原生 `AppWindowTitleBar`、Mica、Snap Layout、文件选择。
-3. Linux：GTK4/libadwaita `Adw.HeaderBar`、侧栏与内容分栏；原生文件对话框、Secret Service。
-4. Android：Compose `Scaffold` + `NavigationBar`、`TopAppBar`；主题和动态取色；后续接 `GameActivity` 骨架。
-5. 共享主题：跟随系统 / 浅色 / 深色，Rust 读取配置，各客户端首帧设置原生外观（§4.1.1）。
-6. 每端用静态假数据做主页 + 实例库两个页面；不要求像素一致，要求原生控件和窗口行为。
+## 9. 测试策略
 
-验收：四个 App 启动后都有正确的原生窗口边框/标题栏/主题；主页和实例库可导航；macOS 红绿灯、Windows Snap Layout、Linux headerbar、Android 返回手势均正常。
+- Rust 单元测试：version json 合并、rules、参数构建、镜像替换、murmur2、NBT、崩溃规则；fixtures 在 `crates/*/tests/fixtures/`。
+- 集成测试：`wiremock` 模拟 Mojang / BMCLAPI / Modrinth / Yggdrasil；下载故障注入。
+- 端到端：`fg-cli` 在 CI 三平台安装并启动（Linux 用 `xvfb-run`），检查日志关键行。
+- FFI 契约：C ABI 与 JNI 各一套最小调用测试；JSON 字段名与 `bindings/README.md` 对齐，防止漂移。
+- Compose 测试：
+  - `commonTest`：`CoreWire`、`InstanceFormat`、`LibraryQuery`、`AppModel` 状态机。
+  - `desktopTest`：Compose UI test（四条导航、打开 sheet、主题切换）。
+  - Android：Compose UI test + 启动冒烟（无 Java 时验证错误分支）。
+- 视觉：每个平台截关键页面；与 `design/screens`/pen 对照，不要求像素一致。
+- 打包：三 OS 干净机器（或 CI 容器/VM）安装、启动、卸载；签名与公证单独验收。
 
-> M2–M7 主要修改 Rust 核心，不依赖 UI 框架；四个原生客户端可以在这些里程碑中并行/延后接入。
+## 10. 页面与后端能力对照
 
-### M2 网络与下载引擎（约 2 周）
+| 页面 | 主要 FFI 操作 / 事件 | 依赖模块 |
+| --- | --- | --- |
+| 主页 | `app.snapshot`、`instances.summary`、`launch.start`、`tasks.list`、`versions.news` | fg-game、fg-net |
+| 实例库 | `instances.list`、`instances.create`、`instances.import`、`instances.favorite` | fg-game |
+| 实例设置 | `instances.settings.get/set`、`instances.verify`、`instances.dir` | fg-core、fg-java |
+| 下载 / 安装 | `versions.list`、`version.plan`、`install.start`、`tasks.cancel`、`task.progress` | fg-net、fg-task、fg-game |
+| 游戏会话 | `launch.start`、`launch.status`、`session.wait/stop`、`game.line` | fg-game |
+| 设置 | `gameConfig.get/set`、`app.snapshot` | fg-core |
+| 服务器（M9） | `servers_list`、`server_ping`、`lan_discover` | fg-world |
+| 账户（M7） | `account_*`、`yggdrasil_discover`、`skin_upload` | fg-auth |
+| 内容（M8） | `content_search`、`content_versions`、`content_install` | fg-content |
+| 诊断（M9） | `game.log.recent`、`crash_analyze`、`instance_export` | fg-diag |
 
-1. `fg-net::Client`：reqwest + rustls、UA、代理（HTTP / SOCKS5 / 系统代理）。
-2. 镜像规则表与候选源生成，带单测（覆盖每条前缀规则）。
-3. 下载引擎：并发信号量、每主机限流、重试退避、校验、断点续传、限速、分段下载。
-4. 内容寻址缓存与 HTTP 条件缓存。
-5. 源健康度测速与熔断。
-6. `fg-task`：任务图、进度聚合、取消、暂停、持久化。
-7. `fg-cli download <url>` 用于手测；用本地 mock 服务器（`wiremock`）做集成测试：断线、416、哈希错误、全部候选失败。
+## 11. 许可与参考边界
 
-> 已实现（2026-11-04）：`crates/fg-net`、`crates/fg-task`，取舍见 [ADR 0002](adr/0002-download-engine.md)。`fg-cli assets <version>` 是第 7 步与验收的手测入口。
-
-验收：并发下载 1.21.4 的全部 assets（约 4000 个文件）不报错；中途断网恢复后可以续传。
-
-### M3 原版安装与启动（约 2 周）
-
-1. 版本清单与 version json 模型；`inheritsFrom` 合并；rules 求值。单测样本覆盖 1.0、1.7.10、1.12.2、1.16.5、1.20.1、1.21.4、快照与 rd-132211。
-2. 安装任务图：json → jar + libraries + assetIndex → assets；log4j 修复。
-3. Java 扫描与解析（`release` 文件、PE / Mach-O 头），自动匹配规则。
-4. 启动参数构建：新旧两种格式、占位符、natives 解压、classpath、argfile 回退。
-5. 进程管理与日志流；日志窗口。
-6. 离线账户。
-7. `fg-cli launch <instance>` 打通。
-
-验收：三平台用离线账户启动 1.8.9、1.12.2、1.16.5、1.20.1、1.21.4 原版进入主菜单。
-
-> 已实现（2026-11-05）：`crates/fg-game`、`crates/fg-java`、`crates/fg-auth` 与 `fg-cli install/launch`，取舍见 [ADR 0003](adr/0003-install-launch.md)。macOS 上已真实安装并启动 1.8.9、1.12.2、1.16.5、1.20.1、1.21.4 进入主菜单；1.8.9–1.16.5 需要 Java 8（Apple Silicon 上还需 x86_64 / Rosetta；M6 补自动安装），Windows/Linux 真实启动留待 CI `xvfb-run` 或手测。`fg-cli` 的 `--dry-run` 与 `wiremock` 集成测试覆盖了安装/启动全链路。
-
-### M4 实例管理与界面接线（约 2 周）
-
-1. 实例 CRUD、`instance.toml`、全局与实例设置继承。
-2. 新建实例向导（版本选择、加载器、内存），对应设计稿 Android「新建实例」的同等字段。
-3. 主页、实例库、实例详情 · 游戏设置页接真实数据；四个客户端分别接线，macOS 先行，其余平台复用 FFI 契约。
-4. 资源补全与启动前校验。
-5. 下载页「下载队列」面板与侧栏角标、Dock / 任务栏进度。
-6. 外部 `.minecraft` 目录导入。
-
-> 已实现（2026-11-08，交付检查 2026-11-09）：核心的实例 CRUD、设置继承、外部 `.minecraft` 导入与 `fg-ffi` 异步 RPC/事件队列；macOS 采用 HMCL/PCL 式下载流程（添加实例 → 下载页 → 安装对话框选择加载器/版本/实例名 → 下载完成后进入游戏设置），并使用 macOS 26/27 的 Liquid Glass 胶囊控件。Java 选择不强制精确版本，优先使用环境中已发现、可运行的运行时；加载器安装器、Java 自动下载分别留待 M5/M6；Windows/Linux/Android 复用同一 FFI 契约接线。
-
-验收：完全通过 UI 完成「新建 → 安装 → 启动 → 退出 → 游玩时长更新」。
-
-### M5 加载器（约 2–3 周）
-
-1. Fabric、Quilt（profile json 路线）。
-2. NeoForge 与 Forge 1.13+：installer 解析、processors 执行、`DOWNLOAD_MOJMAPS` 自处理、outputs 校验。
-3. Forge 1.7.10–1.12.2 旧安装器。
-4. OptiFine（单独安装，以及与 Forge 共存）。
-5. 回归矩阵：每个加载器选 3 个 MC 版本 × 三平台跑 CI 冒烟测试（无头环境只验证到 `Setting user` 日志行出现）。
-
-验收：回归矩阵全部通过。
-
-### M6 Java 运行时管理（约 1 周）
-
-1. Mojang 运行时清单下载；Adoptium、Zulu API 接入。
-2. Java 运行时页：已安装列表、可安装列表、测试运行、卸载、默认内存、JVM 参数预设。
-3. 自动下载：启动时缺 Java 自动弹窗安装。
-
-验收：在干净的系统上启动任意版本时，能自动装好对应 Java。
-
-### M7 外置登录（约 1 周）
-
-1. Yggdrasil 客户端与 ALI 发现；authlib-injector 下载与注入；prefetched 元数据。
-2. 账户页、添加账户、添加认证服务器（含识别服务器信息、拖入链接）。
-3. keyring 存储；令牌校验与刷新。
-4. 皮肤：3D 预览、上传（Yggdrasil 服务器）、离线本地皮肤。
-
-验收：LittleSkin 账户能进入启用了 authlib-injector 的服务器。
-
-### M8 模组与资源（约 3 周）
-
-1. 本地模组解析（4 种元数据）、启用 / 禁用、图标缓存、文件监听。
-2. Modrinth 搜索 / 版本 / 安装；CurseForge 同上（经 MCIM 镜像，含可用性探测与降级提示）。
-3. 依赖解析与安装计划；更新检查与批量更新。
-4. 资源包、光影、世界（含备份）、原理图页面。
-5. 下载页全部 6 种资源类型的 tab。
-
-验收：从下载页给 Fabric 实例装上 Sodium + Iris + 依赖，并能检测到更新。
-
-### M9 整合包、服务器、崩溃分析（约 2 周）
-
-1. mrpack、CurseForge、MultiMC 导入；mrpack 导出；更新整合包。
-2. 服务器页：SLP Ping、SRV、局域网发现、`servers.dat` 同步、Quick Play 加入。
-3. 崩溃分析规则引擎与首批规则；诊断包导出。
-
-验收：导入一个 200+ 模组的 Modrinth 整合包并成功启动；故意制造 5 类崩溃都能识别出来。
-
-### M10 打磨与发布（约 2 周）
-
-1. 设置页全部项目、i18n（简体中文、English；繁体中文可后续加）。
-2. 自动更新器（签名密钥生成与保管）、签名与公证、安装包。
-3. 性能：冷启动时间、空闲内存（关于页目标：冷启动 0.4s、空闲 62MB，以实测为准）。
-4. 无障碍：键盘导航、焦点可见、对比度检查、屏幕阅读器标签（完整的 WCAG 验证需要人工辅助技术测试）。
-5. 关于页致谢与开源许可列表（`cargo-about`、`license-checker` 生成）。
-
-验收：发布 1.0 桌面版。
-
-### M11 微软正版登录（审核通过后，约 1 周）
-
-1. 设备码流程与浏览器回调流程；XBL / XSTS / Minecraft 登录；所有权与 profile。
-2. 令牌刷新、多账户、皮肤与披风管理（Minecraft Services API）。
-
-### M12+ 后续
-
-- Android（§11，A0–A10，估算 3–4 个月）。
-- 联机（EasyTier 一类 P2P 组网，参考 PCL.Core `Link/EasyTier` 的接口思路）。
-- 更多加载器（LegacyFabric、Cleanroom、LiteLoader）。
-
-## 15. 测试策略
-
-- 单元测试：version json 合并、rules、参数构建、镜像替换、murmur2、NBT 解析、崩溃规则。样本放在 `crates/*/tests/fixtures/`。
-- 集成测试：`wiremock` 模拟 Mojang、BMCLAPI、Modrinth、Yggdrasil；下载引擎的故障注入。
-- 端到端：`fg-cli` 在 CI 三平台上安装并启动（Linux 用 `xvfb-run`），检查日志关键行。
-- FFI：为 `fg-ffi` 维护一套跨语言契约测试；Swift/Kotlin/C# 各有最小调用测试，防止 ABI 漂移。
-- 原生 UI：
-  - macOS：Swift Testing/XCTest + Xcode UI test（关键导航）。
-  - Windows：xUnit + WinUI UI test（Windows App SDK）。
-  - Linux：GTK 单元测试 + 手工/at-spi 冒烟测试。
-  - Android：Compose UI test + `GameActivity` 启动冒烟测试。
-- 视觉对照：每个平台截原生窗口图，与 pen 的布局参考人工比对；每个里程碑一次。
+- 本仓库 GPL-3.0-only。新增依赖必须兼容 GPL-3.0（MIT / Apache-2.0 / BSD / LGPL 均可）。
+- HMCL（GPL-3.0）可参考实现细节；PCL.Core（Apache-2.0）可参考并保留 NOTICE；`Plain Craft Launcher 2/` 只可看协议层思路，不移植代码。
+- Animeko（AGPL-3.0）只参考工程结构与打包经验，不复制代码。
+- 协议知识以官方文档 / wiki.vg / minecraft.wiki 为准。

@@ -103,7 +103,7 @@ data class CoreSettingsSnapshot(
  *
  * The JNI calls block (RPC dispatches on the core's Tokio runtime), so every
  * caller goes through [rpcAsync] on [Dispatchers.IO]. Initialization reads
- * `launcher.toml` once before the first Compose frame, mirroring the macOS
+ * `launcher.toml` once before the first Compose frame, mirroring the desktop shell
  * `CoreBridge.settingsSnapshot()` call.
  */
 object CoreBridge {

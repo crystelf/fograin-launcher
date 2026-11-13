@@ -37,7 +37,7 @@ import com.fograin.launcher.ui.settings.SettingsScreen
 
 /**
  * Root native shell: Material 3 `NavigationBar`, one screen per destination and
- * the process-wide model's notices, alerts and sheets. Mirrors the macOS root
+ * the process-wide model's notices, alerts and sheets. Mirrors the desktop root
  * view's sheet/alert wiring without copying its desktop chrome.
  */
 @Composable

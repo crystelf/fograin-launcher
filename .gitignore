@@ -6,21 +6,6 @@
 **/mutants.out*/
 rustc-ice-*.txt
 
-# Swift / Xcode
-**/.build/
-**/.swiftpm/
-**/DerivedData/
-**/*.xcodeproj/xcuserdata/
-**/*.xcworkspace/xcuserdata/
-*.xcuserstate
-
-# C# / WinUI
-**/bin/
-**/obj/
-**/.vs/
-*.user
-*.suo
-
 # Android / Gradle
 **/.gradle/
 **/.kotlin/
@@ -29,9 +14,10 @@ rustc-ice-*.txt
 *.iml
 **/build/
 
-# Local generated bindings
-# Generated FFI files are committed next to the clients; keep this section for
-# tool output only.
+# Native libraries staged by scripts/build-*.sh
+apps/compose/android/src/main/jniLibs/
+apps/compose/desktop/src/main/resources/native/
+apps/android/app/src/main/jniLibs/
 
 # Local data and logs
 logs/

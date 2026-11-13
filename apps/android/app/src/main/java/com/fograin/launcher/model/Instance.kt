@@ -37,7 +37,7 @@ data class Instance(
         companion object {
             /**
              * Assigns tile palettes in the pen's order so every instance gets a
-             * stable accent color derived from its id (same djb2 hash as macOS).
+             * stable accent color derived from its id (same djb2 hash as desktop).
              */
             fun forId(id: String): InstancePalette {
                 var hash = 5381
