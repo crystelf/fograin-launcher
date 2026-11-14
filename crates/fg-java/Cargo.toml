@@ -12,10 +12,13 @@ publish.workspace = true
 fg-core.workspace = true
 
 dirs.workspace = true
-glob.workspace = true
 serde.workspace = true
 tokio.workspace = true
-tracing.workspace = true
+
+# `glob` only backs the macOS Homebrew and Windows Mojang-launcher scans, so it
+# is a target dependency: on Linux the crate would otherwise be unused.
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+glob.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

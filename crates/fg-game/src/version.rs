@@ -803,13 +803,9 @@ fn select_modern_natives(
         .collect();
 
     applicable.retain(|(shape, _, coordinate)| {
-        if shape.arch.is_none()
+        !(shape.arch.is_none()
             && shape.generic_exact
-            && specific_groups.contains(&coordinate.key())
-        {
-            return false;
-        }
-        true
+            && specific_groups.contains(&coordinate.key()))
     });
 
     for (_, artifact, coordinate) in applicable {
