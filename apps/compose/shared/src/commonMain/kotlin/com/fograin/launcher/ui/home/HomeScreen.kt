@@ -2,6 +2,14 @@
 
 package com.fograin.launcher.ui.home
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -42,12 +50,10 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -69,13 +75,13 @@ import com.fograin.launcher.model.SampleData
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.components.AccountAvatarButton
 import com.fograin.launcher.ui.components.InstanceTile
+import com.fograin.launcher.ui.components.PageHeader
 import com.fograin.launcher.ui.components.KeyValueRow
 import com.fograin.launcher.ui.components.SectionHeader
 import com.fograin.launcher.ui.components.StatusPill
 import com.fograin.launcher.ui.components.StatusTone
 import com.fograin.launcher.ui.components.ThinProgressBar
 import com.fograin.launcher.ui.downloadSpeedText
-import com.fograin.launcher.ui.homeSubtitle
 import com.fograin.launcher.ui.javaSummary
 import com.fograin.launcher.ui.memorySummary
 import com.fograin.launcher.ui.stateText
@@ -100,28 +106,12 @@ fun HomeScreen(model: AppModel, state: AppUiState) {
     val accountPending = stringResource(Res.string.home_account_pending)
 
     Column(modifier = Modifier.fillMaxSize()) {
-        LargeTopAppBar(
-            title = {
-                Column {
-                    Text(
-                        text = stringResource(
-                            Res.string.home_greeting_format,
-                            currentGreeting(),
-                            account.name,
-                        ),
-                        style = MaterialTheme.typography.headlineMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = state.homeSubtitle(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            },
+        PageHeader(
+            title = stringResource(
+                Res.string.home_greeting_format,
+                currentGreeting(),
+                account.name,
+            ),
             actions = {
                 AccountAvatarButton(
                     initial = account.initial,
@@ -129,22 +119,29 @@ fun HomeScreen(model: AppModel, state: AppUiState) {
                     onClick = { model.showNotice(accountPending) },
                 )
             },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-            ),
         )
 
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
-                val current = state.currentInstance
-                if (current != null) {
-                    HeroCard(model = model, state = state, instance = current)
-                } else {
-                    EmptyHomeHero(onAddInstance = model::openAddInstance)
+                AnimatedContent(
+                    targetState = state.currentInstance,
+                    transitionSpec = {
+                        fadeIn(tween(240)) togetherWith fadeOut(tween(140))
+                    },
+                    contentKey = { it?.id },
+                    label = "home-hero",
+                ) { current ->
+                    if (current != null) {
+                        HeroCard(model = model, state = state, instance = current)
+                    } else {
+                        EmptyHomeHero(onAddInstance = model::openAddInstance)
+                    }
                 }
             }
 
@@ -181,11 +178,20 @@ fun HomeScreen(model: AppModel, state: AppUiState) {
                         instance = instance,
                         isActive = state.currentInstance?.id == instance.id,
                         nowMillis = nowMillis,
+                        modifier = Modifier.animateItem(),
                     )
                 }
             }
 
-            item { TaskQueueCard(state = state) }
+            item {
+                AnimatedVisibility(
+                    visible = state.activeDownloads.isNotEmpty(),
+                    enter = expandVertically(tween(220)) + fadeIn(tween(200)),
+                    exit = shrinkVertically(tween(180)) + fadeOut(tween(120)),
+                ) {
+                    TaskQueueCard(state = state)
+                }
+            }
             item { RuntimeCard(state = state) }
             item { NewsCard(model = model) }
         }
@@ -238,13 +244,16 @@ private fun HeroCard(model: AppModel, state: AppUiState, instance: Instance) {
                         ),
                     ),
             )
-            StatusPill(
-                text = status,
-                tone = tone,
+            AnimatedContent(
+                targetState = status to tone,
+                transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(120)) },
+                label = "hero-status",
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(12.dp),
-            )
+            ) { (statusText, statusTone) ->
+                StatusPill(text = statusText, tone = statusTone)
+            }
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
@@ -317,28 +326,36 @@ private fun HeroCard(model: AppModel, state: AppUiState, instance: Instance) {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 ) {
-                    if (state.sessionRunning) {
-                        Button(onClick = model::stopGame) {
-                            Icon(Icons.Filled.Stop, contentDescription = null)
-                            Spacer(Modifier.size(6.dp))
-                            Text(stringResource(Res.string.action_stop_game))
-                        }
-                    } else {
-                        Button(
-                            onClick = { model.startGame(instance) },
-                            enabled = !state.isSessionLoading,
-                        ) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                            Spacer(Modifier.size(6.dp))
-                            Text(
-                                stringResource(
-                                    if (state.isSessionLoading) {
-                                        Res.string.action_launching
-                                    } else {
-                                        Res.string.action_start_game
-                                    },
-                                ),
-                            )
+                    AnimatedContent(
+                        targetState = state.sessionRunning,
+                        transitionSpec = {
+                            fadeIn(tween(190)) togetherWith fadeOut(tween(120))
+                        },
+                        label = "hero-primary-action",
+                    ) { running ->
+                        if (running) {
+                            Button(onClick = model::stopGame) {
+                                Icon(Icons.Filled.Stop, contentDescription = null)
+                                Spacer(Modifier.size(6.dp))
+                                Text(stringResource(Res.string.action_stop_game))
+                            }
+                        } else {
+                            Button(
+                                onClick = { model.startGame(instance) },
+                                enabled = !state.isSessionLoading,
+                            ) {
+                                Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                                Spacer(Modifier.size(6.dp))
+                                Text(
+                                    stringResource(
+                                        if (state.isSessionLoading) {
+                                            Res.string.action_launching
+                                        } else {
+                                            Res.string.action_start_game
+                                        },
+                                    ),
+                                )
+                            }
                         }
                     }
                     OutlinedButton(
@@ -421,10 +438,11 @@ private fun HomeInstanceRow(
     instance: Instance,
     isActive: Boolean,
     nowMillis: Long,
+    modifier: Modifier = Modifier,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(
             containerColor = if (isActive) {

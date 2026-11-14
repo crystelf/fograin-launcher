@@ -6,6 +6,7 @@ import androidx.compose.ui.unit.Density
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.platform.platformServices
+import com.fograin.launcher.settings.ThemeMode
 import com.fograin.launcher.ui.AppDestination
 import com.fograin.launcher.ui.FograinApp
 import com.fograin.launcher.ui.theme.FograinTheme
@@ -20,9 +21,9 @@ import org.jetbrains.skia.EncodedImageFormat
 
 /**
  * R2 acceptance: render the four pages and the three sheets with deterministic
- * data. Each frame is written to a temp PNG and printed so a reviewer can
- * compare against the pen; the test fails when a page crashes or renders
- * (nearly) blank.
+ * data, in both dark and light themes. Each frame is written to a temp PNG and
+ * printed so a reviewer can compare against the pen; the test fails when a page
+ * crashes or renders (nearly) blank.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 class ScreensRenderTest {
@@ -60,6 +61,34 @@ class ScreensRenderTest {
             val output = Files.createTempFile("fograin-r2-$name-", ".png")
             output.toFile().writeBytes(bytes)
             println("FOGRAIN_R2_PNG_$name=$output")
+            assertTrue(bytes.size > 8_000, "$name rendered suspiciously small (${bytes.size} bytes)")
+        }
+    }
+
+    @Test
+    fun rendersLightThemePages() = runBlocking {
+        val core = FakeCoreClient()
+        val model = AppModel.create(
+            core = core,
+            platform = platformServices(),
+            scope = CoroutineScope(Dispatchers.Unconfined),
+        )
+        model.loadDownloadVersions()
+        val base = model.state.value.copy(theme = ThemeMode.LIGHT)
+
+        val pages = listOf(
+            "home" to base.copy(destination = AppDestination.HOME),
+            "library" to base.copy(destination = AppDestination.LIBRARY),
+            "downloads" to base.copy(destination = AppDestination.DOWNLOADS),
+            "settings" to base.copy(destination = AppDestination.SETTINGS),
+            "instance-settings-sheet" to base.copy(instanceSettingsId = "fog-forest"),
+        )
+
+        pages.forEach { (name, state) ->
+            val bytes = render(model, state)
+            val output = Files.createTempFile("fograin-light-$name-", ".png")
+            output.toFile().writeBytes(bytes)
+            println("FOGRAIN_LIGHT_PNG_$name=$output")
             assertTrue(bytes.size > 8_000, "$name rendered suspiciously small (${bytes.size} bytes)")
         }
     }

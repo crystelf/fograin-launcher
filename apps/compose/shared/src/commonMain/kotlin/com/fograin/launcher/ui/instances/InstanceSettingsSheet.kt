@@ -7,10 +7,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -22,13 +25,12 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -63,7 +65,6 @@ fun InstanceSettingsSheet(
     model: AppModel,
     instance: Instance,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var loaded by remember(instance.id) { mutableStateOf<CoreInstanceSettings?>(null) }
     var loadError by remember(instance.id) { mutableStateOf<String?>(null) }
     var memoryGb by remember(instance.id) { mutableStateOf(0) }
@@ -102,239 +103,241 @@ fun InstanceSettingsSheet(
         )
     }
 
-    ModalBottomSheet(
-        onDismissRequest = model::closeInstanceSettings,
-        sheetState = sheetState,
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .imePadding()
+            .navigationBarsPadding()
+            .padding(start = 16.dp, end = 16.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .navigationBarsPadding()
-                .padding(start = 16.dp, end = 16.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                InstanceTile(instance = instance, size = 34.dp)
-                Spacer(Modifier.size(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = instance.name,
-                        style = MaterialTheme.typography.titleLarge,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = stringResource(
-                            Res.string.instance_settings_subtitle,
-                            instance.versionLine,
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                IconButton(onClick = model::closeInstanceSettings) {
-                    Icon(
-                        Icons.Filled.Close,
-                        contentDescription = stringResource(Res.string.action_close),
-                    )
-                }
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-            if (loadError != null) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            InstanceTile(instance = instance, size = 34.dp)
+            Spacer(Modifier.size(12.dp))
+            Text(
+                text = instance.name,
+                style = MaterialTheme.typography.titleLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.size(8.dp))
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            ) {
                 Text(
-                    text = stringResource(Res.string.instance_settings_load_failed, loadError.orEmpty()),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
+                    text = instance.versionLine,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .widthIn(max = 170.dp)
+                        .padding(horizontal = 9.dp, vertical = 3.dp),
                 )
             }
+            Spacer(Modifier.size(4.dp))
+            IconButton(onClick = model::closeInstanceSettings) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = stringResource(Res.string.action_close),
+                )
+            }
+        }
 
-            SettingsSection(title = stringResource(Res.string.instance_settings_launch)) {
-                SettingRow(label = stringResource(Res.string.instance_settings_memory)) {
-                    DropdownField(
-                        value = if (memoryGb == 0) {
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+        if (loadError != null) {
+            Text(
+                text = stringResource(Res.string.instance_settings_load_failed, loadError.orEmpty()),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+
+        SettingsSection(title = stringResource(Res.string.instance_settings_launch)) {
+            SettingRow(label = stringResource(Res.string.instance_settings_memory)) {
+                DropdownField(
+                    value = if (memoryGb == 0) {
+                        stringResource(Res.string.instance_settings_memory_auto)
+                    } else {
+                        stringResource(Res.string.instance_settings_memory_value, memoryGb)
+                    },
+                    options = listOf(0, 2, 4, 6, 8, 12, 16).map { option ->
+                        val label = if (option == 0) {
                             stringResource(Res.string.instance_settings_memory_auto)
                         } else {
-                            stringResource(Res.string.instance_settings_memory_value, memoryGb)
-                        },
-                        options = listOf(0, 2, 4, 6, 8, 12, 16).map { option ->
-                            val label = if (option == 0) {
-                                stringResource(Res.string.instance_settings_memory_auto)
-                            } else {
-                                stringResource(Res.string.instance_settings_memory_value, option)
-                            }
-                            label to {
-                                memoryGb = option
-                                val value = if (option == 0) null else option * 1024
-                                model.configureInstance(
-                                    instance.id,
-                                    "memory",
-                                    value?.let(::JsonPrimitive),
-                                )
-                                loaded?.let { current ->
-                                    loaded = current.copy(
-                                        overrides = current.overrides.copy(memoryMb = value),
-                                    )
-                                }
-                            }
-                        },
-                    )
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        text = stringResource(Res.string.instance_settings_jvm_args),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    OutlinedTextField(
-                        value = jvmArgs,
-                        onValueChange = { jvmArgs = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = {
-                            Text(stringResource(Res.string.instance_settings_jvm_args_placeholder))
-                        },
-                        singleLine = true,
-                    )
-                }
-                SettingRow(label = stringResource(Res.string.instance_settings_java_runtime)) {
-                    Text(
-                        text = loaded?.overrides?.java
-                            ?: stringResource(Res.string.instance_settings_java_auto),
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                SettingRow(label = stringResource(Res.string.instance_settings_fullscreen)) {
-                    Switch(
-                        checked = fullscreen,
-                        onCheckedChange = { checked ->
-                            fullscreen = checked
+                            stringResource(Res.string.instance_settings_memory_value, option)
+                        }
+                        label to {
+                            memoryGb = option
+                            val value = if (option == 0) null else option * 1024
                             model.configureInstance(
                                 instance.id,
-                                "fullscreen",
-                                JsonPrimitive(checked),
+                                "memory",
+                                value?.let(::JsonPrimitive),
                             )
                             loaded?.let { current ->
                                 loaded = current.copy(
-                                    overrides = current.overrides.copy(fullscreen = checked),
+                                    overrides = current.overrides.copy(memoryMb = value),
                                 )
                             }
-                        },
-                    )
-                }
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-            SettingsSection(title = stringResource(Res.string.instance_settings_display)) {
-                SettingRow(label = stringResource(Res.string.instance_settings_resolution)) {
-                    DropdownField(
-                        value = resolution?.let {
-                            stringResource(Res.string.instance_settings_resolution_value, it[0], it[1])
-                        } ?: stringResource(Res.string.instance_settings_resolution_default),
-                        options = listOf(
-                            null to stringResource(Res.string.instance_settings_resolution_default),
-                            listOf(1280, 720) to stringResource(
-                                Res.string.instance_settings_resolution_value,
-                                1280,
-                                720,
-                            ),
-                            listOf(1600, 900) to stringResource(
-                                Res.string.instance_settings_resolution_value,
-                                1600,
-                                900,
-                            ),
-                            listOf(1920, 1080) to stringResource(
-                                Res.string.instance_settings_resolution_value,
-                                1920,
-                                1080,
-                            ),
-                            listOf(2560, 1440) to stringResource(
-                                Res.string.instance_settings_resolution_value,
-                                2560,
-                                1440,
-                            ),
-                        ).map { (value, label) ->
-                            label to {
-                                resolution = value
-                                val json = value?.let { size ->
-                                    buildJsonArray { size.forEach { add(JsonPrimitive(it)) } }
-                                }
-                                model.configureInstance(instance.id, "resolution", json)
-                                loaded?.let { current ->
-                                    loaded = current.copy(
-                                        overrides = current.overrides.copy(resolution = value),
-                                    )
-                                }
-                            }
-                        },
-                    )
-                }
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-            SettingsSection(title = stringResource(Res.string.instance_settings_content)) {
-                ContentMilestoneRow(
-                    stringResource(Res.string.instance_settings_mods),
-                    "M8",
-                )
-                ContentMilestoneRow(
-                    stringResource(Res.string.instance_settings_resourcepacks),
-                    "M8",
-                )
-                ContentMilestoneRow(
-                    stringResource(Res.string.instance_settings_shaderpacks),
-                    "M8",
-                )
-                ContentMilestoneRow(
-                    stringResource(Res.string.instance_settings_worlds),
-                    "M9",
-                )
-                ContentMilestoneRow(
-                    stringResource(Res.string.instance_settings_schematics),
-                    "M9",
-                )
-                ContentMilestoneRow(
-                    stringResource(Res.string.instance_settings_modpack_update),
-                    "M9",
-                )
-                ContentMilestoneRow(
-                    stringResource(Res.string.instance_settings_logs),
-                    "M9",
-                )
-                ContentMilestoneRow(
-                    stringResource(Res.string.instance_settings_backup),
-                    "M9",
+                        }
+                    },
                 )
             }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-            SettingsSection(title = stringResource(Res.string.instance_settings_maintenance)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { model.copyInstanceDirectoryPath(instance) }) {
-                        Icon(Icons.Outlined.ContentCopy, contentDescription = null)
-                        Spacer(Modifier.size(6.dp))
-                        Text(stringResource(Res.string.action_copy_instance_dir))
-                    }
-                    OutlinedButton(onClick = { showDeleteConfirm = true }) {
-                        Icon(Icons.Outlined.Delete, contentDescription = null)
-                        Spacer(Modifier.size(6.dp))
-                        Text(stringResource(Res.string.library_menu_delete))
-                    }
-                }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = stringResource(Res.string.instance_settings_copy_note),
-                    style = MaterialTheme.typography.bodySmall,
+                    text = stringResource(Res.string.instance_settings_jvm_args),
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                OutlinedTextField(
+                    value = jvmArgs,
+                    onValueChange = { jvmArgs = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = {
+                        Text(stringResource(Res.string.instance_settings_jvm_args_placeholder))
+                    },
+                    singleLine = true,
+                )
             }
+            SettingRow(label = stringResource(Res.string.instance_settings_java_runtime)) {
+                Text(
+                    text = loaded?.overrides?.java
+                        ?: stringResource(Res.string.instance_settings_java_auto),
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            SettingRow(label = stringResource(Res.string.instance_settings_fullscreen)) {
+                Switch(
+                    checked = fullscreen,
+                    onCheckedChange = { checked ->
+                        fullscreen = checked
+                        model.configureInstance(
+                            instance.id,
+                            "fullscreen",
+                            JsonPrimitive(checked),
+                        )
+                        loaded?.let { current ->
+                            loaded = current.copy(
+                                overrides = current.overrides.copy(fullscreen = checked),
+                            )
+                        }
+                    },
+                )
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+        SettingsSection(title = stringResource(Res.string.instance_settings_display)) {
+            SettingRow(label = stringResource(Res.string.instance_settings_resolution)) {
+                DropdownField(
+                    value = resolution?.let {
+                        stringResource(Res.string.instance_settings_resolution_value, it[0], it[1])
+                    } ?: stringResource(Res.string.instance_settings_resolution_default),
+                    options = listOf(
+                        null to stringResource(Res.string.instance_settings_resolution_default),
+                        listOf(1280, 720) to stringResource(
+                            Res.string.instance_settings_resolution_value,
+                            1280,
+                            720,
+                        ),
+                        listOf(1600, 900) to stringResource(
+                            Res.string.instance_settings_resolution_value,
+                            1600,
+                            900,
+                        ),
+                        listOf(1920, 1080) to stringResource(
+                            Res.string.instance_settings_resolution_value,
+                            1920,
+                            1080,
+                        ),
+                        listOf(2560, 1440) to stringResource(
+                            Res.string.instance_settings_resolution_value,
+                            2560,
+                            1440,
+                        ),
+                    ).map { (value, label) ->
+                        label to {
+                            resolution = value
+                            val json = value?.let { size ->
+                                buildJsonArray { size.forEach { add(JsonPrimitive(it)) } }
+                            }
+                            model.configureInstance(instance.id, "resolution", json)
+                            loaded?.let { current ->
+                                loaded = current.copy(
+                                    overrides = current.overrides.copy(resolution = value),
+                                )
+                            }
+                        }
+                    },
+                )
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+        SettingsSection(title = stringResource(Res.string.instance_settings_content)) {
+            ContentMilestoneRow(
+                stringResource(Res.string.instance_settings_mods),
+                "M8",
+            )
+            ContentMilestoneRow(
+                stringResource(Res.string.instance_settings_resourcepacks),
+                "M8",
+            )
+            ContentMilestoneRow(
+                stringResource(Res.string.instance_settings_shaderpacks),
+                "M8",
+            )
+            ContentMilestoneRow(
+                stringResource(Res.string.instance_settings_worlds),
+                "M9",
+            )
+            ContentMilestoneRow(
+                stringResource(Res.string.instance_settings_schematics),
+                "M9",
+            )
+            ContentMilestoneRow(
+                stringResource(Res.string.instance_settings_modpack_update),
+                "M9",
+            )
+            ContentMilestoneRow(
+                stringResource(Res.string.instance_settings_logs),
+                "M9",
+            )
+            ContentMilestoneRow(
+                stringResource(Res.string.instance_settings_backup),
+                "M9",
+            )
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+        SettingsSection(title = stringResource(Res.string.instance_settings_maintenance)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { model.copyInstanceDirectoryPath(instance) }) {
+                    Icon(Icons.Outlined.ContentCopy, contentDescription = null)
+                    Spacer(Modifier.size(6.dp))
+                    Text(stringResource(Res.string.action_copy_instance_dir))
+                }
+                OutlinedButton(onClick = { showDeleteConfirm = true }) {
+                    Icon(Icons.Outlined.Delete, contentDescription = null)
+                    Spacer(Modifier.size(6.dp))
+                    Text(stringResource(Res.string.library_menu_delete))
+                }
+            }
+            Text(
+                text = stringResource(Res.string.instance_settings_copy_note),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 

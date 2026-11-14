@@ -163,20 +163,3 @@ fun AppUiState.javaSummary(): String {
         stringResource(Res.string.summary_java_found, count)
     }
 }
-
-@Composable
-fun AppUiState.homeSubtitle(): String {
-    val lastPlayed = instances.mapNotNull { it.lastPlayedEpochMillis }.maxOrNull()
-    return stringResource(
-        Res.string.summary_instances_count,
-        instances.size,
-        InstanceFormat.relativeTime(lastPlayed),
-    )
-}
-
-@Composable
-fun AppUiState.librarySubtitle(): String = stringResource(
-    Res.string.summary_library,
-    instances.size,
-    InstanceFormat.totalSize(instances),
-)

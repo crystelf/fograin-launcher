@@ -36,8 +36,10 @@ class AdaptiveLayoutRenderTest {
         val state = model.state.value.copy(destination = AppDestination.LIBRARY)
 
         // 1280×860 and 960×640 are the backlog acceptance sizes (both ≥ 840 dp,
-        // so both show the rail); 720×900 is the compact control.
+        // so both show the rail); 720×900 and 400×860 cover the compact header
+        // and the phone layout.
         listOf(
+            "phone-400x860" to (400 to 860),
             "compact-720x900" to (720 to 900),
             "laptop-960x640" to (960 to 640),
             "desktop-1280x860" to (1280 to 860),

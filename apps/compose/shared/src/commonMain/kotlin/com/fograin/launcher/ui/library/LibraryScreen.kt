@@ -13,17 +13,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.outlined.Inbox
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,12 +28,9 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,10 +41,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
@@ -64,8 +54,8 @@ import com.fograin.launcher.platform.platformServices
 import kotlinx.coroutines.launch
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.components.EmptyState
+import com.fograin.launcher.ui.components.PageHeader
 import com.fograin.launcher.ui.components.SectionHeader
-import com.fograin.launcher.ui.librarySubtitle
 import com.fograin.launcher.ui.title
 import org.jetbrains.compose.resources.stringResource
 
@@ -81,7 +71,6 @@ fun LibraryScreen(model: AppModel, state: AppUiState) {
     var showDirectoryPicker by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
-    val searchFocusRequester = remember { FocusRequester() }
     val nowMillis = remember { InstanceFormat.nowMillis() }
     val backDispatcher = remember { platformServices().backDispatcher }
 
@@ -106,9 +95,6 @@ fun LibraryScreen(model: AppModel, state: AppUiState) {
     }
 
     backDispatcher.handleBack(enabled = searchExpanded, onBack = closeSearch)
-    LaunchedEffect(searchExpanded) {
-        if (searchExpanded) searchFocusRequester.requestFocus()
-    }
     // Desktop menu / Cmd-F: the model asks the page to reveal its search field.
     LaunchedEffect(state.librarySearchRequest) {
         if (state.librarySearchRequest > 0) searchExpanded = true
@@ -116,29 +102,17 @@ fun LibraryScreen(model: AppModel, state: AppUiState) {
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            LargeTopAppBar(
-                title = { Text(stringResource(Res.string.library_title)) },
+            PageHeader(
+                title = stringResource(Res.string.library_title),
+                searchPlaceholder = stringResource(Res.string.library_search_placeholder),
+                searchQuery = state.libraryQuery,
+                onSearchQueryChange = model::setLibraryQuery,
+                searchExpanded = searchExpanded,
+                onSearchExpandedChange = { expanded ->
+                    if (expanded) searchExpanded = true else closeSearch()
+                },
+                focusRequest = state.librarySearchRequest,
                 actions = {
-                    IconButton(
-                        onClick = {
-                            if (searchExpanded) closeSearch() else searchExpanded = true
-                        },
-                    ) {
-                        Icon(
-                            imageVector = if (searchExpanded) {
-                                Icons.Filled.Close
-                            } else {
-                                Icons.Outlined.Search
-                            },
-                            contentDescription = stringResource(
-                                if (searchExpanded) {
-                                    Res.string.library_close_search
-                                } else {
-                                    Res.string.library_search
-                                },
-                            ),
-                        )
-                    }
                     Box {
                         IconButton(onClick = { menuExpanded = true }) {
                             Icon(
@@ -178,53 +152,15 @@ fun LibraryScreen(model: AppModel, state: AppUiState) {
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
             )
 
-            if (searchExpanded) {
-                OutlinedTextField(
-                    value = state.libraryQuery,
-                    onValueChange = model::setLibraryQuery,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .focusRequester(searchFocusRequester),
-                    placeholder = { Text(stringResource(Res.string.library_search_placeholder)) },
-                    leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (state.libraryQuery.isNotEmpty()) {
-                            IconButton(onClick = { model.setLibraryQuery("") }) {
-                                Icon(
-                                    Icons.Filled.Close,
-                                    contentDescription = stringResource(Res.string.library_clear_search),
-                                )
-                            }
-                        }
-                    },
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.large,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(
-                        onSearch = { focusManager.clearFocus(force = true) },
-                    ),
-                )
-            }
-
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 88.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 88.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                item {
-                    Text(
-                        text = state.librarySubtitle(),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 8.dp),
-                    )
-                }
                 item {
                     LibraryFilterRow(
                         selected = state.libraryScope,
@@ -275,7 +211,9 @@ fun LibraryScreen(model: AppModel, state: AppUiState) {
                                     section.group.title(),
                                     section.instances.size,
                                 ),
-                                modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                                modifier = Modifier
+                                    .animateItem()
+                                    .padding(top = 12.dp, bottom = 4.dp),
                                 action = {
                                     SortMenu(
                                         selected = state.librarySort,
@@ -290,6 +228,7 @@ fun LibraryScreen(model: AppModel, state: AppUiState) {
                                 instance = instance,
                                 isSelected = state.librarySelection == instance.id,
                                 nowMillis = nowMillis,
+                                modifier = Modifier.animateItem(),
                             )
                         }
                     }

@@ -17,14 +17,12 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -37,6 +35,7 @@ import com.fograin.launcher.resources.*
 import com.fograin.launcher.settings.ThemeMode
 import com.fograin.launcher.ui.components.KeyValueRow
 import com.fograin.launcher.ui.components.MilestoneChip
+import com.fograin.launcher.ui.components.PageHeader
 import com.fograin.launcher.ui.javaSummary
 import com.fograin.launcher.ui.title
 import org.jetbrains.compose.resources.stringResource
@@ -60,16 +59,13 @@ fun SettingsScreen(
     val initializationError = model.initializationError
 
     Column(modifier = Modifier.fillMaxSize()) {
-        LargeTopAppBar(
-            title = { Text(stringResource(Res.string.settings_title)) },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-            ),
-        )
+        PageHeader(title = stringResource(Res.string.settings_title))
 
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (!coreReady || initializationError != null) {

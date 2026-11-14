@@ -1,6 +1,16 @@
 package com.fograin.launcher.ui
 
-import androidx.compose.foundation.layout.Box
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -28,8 +38,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
@@ -37,6 +49,7 @@ import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.resources.Res
 import com.fograin.launcher.resources.action_ok
+import com.fograin.launcher.ui.components.AnimatedSheetHost
 import com.fograin.launcher.ui.downloads.DownloadsScreen
 import com.fograin.launcher.ui.downloads.GameInstallSheet
 import com.fograin.launcher.ui.home.HomeScreen
@@ -157,12 +170,22 @@ fun FograinApp(
                     }
                     VerticalDivider()
                 }
-                Box(
+                AnimatedContent(
+                    targetState = state.destination,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight(),
-                ) {
-                    when (state.destination) {
+                    transitionSpec = {
+                        val forward = targetState.ordinal > initialState.ordinal
+                        val enter = fadeIn(tween(220)) +
+                            slideInHorizontally(tween(260)) { if (forward) it / 18 else -it / 18 }
+                        val exit = fadeOut(tween(140)) +
+                            slideOutHorizontally(tween(200)) { if (forward) -it / 18 else it / 18 }
+                        enter togetherWith exit
+                    },
+                    label = "page-transition",
+                ) { destination ->
+                    when (destination) {
                         AppDestination.HOME -> HomeScreen(model = model, state = state)
                         AppDestination.LIBRARY -> LibraryScreen(model = model, state = state)
                         AppDestination.DOWNLOADS -> DownloadsScreen(model = model, state = state)
@@ -191,19 +214,29 @@ fun FograinApp(
         )
     }
 
-    state.previewInstance?.let { instance ->
+    // Each host keeps its payload composed through the slide-out animation.
+    AnimatedSheetHost(
+        value = state.previewInstance,
+        onDismissRequest = model::closePreview,
+    ) { instance ->
         InstancePreviewSheet(model = model, state = state, instance = instance)
     }
 
-    state.instanceSettings?.let { instance ->
+    AnimatedSheetHost(
+        value = state.instanceSettings,
+        onDismissRequest = model::closeInstanceSettings,
+    ) { instance ->
         InstanceSettingsSheet(model = model, instance = instance)
     }
 
-    if (state.download.installSheetVersion != null) {
+    AnimatedSheetHost(
+        value = state.download.installSheetVersion,
+        onDismissRequest = model::closeInstallSheet,
+    ) { version ->
         GameInstallSheet(
             model = model,
             state = state,
-            initialVersionId = state.download.installSheetVersion.orEmpty(),
+            initialVersionId = version,
         )
     }
 }
@@ -215,11 +248,30 @@ fun navItemTag(destination: AppDestination): String = "nav-item-${destination.na
 @Composable
 private fun DestinationIcon(destination: AppDestination, selected: Boolean, activeDownloads: Int) {
     val image = if (selected) destination.selectedIcon else destination.icon
-    if (destination == AppDestination.DOWNLOADS && activeDownloads > 0) {
-        BadgedBox(badge = { Badge { Text(activeDownloads.toString()) } }) {
-            Icon(imageVector = image, contentDescription = null)
+    val iconScale by animateFloatAsState(
+        targetValue = if (selected) 1.08f else 1f,
+        animationSpec = tween(180),
+        label = "nav-icon-scale",
+    )
+    val iconModifier = Modifier.graphicsLayer {
+        scaleX = iconScale
+        scaleY = iconScale
+    }
+    if (destination == AppDestination.DOWNLOADS) {
+        BadgedBox(
+            badge = {
+                AnimatedVisibility(
+                    visible = activeDownloads > 0,
+                    enter = fadeIn(tween(160)) + scaleIn(tween(180), initialScale = 0.6f),
+                    exit = fadeOut(tween(100)) + scaleOut(tween(120), targetScale = 0.6f),
+                ) {
+                    Badge { Text(activeDownloads.toString()) }
+                }
+            },
+        ) {
+            Icon(imageVector = image, contentDescription = null, modifier = iconModifier)
         }
     } else {
-        Icon(imageVector = image, contentDescription = null)
+        Icon(imageVector = image, contentDescription = null, modifier = iconModifier)
     }
 }

@@ -1,5 +1,14 @@
 package com.fograin.launcher.ui.downloads
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -8,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -30,11 +40,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -67,7 +75,6 @@ fun GameInstallSheet(
     state: AppUiState,
     initialVersionId: String,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     var selectedVersionId by remember(initialVersionId) {
         mutableStateOf(initialVersionId.ifEmpty { state.download.selectedVersionId.orEmpty() })
@@ -87,203 +94,207 @@ fun GameInstallSheet(
     }
     val canInstall = loader.isAvailable && selectedVersionId.isNotEmpty() && !isInstalling
 
-    ModalBottomSheet(
-        onDismissRequest = model::closeInstallSheet,
-        sheetState = sheetState,
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .imePadding()
+            .navigationBarsPadding()
+            .padding(start = 16.dp, end = 16.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .navigationBarsPadding()
-                .padding(start = 16.dp, end = 16.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = stringResource(Res.string.install_title),
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = model::closeInstallSheet) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = stringResource(Res.string.action_close),
+                )
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = stringResource(Res.string.install_game_version),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            DropdownField(
+                value = selectedVersionId.ifEmpty {
+                    stringResource(Res.string.install_choose_version)
+                },
+                options = versionOptions.map { id ->
+                    id to { selectedVersionId = id }
+                },
+            )
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = stringResource(Res.string.install_title),
-                        style = MaterialTheme.typography.titleLarge,
-                    )
-                    Text(
-                        text = stringResource(Res.string.install_subtitle),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                IconButton(onClick = model::closeInstallSheet) {
-                    Icon(
-                        Icons.Filled.Close,
-                        contentDescription = stringResource(Res.string.action_close),
-                    )
+                Text(
+                    text = stringResource(Res.string.install_loader),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = stringResource(Res.string.install_loader_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            GameLoaderKind.entries.chunked(2).forEach { row ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    row.forEach { option ->
+                        LoaderCard(
+                            option = option,
+                            selected = option == loader,
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                loader = option
+                                loaderVersion = option.placeholderVersions.firstOrNull().orEmpty()
+                                errorMessage = null
+                            },
+                        )
+                    }
+                    if (row.size == 1) {
+                        Spacer(Modifier.weight(1f))
+                    }
                 }
             }
+        }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
+        AnimatedVisibility(
+            visible = !loader.isAvailable,
+            enter = expandVertically(tween(220)) + fadeIn(tween(180)),
+            exit = shrinkVertically(tween(180)) + fadeOut(tween(120)),
+        ) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = stringResource(Res.string.install_game_version),
+                    text = stringResource(Res.string.install_loader_versions, loader.title),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 DropdownField(
-                    value = selectedVersionId.ifEmpty {
+                    value = loaderVersion.ifEmpty {
                         stringResource(Res.string.install_choose_version)
                     },
-                    options = versionOptions.map { id ->
-                        id to { selectedVersionId = id }
+                    options = loader.placeholderVersions.map { version ->
+                        version to { loaderVersion = version }
                     },
                 )
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = stringResource(Res.string.install_loader),
-                        style = MaterialTheme.typography.titleSmall,
-                    )
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        text = stringResource(Res.string.install_loader_note),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                GameLoaderKind.entries.chunked(2).forEach { row ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        row.forEach { option ->
-                            LoaderCard(
-                                option = option,
-                                selected = option == loader,
-                                modifier = Modifier.weight(1f),
-                                onClick = {
-                                    loader = option
-                                    loaderVersion = option.placeholderVersions.firstOrNull().orEmpty()
-                                    errorMessage = null
-                                },
-                            )
-                        }
-                        if (row.size == 1) {
-                            Spacer(Modifier.weight(1f))
-                        }
-                    }
-                }
-            }
-
-            if (!loader.isAvailable) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        text = stringResource(Res.string.install_loader_versions, loader.title),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    DropdownField(
-                        value = loaderVersion.ifEmpty {
-                            stringResource(Res.string.install_choose_version)
-                        },
-                        options = loader.placeholderVersions.map { version ->
-                            version to { loaderVersion = version }
-                        },
-                    )
-                    Text(
-                        text = stringResource(Res.string.install_loader_pending, loader.title),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = stringResource(Res.string.install_instance_name),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedTextField(
-                    value = instanceName,
-                    onValueChange = { instanceName = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = {
-                        Text(
-                            selectedVersionId.ifEmpty {
-                                stringResource(Res.string.install_instance_name)
-                            },
-                        )
-                    },
-                    singleLine = true,
-                )
-                Text(
-                    text = stringResource(Res.string.install_instance_name_hint),
+                    text = stringResource(Res.string.install_loader_pending, loader.title),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
 
-            errorMessage?.let { message ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f),
-                            RoundedCornerShape(10.dp),
-                        )
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = stringResource(Res.string.install_instance_name),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedTextField(
+                value = instanceName,
+                onValueChange = { instanceName = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = {
                     Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        selectedVersionId.ifEmpty {
+                            stringResource(Res.string.install_instance_name)
+                        },
                     )
-                }
-            }
+                },
+                singleLine = true,
+            )
+            Text(
+                text = stringResource(Res.string.install_instance_name_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
+        AnimatedVisibility(
+            visible = errorMessage != null,
+            enter = expandVertically(tween(200)) + fadeIn(tween(160)),
+            exit = shrinkVertically(tween(180)) + fadeOut(tween(120)),
+        ) {
             Row(
-                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f),
+                        RoundedCornerShape(10.dp),
+                    )
+                    .padding(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    text = if (loader.isAvailable) {
-                        stringResource(Res.string.install_summary, selectedVersionId)
-                    } else {
-                        stringResource(Res.string.install_loader_unavailable, loader.title)
-                    },
+                    text = errorMessage.orEmpty(),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
                 )
-                TextButton(onClick = model::closeInstallSheet) {
-                    Text(stringResource(Res.string.action_cancel))
-                }
-                Button(
-                    onClick = {
-                        if (!canInstall) return@Button
-                        isInstalling = true
-                        errorMessage = null
-                        scope.launch {
-                            try {
-                                model.startGameInstall(selectedVersionId, instanceName)
-                                model.closeInstallSheet()
-                            } catch (error: CancellationException) {
-                                throw error
-                            } catch (error: Throwable) {
-                                errorMessage = model.errorMessage(error)
-                            } finally {
-                                isInstalling = false
-                            }
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = if (loader.isAvailable) {
+                    stringResource(Res.string.install_summary, selectedVersionId)
+                } else {
+                    stringResource(Res.string.install_loader_unavailable, loader.title)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            TextButton(onClick = model::closeInstallSheet) {
+                Text(stringResource(Res.string.action_cancel))
+            }
+            Button(
+                onClick = {
+                    if (!canInstall) return@Button
+                    isInstalling = true
+                    errorMessage = null
+                    scope.launch {
+                        try {
+                            model.startGameInstall(selectedVersionId, instanceName)
+                            model.closeInstallSheet()
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Throwable) {
+                            errorMessage = model.errorMessage(error)
+                        } finally {
+                            isInstalling = false
                         }
-                    },
-                    enabled = canInstall,
-                ) {
-                    if (isInstalling) {
+                    }
+                },
+                enabled = canInstall,
+            ) {
+                AnimatedContent(
+                    targetState = isInstalling,
+                    transitionSpec = { fadeIn(tween(150)) togetherWith fadeOut(tween(100)) },
+                    label = "install-submit",
+                ) { installing ->
+                    if (installing) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(16.dp),
                             strokeWidth = 2.dp,
@@ -304,22 +315,29 @@ private fun LoaderCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val border = if (selected) {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
-    } else {
-        MaterialTheme.colorScheme.outlineVariant
-    }
+    val shape = RoundedCornerShape(12.dp)
+    val container by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerLow
+        },
+        animationSpec = tween(170),
+        label = "loader-card-container",
+    )
+    val border by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+        } else {
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
+        },
+        animationSpec = tween(170),
+        label = "loader-card-border",
+    )
     Row(
         modifier = modifier
-            .background(
-                if (selected) {
-                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainerLow
-                },
-                RoundedCornerShape(12.dp),
-            )
-            .border(1.dp, border, RoundedCornerShape(12.dp))
+            .background(container, shape)
+            .border(1.dp, border, shape)
             .clickable(onClick = onClick)
             .padding(10.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),

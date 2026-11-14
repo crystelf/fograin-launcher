@@ -228,12 +228,15 @@ commonTest
 - 快捷键：`Cmd/Ctrl+N`、`Cmd/Ctrl+I`、`Cmd/Ctrl+F`、`Cmd/Ctrl+Shift+T`、`Cmd/Ctrl+1..4`、`Cmd/Ctrl+Q`、`Esc`。
 - `Esc` 走共享的 `BackDispatcher`：先关 sheet/对话框，再回主页；Android 的返回手势是同一实现。
 - 宽度 ≥ 840 dp 用 `NavigationRail`，否则用底栏；两档离屏截图作为验收（`AdaptiveLayoutRenderTest`）。
+- 四个一级页面共用 `PageHeader`：标题、搜索框与页面操作在同一行，标题不再占用第二行；紧凑窗口的搜索框折叠成图标，展开时在同一行替换标题。
+- 页面切换使用淡入与短距离滑动；列表项、任务进度、搜索展开、弹层进出场都有过渡，避免硬切。
 - macOS 透明标题栏、Windows DWM 深色标题栏、托盘、任务栏进度、单实例锁、通知：v2，见 `docs/backlog.md`。
 
 ### 3.5 已知差异与优化项
 
 - 自适应布局已实现（≥840 dp 切 `NavigationRail`）。仍需按窗口形态记住用户偏好、以及 1280 dp 以上的三栏布局，见 [backlog](backlog.md)。
-- Android 的 `LargeTopAppBar`、`ModalBottomSheet` 在桌面可用，但手势与滚动回弹按桌面习惯调优属于 v2。
+- `ModalBottomSheet` 的拖拽与滚动回弹在桌面上按桌面习惯调优属于 v2；当前由共享的 `AnimatedSheetHost` 负责保持内容到退场动画结束。
+- 下载页在宽窗口采用列表 + 详情双栏，窄窗口收为单列；版本筛选、安装内容与任务进度共用一套卡片样式。
 - 桌面端不做像素级复刻；以页面结构、信息密度和操作路径一致为准。
 
 ## 4. 数据目录与配置
