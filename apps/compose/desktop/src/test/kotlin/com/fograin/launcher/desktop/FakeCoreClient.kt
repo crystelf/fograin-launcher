@@ -61,6 +61,13 @@ class FakeCoreClient : CoreClient {
             ]}""",
         )
 
+        "loaders.versions" -> json(
+            """{"ok":true,"versions":[
+              {"version":"0.16.9","stable":true},
+              {"version":"0.15.11","stable":true}
+            ]}""",
+        )
+
         "version.plan" -> json(
             """{"ok":true,"versionId":"1.21.5","baseId":"1.21.5","javaMajor":21,"files":42,"totalBytes":310000000}""",
         )

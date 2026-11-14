@@ -20,11 +20,19 @@
 - ✅ P0 — 记录 R0 基线：安装包体积、安装后体积、冷启动、空闲 RSS。
 - P1 — 中文输入法在三 OS 的回归测试（R1/R2 页面已迁入 `commonMain`，待人工验收）。
 - P2 — `AppModel` 的运行期提示/错误文案仍内嵌中文；随 M10 i18n 一起迁入 `composeResources`。
-- P2 — 模型内展示元数据（`LoaderKind.title`、`Instance.meta`、加载器占位版本）随 M5/M8 改为核心下发后资源化。
+- P2 — 模型内展示元数据（`LoaderKind.title`、`Instance.meta`）随 M8/M10 改为核心下发后资源化。
 - P1 — jlink 裁剪运行时模块；AppCDS；ZGC 参数调优。
 - P1 — 桌面图标（`.icns` / `.ico` / PNG）从 `design/app-icon.png` 生成。
 - P2 — 自动更新（签名清单 + 增量下载）。
 - P2 — 安装包体积压缩与 macOS universal（arm64 + x86_64）构建。
+
+## 加载器（M5 后续）
+
+- P1 — OptiFine 与 Forge 同实例共存：把 OptiFine 作为 `mods/` 补丁而不是独立子版本；需要 Forge 启动链的兼容性验证。
+- P1 — 加载器安装前的 Java 版本校验与安装指引：M6 接入运行时下载后，直接下载缺失 major。
+- P2 — Fabric API 从“加载器”迁到 M8 的模组内容，支持一键安装前置。
+- P2 — 旧版 Forge（1.5 及更早）installer 兼容；当前支持 1.7–1.12 的 `versionInfo` / `version.json`。
+- P2 — 加载器版本列表本地缓存与手动刷新；当前每次打开安装页读取元数据（HTTP 条件缓存仍在 `fg-net`）。
 
 ## 体验与无障碍
 

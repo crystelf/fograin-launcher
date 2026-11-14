@@ -17,6 +17,7 @@ fg-auth.workspace = true
 fg-core.workspace = true
 fg-game.workspace = true
 fg-java.workspace = true
+fg-loader.workspace = true
 fg-net.workspace = true
 fg-task.workspace = true
 

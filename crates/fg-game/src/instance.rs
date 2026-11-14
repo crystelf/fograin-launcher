@@ -61,13 +61,18 @@ impl Default for Instance {
     }
 }
 
-/// Loader section. Only `vanilla` is installed in M3.
+/// Loader section (`[loader]` in `instance.toml`).
+///
+/// `version_id` names the concrete child profile under `shared/versions/`; it
+/// stays empty for vanilla instances, where `minecraft` is the profile id.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Loader {
     pub kind: String,
     pub version: String,
     pub optifine: String,
+    #[serde(default)]
+    pub version_id: String,
 }
 
 impl Default for Loader {
@@ -76,6 +81,7 @@ impl Default for Loader {
             kind: "vanilla".to_string(),
             version: String::new(),
             optifine: String::new(),
+            version_id: String::new(),
         }
     }
 }
@@ -84,6 +90,17 @@ impl Loader {
     #[must_use]
     pub fn is_vanilla(&self) -> bool {
         self.kind.is_empty() || self.kind == "vanilla"
+    }
+
+    /// Concrete profile id used for resolution; falls back to the Minecraft
+    /// version for vanilla instances and older files.
+    #[must_use]
+    pub fn effective_version<'a>(&'a self, minecraft: &'a str) -> &'a str {
+        if self.version_id.is_empty() {
+            minecraft
+        } else {
+            &self.version_id
+        }
     }
 }
 
@@ -251,6 +268,19 @@ impl Instance {
             })?;
         }
         Ok(())
+    }
+
+    /// Concrete version profile id (`<minecraft>` for vanilla).
+    #[must_use]
+    pub fn version_id(&self) -> &str {
+        self.loader.effective_version(&self.minecraft)
+    }
+
+    /// Records the exact loader profile installed for this instance.
+    pub fn set_loader(&mut self, kind: &str, version: &str, version_id: &str) {
+        self.loader.kind = kind.trim().to_string();
+        self.loader.version = version.trim().to_string();
+        self.loader.version_id = version_id.trim().to_string();
     }
 
     /// Game working directory (`instances/<id>/.minecraft` by default).

@@ -9,3 +9,15 @@ authors.workspace = true
 publish.workspace = true
 
 [dependencies]
+fg-core.workspace = true
+fg-net.workspace = true
+fg-task.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha1.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+zip.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -59,6 +59,12 @@ impl InstanceSummary {
         &self.instance.loader.version
     }
 
+    /// Concrete profile id installed for this instance.
+    #[must_use]
+    pub fn version_id(&self) -> &str {
+        self.instance.version_id()
+    }
+
     /// Whether the launcher finished installing this version's files.
     ///
     /// A version JSON is written before downloads start, so it cannot be used
@@ -145,6 +151,7 @@ impl InstanceSummary {
             "loader": {
                 "kind": self.instance.loader.kind,
                 "version": self.instance.loader.version,
+                "versionId": self.instance.loader.version_id,
                 "optifine": self.instance.loader.optifine,
             },
             "favorite": self.instance.meta.favorite,
@@ -255,19 +262,16 @@ impl InstanceManager {
             let version_json_path = instance.version_json(&self.layout).filter(|path| {
                 path.is_file() || self.layout.version_json(&instance.minecraft).is_file()
             });
+            let version_id = instance.version_id();
             let installed = if instance.overrides.game_dir.is_some() {
                 let version_dir = instance
                     .game_dir(&self.layout)
                     .join("versions")
-                    .join(&instance.minecraft);
-                version_dir
-                    .join(format!("{}.json", instance.minecraft))
-                    .is_file()
-                    || version_dir
-                        .join(format!("{}.jar", instance.minecraft))
-                        .is_file()
+                    .join(version_id);
+                version_dir.join(format!("{version_id}.json")).is_file()
+                    || version_dir.join(format!("{version_id}.jar")).is_file()
             } else {
-                self.layout.install_meta(&instance.minecraft).is_file()
+                self.layout.install_meta(version_id).is_file()
             };
             let mut summary = InstanceSummary {
                 instance: instance.clone(),
@@ -395,6 +399,24 @@ impl InstanceManager {
         }
         let mut instance = Instance::load(&self.layout, id)?;
         instance.name = name.to_string();
+        instance.save(&self.layout)?;
+        Ok(instance)
+    }
+
+    /// Records the exact loader profile after an install plan was built.
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`Instance::load`] and save errors.
+    pub fn set_loader(
+        &self,
+        id: &str,
+        kind: &str,
+        version: &str,
+        version_id: &str,
+    ) -> Result<Instance> {
+        let mut instance = Instance::load(&self.layout, id)?;
+        instance.set_loader(kind, version, version_id);
         instance.save(&self.layout)?;
         Ok(instance)
     }
@@ -789,7 +811,7 @@ fn unused_now_ms_guard() {
 
 impl Instance {
     fn version_json(&self, layout: &Layout) -> Option<PathBuf> {
-        let path = layout.version_json(&self.minecraft);
+        let path = layout.version_json(self.version_id());
         path.is_file().then_some(path)
     }
 }
@@ -848,6 +870,28 @@ mod tests {
 
         std::fs::create_dir_all(manager.layout().version_dir("1.21.4")).expect("version dir");
         std::fs::write(manager.layout().install_meta("1.21.4"), b"{}").expect("meta");
+        assert!(manager.list().expect("list")[0].installed());
+    }
+
+    #[test]
+    fn installed_uses_the_loader_profile_id() {
+        let (_dir, manager) = fixture();
+        manager
+            .create("inst", "inst", "1.21.4", Some("fabric"), Some("0.16.9"))
+            .expect("create");
+        manager
+            .set_loader("inst", "fabric", "0.16.9", "fabric-loader-0.16.9-1.21.4")
+            .expect("set loader");
+        let summary = &manager.list().expect("list")[0];
+        assert_eq!(summary.version_id(), "fabric-loader-0.16.9-1.21.4");
+        assert!(!summary.installed());
+        std::fs::create_dir_all(manager.layout().version_dir("fabric-loader-0.16.9-1.21.4"))
+            .expect("version dir");
+        std::fs::write(
+            manager.layout().install_meta("fabric-loader-0.16.9-1.21.4"),
+            b"{}",
+        )
+        .expect("meta");
         assert!(manager.list().expect("list")[0].installed());
     }
 

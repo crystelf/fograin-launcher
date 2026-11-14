@@ -13,6 +13,10 @@ use std::{
 };
 
 use fg_core::{DownloadSource, Error, ErrorKind, Result};
+use fg_loader::{
+    ExecuteOptions as LoaderExecuteOptions, LoaderKind, LoaderPaths, LoaderPlan, LoaderPlanner,
+    LoaderRequest, RemoteArtifact,
+};
 use fg_net::{
     Candidate, DownloadCtx, DownloadRequest, Downloader, MirrorTable, Priority, ProgressSink,
     Region,
@@ -41,6 +45,8 @@ pub enum FileKind {
     Asset,
     AssetIndex,
     LogConfig,
+    /// Loader installer/libraries planned by `fg-loader`.
+    Loader,
 }
 
 impl FileKind {
@@ -53,6 +59,7 @@ impl FileKind {
             Self::Asset => "install.assets",
             Self::AssetIndex => "install.asset-index",
             Self::LogConfig => "install.logging",
+            Self::Loader => "install.loader-files",
         }
     }
 }
@@ -123,6 +130,9 @@ pub struct InstallPlan {
     /// Whether 1.7–1.18.1 needs the patched log4j config.
     #[serde(default)]
     pub log4j_fix: bool,
+    /// Loader profile and post-download steps; `None` for vanilla installs.
+    #[serde(default)]
+    pub loader: Option<LoaderPlan>,
     pub files: Vec<PlannedFile>,
     pub total_bytes: u64,
 }
@@ -234,6 +244,7 @@ pub struct Installer {
     region: Region,
     context: RuleContext,
     asset_objects_url: String,
+    java: Option<PathBuf>,
 }
 
 impl Installer {
@@ -256,7 +267,15 @@ impl Installer {
             region,
             context,
             asset_objects_url: ASSET_OBJECTS_URL.to_string(),
+            java: None,
         }
+    }
+
+    /// Sets the Java executable used by Forge/OptiFine processors.
+    #[must_use]
+    pub fn with_java(mut self, java: Option<PathBuf>) -> Self {
+        self.java = java;
+        self
     }
 
     /// Overrides the asset object host, for mirrors and local test servers.
@@ -324,7 +343,7 @@ impl Installer {
         total_bytes += client.size.unwrap_or(0);
         files.push(PlannedFile {
             kind: FileKind::Client,
-            path: relative(&self.layout, &self.layout.version_jar(&resolved.id))?,
+            path: relative(&self.layout, &self.layout.version_jar(&resolved.base_id))?,
             url: client_url,
             sha1: client.sha1.clone(),
             size: client.size,
@@ -413,9 +432,90 @@ impl Installer {
             instance_id: instance_id.map(ToString::to_string),
             asset_index,
             log4j_fix,
+            loader: None,
             files,
             total_bytes,
         })
+    }
+
+    /// Plans a vanilla base plus a Fabric/Quilt/Forge/NeoForge/OptiFine loader.
+    ///
+    /// The vanilla client jar stays under `versions/<base>`; the loader writes
+    /// its own child profile and extra libraries.
+    ///
+    /// # Errors
+    ///
+    /// Propagates base resolution, asset-index and loader planning errors.
+    pub async fn plan_loader(
+        &self,
+        minecraft: &str,
+        kind: LoaderKind,
+        loader_version: &str,
+        instance_id: Option<&str>,
+    ) -> Result<InstallPlan> {
+        let base = if let Ok(local) = self.resolver.resolve_local(minecraft) {
+            local
+        } else {
+            self.resolver.resolve_remote(minecraft).await?
+        };
+        let mut plan = self.plan_resolved(&base, instance_id).await?;
+        let client_jar = self.layout.version_jar(&base.base_id);
+        let client_mappings = base
+            .raw
+            .downloads
+            .as_ref()
+            .and_then(|downloads| downloads.client_mappings.as_ref())
+            .and_then(|artifact| {
+                artifact.url.as_ref().map(|url| RemoteArtifact {
+                    url: url.clone(),
+                    sha1: artifact.sha1.clone(),
+                    size: artifact.size,
+                })
+            });
+
+        let planner = LoaderPlanner::new(
+            &self.downloader,
+            &self.table,
+            self.source,
+            self.region,
+            LoaderPaths::new(
+                self.layout.root(),
+                self.layout.libraries(),
+                self.layout.cache(),
+            ),
+        );
+        let loader = planner
+            .plan(&LoaderRequest {
+                kind,
+                loader_version,
+                minecraft,
+                java_major: base.java_major,
+                client_jar,
+                client_mappings,
+            })
+            .await?;
+
+        plan.version_id.clone_from(&loader.version_id);
+        plan.base_id.clone_from(&loader.base_id);
+        plan.main_class.clone_from(&loader.main_class);
+        plan.java_major = loader.java_major;
+        let mut loader_bytes = 0;
+        for file in &loader.files {
+            if plan.files.iter().any(|existing| existing.path == file.path) {
+                continue;
+            }
+            loader_bytes += file.size.unwrap_or(0);
+            plan.files.push(PlannedFile {
+                kind: FileKind::Loader,
+                path: file.path.clone(),
+                url: file.url.clone(),
+                sha1: file.sha1.clone(),
+                size: file.size,
+            });
+        }
+        plan.total_bytes += loader_bytes;
+        plan.loader = Some(loader);
+        Ok(plan)
     }
 
     async fn fetch_asset_index(&self, index: &crate::version::AssetIndexRef) -> Result<Vec<u8>> {
@@ -460,6 +560,7 @@ impl Installer {
             FileKind::Asset,
             FileKind::AssetIndex,
             FileKind::LogConfig,
+            FileKind::Loader,
         ] {
             let files: Vec<PlannedFile> = plan.files_of(kind).into_iter().cloned().collect();
             if files.is_empty() {
@@ -473,6 +574,25 @@ impl Installer {
             let root = self.layout.root().to_path_buf();
             let node = builder.task(kind.node_name(), weight, move |cx| async move {
                 download_files(cx, files, &root, downloader, table, source, region).await
+            });
+            deps.push(node);
+        }
+
+        if let Some(loader) = &plan.loader {
+            let loader = loader.clone();
+            let weight = weight_for(loader.total_bytes()).saturating_add(loader.steps.len() as u32);
+            let root = self.layout.root().to_path_buf();
+            let java = self.java.clone();
+            let node = builder.task("install.loader", weight.max(1), move |cx| async move {
+                fg_loader::execute(
+                    &loader,
+                    &LoaderExecuteOptions {
+                        root: &root,
+                        java: java.as_deref(),
+                    },
+                    &cx,
+                )
+                .await
             });
             deps.push(node);
         }
@@ -621,7 +741,7 @@ async fn download_files(
 fn priority_for(kind: FileKind) -> Priority {
     match kind {
         FileKind::AssetIndex | FileKind::LogConfig | FileKind::Client => Priority::Manifest,
-        FileKind::Library => Priority::Library,
+        FileKind::Library | FileKind::Loader => Priority::Library,
         FileKind::Asset => Priority::Asset,
     }
 }
@@ -640,6 +760,13 @@ impl ProgressSink for TaskSink {
 
 fn finalize_install(cx: &TaskCx, layout: &Layout, plan: &InstallPlan) -> Result<()> {
     layout.ensure_base_dirs()?;
+
+    if let Some(loader) = &plan.loader {
+        write_atomic(
+            &layout.version_json(&loader.version_id),
+            loader.version_json.as_bytes(),
+        )?;
+    }
 
     if plan.log4j_fix {
         let path = layout.log_configs().join(LOG4J_FIX_FILE);
@@ -692,6 +819,23 @@ fn finalize_install(cx: &TaskCx, layout: &Layout, plan: &InstallPlan) -> Result<
         main_class: plan.main_class.clone(),
         asset_index: plan.asset_index.clone(),
         log4j_fix: plan.log4j_fix,
+        loader_outputs: plan
+            .loader
+            .as_ref()
+            .map(|loader| {
+                loader
+                    .steps
+                    .iter()
+                    .filter_map(|step| match step {
+                        fg_loader::InstallStep::RunProcessor { outputs, .. } => {
+                            Some(outputs.clone())
+                        }
+                        _ => None,
+                    })
+                    .flatten()
+                    .collect()
+            })
+            .unwrap_or_default(),
         installed_at: OffsetDateTime::now_utc()
             .format(&Rfc3339)
             .unwrap_or_else(|_| String::new()),
@@ -743,6 +887,10 @@ pub struct InstallMeta {
     pub asset_index: Option<AssetIndexPlan>,
     #[serde(default)]
     pub log4j_fix: bool,
+    /// Processor outputs declared by the loader plan, re-checked by
+    /// `instances.verify` and before launch.
+    #[serde(default)]
+    pub loader_outputs: Vec<fg_loader::OutputCheck>,
     pub installed_at: String,
 }
 
@@ -873,6 +1021,7 @@ pub fn category_counts(plan: &InstallPlan) -> Vec<(FileKind, usize, u64)> {
         FileKind::Asset,
         FileKind::AssetIndex,
         FileKind::LogConfig,
+        FileKind::Loader,
     ]
     .into_iter()
     .map(|kind| (kind, plan.files_of(kind).len(), plan.bytes_of(kind)))
@@ -1004,6 +1153,7 @@ mod tests {
             instance_id: None,
             asset_index: None,
             log4j_fix: false,
+            loader: None,
             files: vec![PlannedFile {
                 kind: FileKind::Client,
                 path: PathBuf::from("shared/versions/1.21.4/1.21.4.jar"),
@@ -1023,6 +1173,109 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn loader_files_are_part_of_the_download_graph() {
+        use wiremock::{
+            Mock, MockServer, ResponseTemplate,
+            matchers::{method, path},
+        };
+
+        let (_directory, layout) = layout();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/lib.jar"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"jar"))
+            .mount(&server)
+            .await;
+
+        let loader = LoaderPlan {
+            schema_version: fg_loader::LOADER_PLAN_SCHEMA_VERSION,
+            kind: LoaderKind::Fabric,
+            loader_version: "0.16.9".into(),
+            version_id: "fabric-loader-0.16.9-1.21.4".into(),
+            base_id: "1.21.4".into(),
+            main_class: "child.Main".into(),
+            java_major: 21,
+            version_json: "{}".into(),
+            files: vec![fg_loader::LoaderFile {
+                purpose: fg_loader::LoaderFilePurpose::Library,
+                path: PathBuf::from("shared/libraries/lib.jar"),
+                url: format!("{}/lib.jar", server.uri()),
+                sha1: None,
+                size: Some(3),
+            }],
+            steps: Vec::new(),
+        };
+        let plan = InstallPlan {
+            schema_version: INSTALL_META_SCHEMA_VERSION,
+            version_id: loader.version_id.clone(),
+            base_id: "1.21.4".into(),
+            java_major: 21,
+            main_class: loader.main_class.clone(),
+            instance_id: None,
+            asset_index: None,
+            log4j_fix: false,
+            loader: Some(loader),
+            files: vec![PlannedFile {
+                kind: FileKind::Loader,
+                path: PathBuf::from("shared/libraries/lib.jar"),
+                url: format!("{}/lib.jar", server.uri()),
+                sha1: None,
+                size: Some(3),
+            }],
+            total_bytes: 3,
+        };
+        run_plan(
+            &installer(&layout),
+            &plan,
+            &Control::new(),
+            &RunOptions::default(),
+        )
+        .await
+        .expect("run");
+        assert_eq!(
+            std::fs::read(layout.libraries().join("lib.jar")).expect("loader file"),
+            b"jar"
+        );
+    }
+
+    #[tokio::test]
+    async fn finalize_writes_the_loader_profile_and_marker() {
+        let (_directory, layout) = layout();
+        let loader = LoaderPlan {
+            schema_version: fg_loader::LOADER_PLAN_SCHEMA_VERSION,
+            kind: LoaderKind::Fabric,
+            loader_version: "0.16.9".into(),
+            version_id: "fabric-loader-0.16.9-1.21.4".into(),
+            base_id: "1.21.4".into(),
+            main_class: "child.Main".into(),
+            java_major: 21,
+            version_json: r#"{"id":"fabric-loader-0.16.9-1.21.4","inheritsFrom":"1.21.4"}"#.into(),
+            files: Vec::new(),
+            steps: Vec::new(),
+        };
+        let plan = InstallPlan {
+            schema_version: INSTALL_META_SCHEMA_VERSION,
+            version_id: loader.version_id.clone(),
+            base_id: "1.21.4".into(),
+            java_major: 21,
+            main_class: loader.main_class.clone(),
+            instance_id: Some("inst".into()),
+            asset_index: None,
+            log4j_fix: false,
+            loader: Some(loader),
+            files: Vec::new(),
+            total_bytes: 0,
+        };
+        let installer = installer(&layout);
+        run_plan(&installer, &plan, &Control::new(), &RunOptions::default())
+            .await
+            .expect("run");
+        assert!(layout.version_json("fabric-loader-0.16.9-1.21.4").is_file());
+        let meta = InstallMeta::load(&layout, "fabric-loader-0.16.9-1.21.4").expect("meta");
+        assert_eq!(meta.base_id, "1.21.4");
+    }
+
+    #[tokio::test]
     async fn install_graph_writes_fixed_log4j_and_marks_completion() {
         let (_directory, layout) = layout();
         // Keep the plan tiny: no client/libraries/assets downloads are needed
@@ -1036,6 +1289,7 @@ mod tests {
             instance_id: None,
             asset_index: None,
             log4j_fix: true,
+            loader: None,
             files: Vec::new(),
             total_bytes: 0,
         };

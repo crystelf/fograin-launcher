@@ -210,11 +210,11 @@ pub struct VersionDownloads {
     pub client: Option<Artifact>,
     #[serde(default)]
     pub server: Option<Artifact>,
-    #[serde(default)]
+    #[serde(default, rename = "client_mappings")]
     pub client_mappings: Option<Artifact>,
-    #[serde(default)]
+    #[serde(default, rename = "server_mappings")]
     pub server_mappings: Option<Artifact>,
-    #[serde(default)]
+    #[serde(default, rename = "windows_server")]
     pub windows_server: Option<Artifact>,
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,
@@ -1316,6 +1316,15 @@ mod tests {
         assert!(coordinate.path().ends_with(".zip"));
         assert!(MavenCoordinate::parse("a:b").is_err());
         assert!(MavenCoordinate::parse("a:b:c:../../etc").is_err());
+    }
+
+    #[test]
+    fn parses_snake_case_download_entries() {
+        let version = fixture("1.20.1");
+        let downloads = version.downloads.expect("downloads");
+        assert!(downloads.client_mappings.is_some());
+        assert!(downloads.server_mappings.is_some());
+        assert!(downloads.client.is_some());
     }
 
     #[test]

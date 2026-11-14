@@ -30,6 +30,7 @@ internal class FakeCore : CoreClient {
     val rpcCalls = mutableListOf<String>()
 
     var installedInstanceIds = mutableListOf<String>()
+    val installRequests = mutableListOf<JsonObject>()
 
     override val initError: String? = null
     override val abiVersion: Int = 1
@@ -64,6 +65,13 @@ internal class FakeCore : CoreClient {
 
             "tasks.list" -> json("""{"ok":true,"result":[]}""")
 
+            "loaders.versions" -> json(
+                """{"ok":true,"versions":[
+                  {"version":"0.16.9","stable":true},
+                  {"version":"0.15.11","stable":true}
+                ]}""",
+            )
+
             "versions.list" -> json(
                 """{"ok":true,"versions":[
                   {"id":"1.21.5","kind":"release","released":"2026-03-25T00:00:00Z"}
@@ -75,6 +83,7 @@ internal class FakeCore : CoreClient {
             )
 
             "install.start" -> {
+                installRequests += params
                 val id = params.stringOrNull("instanceId").orEmpty()
                 if (id.isNotEmpty()) installedInstanceIds += id
                 json("""{"ok":true,"taskId":"task-42"}""")

@@ -13,6 +13,7 @@ Minecraft Java 版启动器：一套 Rust 核心 + 一套 Compose Multiplatform 
 | M2 | 网络与下载引擎（`fg-net`、`fg-task`） | 完成 |
 | M3 | 原版安装与启动（`fg-game`、`fg-java`、`fg-auth`、`fg-cli`） | 完成（核心与 CLI） |
 | M4 | 实例管理、安装/启动 UI 接线、任务队列、外部导入 | 完成 |
+| M5 | Fabric/Quilt/Forge/NeoForge/OptiFine 安装器与启动接线 | 完成（2026-11-14） |
 | R0 | Compose Multiplatform 重构：技术验证 | 完成（2026-11-12） |
 | R1 | 共享层：kotlinx.serialization、平台接口、`AppModel` 去 Android 化、commonTest | 完成（2026-11-13） |
 | R2 | UI 迁移：四页 + 3 个 sheet、字符串与图片资源化、Material 3 差异 | 完成（2026-11-13） |
@@ -35,6 +36,7 @@ crates/fg-net      HTTP 客户端、镜像规则、下载引擎、缓存、源�
 crates/fg-task     任务图、进度聚合、取消/暂停、持久化
 crates/fg-game     版本清单、inheritsFrom 合并、rules、安装任务图、启动命令与进程
 crates/fg-java     Java 发现、release/PE/Mach-O 解析、版本匹配
+crates/fg-loader   Fabric/Quilt/Forge/NeoForge/OptiFine 版本发现与安装
 crates/fg-auth     离线账户（Yggdrasil / Microsoft 为 M7 / M11 预留）
 crates/fg-cli      无 UI 的调试与 CI 入口
 bindings/fg-ffi    C ABI / JSON 契约
@@ -134,7 +136,28 @@ cargo run -p fg-cli -- instance delete my-instance
 cargo run -p fg-cli -- instance import ~/path/to/.minecraft --name 外部存档
 ```
 
-UI 侧：主页/实例库读 `instances.list` / `instances.summary`；「添加实例」进入下载页，先选游戏 / 整合包 / 模组，再在游戏页选版本与加载器（原版可用，Fabric/Forge/NeoForge 留待 M5），下载完成自动打开该实例的「游戏设置」，内存/JVM/分辨率等全部在设置页调整；下载队列、底栏角标消费 `fg_events_next` 里的 `task.progress/task.finished`；实例设置页通过 `instances.settings.set` 写 `[override]`，留空即继承 `launcher.toml [game]`；开始游戏走 `launch.start`，会话事件（`game.line` / `game.exited`）在退出后自动累加 `play_seconds` 并刷新「上次游玩」。Android 端通过 `bindings/fg-ffi-jni` 加载同一个 `fg-ffi` 服务，数据根目录由 Kotlin 在首次 RPC 前通过 `fg_set_data_root` 设为应用私有外部目录；当前没有内置 Java 运行时，`launch.start` 会如实返回 `error.java.none_installed`，M6 接入 JRE 后即可启动。
+UI 侧：主页/实例库读 `instances.list` / `instances.summary`；「添加实例」进入下载页，先选游戏 / 整合包 / 模组，再在游戏页选版本与加载器（原版与 Fabric/Quilt/Forge/NeoForge/OptiFine 均可用，加载器版本由 `loaders.versions` 实时读取），下载完成自动打开该实例的「游戏设置」，内存/JVM/分辨率等全部在设置页调整；下载队列、底栏角标消费 `fg_events_next` 里的 `task.progress/task.finished`；实例设置页通过 `instances.settings.set` 写 `[override]`，留空即继承 `launcher.toml [game]`；开始游戏走 `launch.start`，会话事件（`game.line` / `game.exited`）在退出后自动累加 `play_seconds` 并刷新「上次游玩」。Android 端通过 `bindings/fg-ffi-jni` 加载同一个 `fg-ffi` 服务，数据根目录由 Kotlin 在首次 RPC 前通过 `fg_set_data_root` 设为应用私有外部目录；当前没有内置 Java 运行时，`launch.start` 会如实返回 `error.java.none_installed`，M6 接入 JRE 后即可启动。
+
+## 加载器安装（M5）
+
+```bash
+# 列出某个 Minecraft 版本可用的加载器版本
+cargo run -p fg-cli -- loaders 1.21.4 --kind fabric
+cargo run -p fg-cli -- loaders 1.20.1 --kind forge
+cargo run -p fg-cli -- loaders 1.20.1 --kind neoforge
+cargo run -p fg-cli -- loaders 1.20.1 --kind optifine
+
+# 安装加载器；省略 --loader-version 时取最新稳定版
+cargo run -p fg-cli -- install 1.21.4 --loader fabric --loader-version 0.16.9 --id fabric-test
+cargo run -p fg-cli -- install 1.20.1 --loader forge --loader-version 47.4.29 --id forge-test
+cargo run -p fg-cli -- install 1.20.1 --loader neoforge --loader-version 47.1.106 --id neoforge-test
+cargo run -p fg-cli -- install 1.20.1 --loader optifine --loader-version HD_U_I6 --id of-test
+
+# dry-run 会写出 cache/install/<version-id>.json，便于检查文件与 processor 计划
+cargo run -p fg-cli -- install 1.20.1 --loader forge --loader-version 47.4.29 --dry-run
+```
+
+加载器写入 `shared/versions/<version-id>/`，实例的 `[loader] version_id` 指向它；启动时仍然只解析这个子版本，Vanilla jar 从 `base_id` 回退。Forge/NeoForge/OptiFine 安装需要本机 Java（M6 接入自动下载）；Fabric/Quilt 只下载 JSON 与库。实现细节、processor 变量和验收项见 [docs/m5.md](docs/m5.md)。
 
 ## 桌面快捷键
 

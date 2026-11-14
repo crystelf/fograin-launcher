@@ -439,6 +439,7 @@ dependencies = [
  "fg-core",
  "fg-game",
  "fg-java",
+ "fg-loader",
  "fg-net",
  "fg-task",
  "serde",
@@ -474,6 +475,7 @@ dependencies = [
  "fg-core",
  "fg-game",
  "fg-java",
+ "fg-loader",
  "fg-net",
  "fg-task",
  "libc",
@@ -501,6 +503,7 @@ dependencies = [
  "fg-auth",
  "fg-core",
  "fg-java",
+ "fg-loader",
  "fg-net",
  "fg-task",
  "regex",
@@ -531,6 +534,18 @@ dependencies = [
 [[package]]
 name = "fg-loader"
 version = "0.1.0"
+dependencies = [
+ "fg-core",
+ "fg-net",
+ "fg-task",
+ "serde",
+ "serde_json",
+ "sha1",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "zip",
+]
 
 [[package]]
 name = "fg-net"

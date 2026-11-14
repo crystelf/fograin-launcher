@@ -3,6 +3,7 @@ package com.fograin.launcher.app
 import com.fograin.launcher.model.ContentLoaderFilter
 import com.fograin.launcher.model.DownloadVersionChannel
 import com.fograin.launcher.model.DownloadsCategory
+import com.fograin.launcher.model.GameLoaderKind
 import com.fograin.launcher.model.Instance
 import com.fograin.launcher.model.InstanceFormat
 import com.fograin.launcher.platform.CoreEvent
@@ -211,7 +212,12 @@ internal class DownloadsActions(private val model: AppModel) {
      * Starts the download after the install sheet confirms loader, version and
      * name. After `task.finished` the launcher jumps to 游戏设置 (PCL flow).
      */
-    suspend fun startGameInstall(version: String, instanceName: String) {
+    suspend fun startGameInstall(
+        version: String,
+        instanceName: String,
+        loader: GameLoaderKind = GameLoaderKind.VANILLA,
+        loaderVersion: String = "",
+    ) {
         if (model.state.value.isInitialLoading) model.refreshCoreData()
         if (model.state.value.download.isGameDownloadRunning) {
             throw CoreException(
@@ -228,6 +234,10 @@ internal class DownloadsActions(private val model: AppModel) {
                 put("version", version)
                 put("instanceId", id)
                 put("instanceName", name.ifEmpty { id })
+                if (loader != GameLoaderKind.VANILLA) {
+                    put("loaderKind", loader.wireName)
+                    put("loaderVersion", loaderVersion)
+                }
             },
         )
         pendingDownloadTaskId = response.stringOrNull("taskId")
@@ -260,6 +270,10 @@ internal class DownloadsActions(private val model: AppModel) {
                         put("version", instance.minecraftVersion)
                         put("instanceId", instance.id)
                         put("instanceName", instance.name)
+                        if (instance.loader != com.fograin.launcher.model.LoaderKind.VANILLA) {
+                            put("loaderKind", instance.loader.name.lowercase())
+                            put("loaderVersion", instance.loaderVersion)
+                        }
                     },
                 )
                 pendingDownloadInstanceId = instance.id

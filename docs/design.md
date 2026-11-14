@@ -1,6 +1,6 @@
 # 雾雨启动器（Fograin Launcher）设计文档
 
-> 状态：v1.0 · 2026-11-12 · 单 UI（Compose Multiplatform）架构
+> 状态：v1.1 · 2026-11-14 · 单 UI（Compose Multiplatform）架构
 > 范围：Minecraft Java 版启动器。一套 Rust 核心（`fg-*`），一套 Compose Multiplatform UI（Android / Windows / macOS / Linux），平台外壳按平台适配；Android 的游戏运行时（内置 JRE + LWJGL 移植）仍是第二阶段。
 > 架构决策：[ADR 0004](adr/0004-compose-multiplatform-ui.md)。早期四端原生 UI 的决策记录已随重构删除，内容保留在 §1。
 
@@ -37,6 +37,7 @@
 | M2 | 下载引擎与任务图（`fg-net`、`fg-task`） | 完成 |
 | M3 | 原版安装、Java 发现、离线启动（`fg-game`、`fg-java`、`fg-auth`、`fg-cli`） | 完成 |
 | M4 | 实例 CRUD、设置继承、安装/启动 UI 接线、任务队列、外部 `.minecraft` 导入 | 完成（core + 四端） |
+| M5 | Fabric/Quilt/Forge/NeoForge/OptiFine 安装器与启动接线 | 完成（2026-11-14） |
 
 ### 1.2 为什么重构
 
@@ -154,11 +155,12 @@ commonTest
 
 `fg-ffi` 暴露一个异步服务：`fg_service_current` + `fg_rpc_call` + `fg_events_next`。所有命令是 `{"method": "...", "params": {...}}`，返回 `{"ok": true, ...}` 或 `{"ok": false, "error": {kind, messageKey, detail}}`。完整方法表见 [bindings/README.md](../bindings/README.md)。
 
-已实现的方法（M4）：
+已实现的方法（M4/M5）：
 
 - 应用：`app.snapshot`
 - 实例：`instances.list` / `.summary` / `.create` / `.import` / `.rename` / `.favorite` / `.delete` / `.settings.get` / `.settings.set` / `.verify` / `.dir`
 - 版本与安装：`versions.list` / `versions.news` / `version.plan` / `install.start`
+- 加载器：`loaders.versions`；`install.start` 与 `version.plan` 接受 `loaderKind` / `loaderVersion`，安装结果把实际子版本写入 `[loader] version_id`
 - 任务：`tasks.list` / `tasks.cancel`
 - 启动：`launch.start` / `launch.status` / `session.wait` / `session.stop`
 - 日志与设置：`game.log.recent` / `gameConfig.get` / `gameConfig.set`
@@ -293,8 +295,9 @@ icon = "icon.png"
 minecraft = "1.21.4"
 
 [loader]
-kind = "fabric"            # vanilla|fabric|quilt|forge|neoforge
+kind = "fabric"            # vanilla|fabric|quilt|forge|neoforge|optifine
 version = "0.16.9"
+version_id = "fabric-loader-0.16.9-1.21.4"  # 实际安装的子版本；vanilla 留空
 optifine = ""
 
 [override]                 # 留空表示继承全局
@@ -349,9 +352,15 @@ favorite = true
 | NeoForge | `maven.neoforged.net` maven metadata | installer jar + processors |
 | Forge 1.13+ | BMCLAPI / promotions | installer、`install_profile.json`、processors |
 | Forge 1.5–1.12 | 同上 | 旧 installer 的 `versionInfo` + universal jar |
-| OptiFine | BMCLAPI `/optifine/<mc>` | 自带 Patcher/LaunchWrapper；与 Forge 共存时放 mods |
+| OptiFine | BMCLAPI `/optifine/<mc>` | 自带 Patcher/LaunchWrapper；M5 为独立安装，与 Forge 共存待 M8 |
 
-进入 M5 的细节：`data` 变量替换、`{SIDE}` 等内置变量、只跑 client processor、`DOWNLOAD_MOJMAPS` 自处理、outputs 哈希校验、原版 jar 临时副本。
+M5 已实现（细节与验收见 [m5.md](m5.md)）：
+
+- Fabric/Quilt 直接使用官方 `profile/json`，保存为 `inheritsFrom` 子版本并下载 loader 库；
+- Forge/NeoForge 运行 client processor，完成 `data` 变量替换、`{SIDE}` 等内置变量、`DOWNLOAD_MOJMAPS` 自处理、outputs 哈希校验；installer 内嵌 Maven 直接解包；
+- Forge 1.7–1.12 使用 `versionInfo` / `version.json` 与内嵌 universal jar；
+- OptiFine 直接调用 `optifine.Patcher` 补丁原版 jar，选择 installer 内或 Maven 的 launchwrapper，版本参数追加 `--tweakClass optifine.OptiFineTweaker`；
+- Forge/NeoForge/OptiFine 安装当前要求本机 Java；M6 接入运行时下载后复用同一选择逻辑。
 
 ### 5.5 Java 运行时（`fg-java`）
 
@@ -448,7 +457,7 @@ Android 上跑 Java 版需要：内置交叉编译的 OpenJDK（Pojav/Amethyst �
 
 ### 7.1 已完成
 
-M0–M4 见 §1.1。M4 的实例管理、安装、启动链路已经在 macOS / Windows（代码级）/ Linux / Android 上验证或接线；本次重构不改变 Rust 核心与 RPC 契约。
+M0–M5 见 §1.1。M4 的实例管理、安装、启动链路已经在 macOS / Windows（代码级）/ Linux / Android 上验证或接线；M5 在 Rust 核心与共享 UI 内完成加载器安装，不改变四端外壳契约。
 
 ### 7.2 重构阶段（R0–R6）
 
@@ -470,7 +479,7 @@ M0–M4 见 §1.1。M4 的实例管理、安装、启动链路已经在 macOS / 
 
 | 里程碑 | 内容 | 约工期 |
 | --- | --- | --- |
-| M5 | Fabric/Quilt/NeoForge/Forge/OptiFine 安装器 | 2–3 周 |
+| M5 ✅ | Fabric/Quilt/NeoForge/Forge/OptiFine 安装器 | 完成 2026-11-14 |
 | M6 | Java 运行时自动下载与管理页 | 1 周 |
 | M7 | Yggdrasil / authlib-injector、账户页、皮肤 | 1 周 |
 | M8 | 模组、资源包、光影、世界、原理图、下载页六类资源 | 3 周 |
@@ -479,7 +488,7 @@ M0–M4 见 §1.1。M4 的实例管理、安装、启动链路已经在 macOS / 
 | M11 | 微软正版登录（审核通过后） | 1 周 |
 | M12+ | Android 游戏运行时（A0–A10）、联机、更多加载器 | 3–4 个月 / 待定 |
 
-M5+ 只改 Rust 核心与共享 UI，不再有"每端各接一次"的工作。
+M6+ 只改 Rust 核心与共享 UI，不再有"每端各接一次"的工作。
 
 ### 7.4 P0/R0 实测基线
 
@@ -532,7 +541,7 @@ M5+ 只改 Rust 核心与共享 UI，不再有"每端各接一次"的工作。
 | 主页 | `app.snapshot`、`instances.summary`、`launch.start`、`tasks.list`、`versions.news` | fg-game、fg-net |
 | 实例库 | `instances.list`、`instances.create`、`instances.import`、`instances.favorite` | fg-game |
 | 实例设置 | `instances.settings.get/set`、`instances.verify`、`instances.dir` | fg-core、fg-java |
-| 下载 / 安装 | `versions.list`、`version.plan`、`install.start`、`tasks.cancel`、`task.progress` | fg-net、fg-task、fg-game |
+| 下载 / 安装 | `versions.list`、`loaders.versions`、`version.plan`、`install.start`、`tasks.cancel`、`task.progress` | fg-net、fg-task、fg-game、fg-loader |
 | 游戏会话 | `launch.start`、`launch.status`、`session.wait/stop`、`game.line` | fg-game |
 | 设置 | `gameConfig.get/set`、`app.snapshot` | fg-core |
 | 服务器（M9） | `servers_list`、`server_ping`、`lan_discover` | fg-world |

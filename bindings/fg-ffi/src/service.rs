@@ -27,6 +27,7 @@ use fg_game::{
     rules::RuleContext,
 };
 use fg_java::JavaArch;
+use fg_loader::{LoaderKind, LoaderPaths, LoaderPlanner};
 use fg_net::{DownloadOptions, Downloader, MirrorTable, Region};
 use fg_task::{Control, NodeState, RunOptions, TaskGraph};
 
@@ -196,6 +197,10 @@ impl Service {
     }
 
     fn installer(&self) -> Result<fg_game::install::Installer> {
+        self.installer_with_java(None)
+    }
+
+    fn installer_with_java(&self, java: Option<PathBuf>) -> Result<fg_game::install::Installer> {
         let config = self.config()?;
         Ok(fg_game::install::Installer::new(
             self.downloader.clone(),
@@ -205,6 +210,22 @@ impl Service {
             config.download.source,
             self.region,
             RuleContext::current(),
+        )
+        .with_java(java))
+    }
+
+    fn loader_planner(&self) -> Result<LoaderPlanner<'_>> {
+        let config = self.config()?;
+        Ok(LoaderPlanner::new(
+            &self.downloader,
+            &self.table,
+            config.download.source,
+            self.region,
+            LoaderPaths::new(
+                self.layout.root(),
+                self.layout.libraries(),
+                self.layout.cache(),
+            ),
         ))
     }
 
@@ -228,6 +249,7 @@ impl Service {
             "instances.dir" => self.instance_dir(&params).await,
 
             "versions.list" => self.versions_list(&params).await,
+            "loaders.versions" => self.loaders_versions(&params).await,
             "version.plan" => self.version_plan(&params).await,
             "versions.news" => self.versions_news(&params).await,
             "install.start" => self.install_start(&params).await,
@@ -450,15 +472,16 @@ impl Service {
         let request: IdRequest = from_value(params)?;
         let manager = self.manager();
         let instance = manager.load(&request.id)?;
+        let version_id = instance.version_id().to_string();
         let resolved = self
             .resolver()?
-            .resolve_local(&instance.minecraft)
+            .resolve_local(&version_id)
             .map_err(|error| {
                 if error.kind == ErrorKind::NotFound {
                     Error::with_detail(
                         ErrorKind::NotFound,
                         "error.launch.not_installed",
-                        format!("{} is not installed", instance.minecraft),
+                        format!("{version_id} is not installed"),
                     )
                 } else {
                     error
@@ -527,18 +550,53 @@ impl Service {
         Ok(json!({ "news": news }))
     }
 
+    async fn loaders_versions(&self, params: &Value) -> Result<Value> {
+        let request: LoaderVersionsRequest = from_value(params)?;
+        let kind = LoaderKind::parse(&request.kind)?;
+        let planner = self.loader_planner()?;
+        let versions = fg_loader::versions(
+            planner.downloader,
+            planner.table,
+            planner.source,
+            planner.region,
+            fg_loader::VersionListQuery {
+                kind,
+                minecraft: &request.minecraft,
+                limit: request.limit,
+            },
+        )
+        .await?;
+        Ok(json!({ "versions": versions }))
+    }
+
     async fn version_plan(&self, params: &Value) -> Result<Value> {
         let request: VersionRequest = from_value(params)?;
-        let plan = self
-            .installer()?
-            .plan(&request.version, false, None)
-            .await?;
+        let loader = requested_loader(&request)?;
+        let plan = if let Some((kind, version)) = loader {
+            let version = if version.trim().is_empty() {
+                self.loader_planner()?
+                    .latest_version(kind, &request.version)
+                    .await?
+                    .version
+            } else {
+                version
+            };
+            self.installer()?
+                .plan_loader(&request.version, kind, &version, None)
+                .await?
+        } else {
+            self.installer()?
+                .plan(&request.version, false, None)
+                .await?
+        };
         Ok(json!({
             "versionId": plan.version_id,
             "baseId": plan.base_id,
             "javaMajor": plan.java_major,
             "files": plan.files.len(),
             "totalBytes": plan.total_bytes,
+            "loaderKind": plan.loader.as_ref().map(|loader| loader.kind.as_str()),
+            "loaderVersion": plan.loader.as_ref().map(|loader| loader.loader_version.clone()),
         }))
     }
 
@@ -566,14 +624,54 @@ impl Service {
             None
         };
 
+        // The completion flow sends the instance's existing loader so a repair
+        // install does not silently fall back to vanilla.
+        let loader_selection = resolve_loader_selection(&request, target_instance.as_ref())?;
+        let (loader_kind, loader_version) = match loader_selection {
+            Some((kind, version)) => {
+                let version = if version.trim().is_empty() {
+                    self.loader_planner()?
+                        .latest_version(kind, &request.version)
+                        .await?
+                        .version
+                } else {
+                    version
+                };
+                (Some(kind), Some(version))
+            }
+            None => (None, None),
+        };
+
         // Validate the version before queueing so the wizard can surface a
         // problem in place instead of through a task failure.
         let resolved = self.resolver()?.resolve_remote(&request.version).await?;
-        let installer = self.installer()?;
-        let plan = installer
-            .plan_resolved(&resolved, request.instance_id.as_deref())
-            .await?;
+        let java = if loader_kind.is_some_and(LoaderKind::requires_java) {
+            let runtimes = discover_java(&self.layout).await;
+            let selection = fg_java::select(&runtimes, resolved.java_major, JavaArch::host())?;
+            Some(selection.runtime.executable)
+        } else {
+            None
+        };
+        let installer = self.installer_with_java(java)?;
+        let plan = match (loader_kind, loader_version.as_deref()) {
+            (Some(kind), Some(version)) => {
+                installer
+                    .plan_loader(
+                        &request.version,
+                        kind,
+                        version,
+                        request.instance_id.as_deref(),
+                    )
+                    .await?
+            }
+            _ => {
+                installer
+                    .plan_resolved(&resolved, request.instance_id.as_deref())
+                    .await?
+            }
+        };
         plan.save(&self.layout)?;
+        let plan_version_id = plan.version_id.clone();
         let graph = installer.graph(&plan);
         drop(plan);
 
@@ -583,13 +681,28 @@ impl Service {
         // An existing instance with the same Minecraft version is reused, so
         // pressing 开始游戏 on an incomplete instance completes its resources
         // instead of failing with a duplicate-id error.
-        if target_instance.is_none()
-            && let Some(id) = non_empty(request.instance_id.as_deref())
-        {
+        if let Some(id) = non_empty(request.instance_id.as_deref()) {
             let manager = self.manager();
-            let version_id = request.version.clone();
-            let name = non_empty(request.instance_name.as_deref()).unwrap_or(id.to_string());
-            manager.create(&id, &name, &version_id, Some("vanilla"), None)?;
+            if target_instance.is_none() {
+                let name =
+                    non_empty(request.instance_name.as_deref()).unwrap_or_else(|| id.clone());
+                let kind = loader_kind.map_or("vanilla", LoaderKind::as_str);
+                manager.create(
+                    &id,
+                    &name,
+                    &request.version,
+                    Some(kind),
+                    loader_version.as_deref(),
+                )?;
+            }
+            if let Some(kind) = loader_kind {
+                manager.set_loader(
+                    &id,
+                    kind.as_str(),
+                    loader_version.as_deref().unwrap_or_default(),
+                    &plan_version_id,
+                )?;
+            }
         }
 
         let task_name = format!("install:{}", request.version);
@@ -599,7 +712,10 @@ impl Service {
             self.clone()
                 .watch_task(queue_id.clone(), control, task_name),
         );
-        Ok(json!({ "taskId": queue_id }))
+        Ok(json!({
+            "taskId": queue_id,
+            "versionId": plan_version_id,
+        }))
     }
 
     /// Pushes throttled progress events and a terminal `task.finished`.
@@ -873,15 +989,16 @@ impl Service {
             overrides: fg_game::manager::overrides_for_launch(&instance, &globals),
             ..instance
         };
+        let version_id = merged.version_id().to_string();
         let resolved = self
             .resolver()?
-            .resolve_local(&merged.minecraft)
+            .resolve_local(&version_id)
             .map_err(|error| {
                 if error.kind == ErrorKind::NotFound {
                     Error::with_detail(
                         ErrorKind::NotFound,
                         "error.launch.not_installed",
-                        format!("{} is not installed", merged.minecraft),
+                        format!("{version_id} is not installed"),
                     )
                 } else {
                     error
@@ -1109,6 +1226,38 @@ fn to_value<T: Serialize>(payload: T) -> Result<Value> {
     })
 }
 
+fn requested_loader(request: &VersionRequest) -> Result<Option<(LoaderKind, String)>> {
+    let Some(kind) = non_empty(Some(request.loader_kind.as_str())) else {
+        return Ok(None);
+    };
+    Ok(Some((
+        LoaderKind::parse(&kind)?,
+        request.loader_version.clone().unwrap_or_default(),
+    )))
+}
+
+fn resolve_loader_selection(
+    request: &InstallStartRequest,
+    instance: Option<&Instance>,
+) -> Result<Option<(LoaderKind, String)>> {
+    if let Some(kind) = non_empty(Some(request.loader_kind.as_str())) {
+        return Ok(Some((
+            LoaderKind::parse(&kind)?,
+            request.loader_version.clone().unwrap_or_default(),
+        )));
+    }
+    let Some(instance) = instance else {
+        return Ok(None);
+    };
+    if instance.loader.is_vanilla() {
+        return Ok(None);
+    }
+    Ok(Some((
+        LoaderKind::parse(&instance.loader.kind)?,
+        instance.loader.version.clone(),
+    )))
+}
+
 // ---- Request payloads -------------------------------------------------
 
 #[derive(Debug, Deserialize)]
@@ -1196,6 +1345,19 @@ struct NewsRequest {
 #[serde(rename_all = "camelCase")]
 struct VersionRequest {
     version: String,
+    #[serde(default)]
+    loader_kind: String,
+    #[serde(default)]
+    loader_version: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LoaderVersionsRequest {
+    kind: String,
+    minecraft: String,
+    #[serde(default = "default_limit")]
+    limit: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1206,6 +1368,10 @@ struct InstallStartRequest {
     instance_id: Option<String>,
     #[serde(default)]
     instance_name: Option<String>,
+    #[serde(default)]
+    loader_kind: String,
+    #[serde(default)]
+    loader_version: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1521,6 +1687,38 @@ mod tests {
                 .expect("rows");
             assert_eq!(rows[0]["minecraft"], json!("1.20.1"));
         });
+    }
+
+    #[test]
+    fn loader_selection_is_validated_and_inherited() {
+        let request = InstallStartRequest {
+            version: "1.21.4".into(),
+            instance_id: None,
+            instance_name: None,
+            loader_kind: "bogus".into(),
+            loader_version: None,
+        };
+        let error = resolve_loader_selection(&request, None).expect_err("bad kind");
+        assert_eq!(error.message_key, "error.loader.unknown_kind");
+
+        let request = InstallStartRequest {
+            version: "1.21.4".into(),
+            instance_id: None,
+            instance_name: None,
+            loader_kind: String::new(),
+            loader_version: None,
+        };
+        let directory = tempfile::tempdir().expect("tempdir");
+        let layout = Layout::new(directory.path());
+        layout.ensure_base_dirs().expect("dirs");
+        let mut instance =
+            Instance::create(&layout, "loader-selection", "1.21.4").expect("instance");
+        instance.set_loader("fabric", "0.16.9", "fabric-loader-0.16.9-1.21.4");
+        let selection = resolve_loader_selection(&request, Some(&instance))
+            .expect("selection")
+            .expect("loader");
+        assert_eq!(selection.0, LoaderKind::Fabric);
+        assert_eq!(selection.1, "0.16.9");
     }
 
     #[test]

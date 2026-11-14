@@ -41,6 +41,7 @@ use fg_game::rules::RuleContext;
 use fg_java::{
     JavaArch, JavaRuntime, JavaScanner, JavaSource, JavaWarning, normalize_home, select,
 };
+use fg_loader::{LoaderKind, LoaderPaths, LoaderPlanner, VersionListQuery};
 use fg_net::{
     Candidate, Client, ContentCache, DownloadCtx, DownloadOptions, DownloadRequest, Downloader,
     MirrorTable, Priority, ProgressSink, Region,
@@ -129,7 +130,9 @@ enum Command {
     Probe(ProbeArgs),
     /// List the cached version manifest.
     Versions(VersionsArgs),
-    /// Install a vanilla version and create an instance.
+    /// List loader versions for a Minecraft version.
+    Loaders(LoadersArgs),
+    /// Install a vanilla version or a loader and create an instance.
     Install(InstallArgs),
     /// Launch an installed instance with an offline account.
     Launch(LaunchArgs),
@@ -266,6 +269,31 @@ struct InstallArgs {
     /// Install shared files only; do not create an instance.
     #[arg(long)]
     no_instance: bool,
+
+    /// Loader kind: fabric, quilt, forge, neoforge or optifine.
+    #[arg(long)]
+    loader: Option<String>,
+
+    /// Loader version; defaults to the newest stable build.
+    #[arg(long)]
+    loader_version: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct LoadersArgs {
+    /// Minecraft version, e.g. 1.21.4.
+    minecraft: String,
+
+    /// Loader kind: fabric, quilt, forge, neoforge or optifine.
+    #[arg(long, default_value = "fabric")]
+    kind: String,
+
+    /// Number of versions to print (newest first).
+    #[arg(long, default_value_t = 30)]
+    limit: usize,
+
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -465,6 +493,18 @@ async fn main() -> Result<()> {
         Command::Probe(args) => command_probe(&root, cli.rate_limit_kib, args).await,
         Command::Versions(args) => {
             command_versions(
+                &root,
+                &table,
+                source,
+                region,
+                cli.concurrency,
+                cli.rate_limit_kib,
+                args,
+            )
+            .await
+        }
+        Command::Loaders(args) => {
+            command_loaders(
                 &root,
                 &table,
                 source,
@@ -1034,6 +1074,60 @@ async fn command_versions(
     Ok(())
 }
 
+async fn command_loaders(
+    root: &std::path::Path,
+    table: &MirrorTable,
+    source: DownloadSource,
+    region: Region,
+    concurrency: Option<usize>,
+    rate_limit_kib: u64,
+    args: LoadersArgs,
+) -> Result<()> {
+    let (layout, downloader, _resolver) =
+        build_shared(root, table, source, region, concurrency, rate_limit_kib)?;
+    let kind = LoaderKind::parse(&args.kind)?;
+    let planner = LoaderPlanner::new(
+        &downloader,
+        table,
+        source,
+        region,
+        LoaderPaths::new(layout.root(), layout.libraries(), layout.cache()),
+    );
+    let versions = fg_loader::versions(
+        planner.downloader,
+        planner.table,
+        planner.source,
+        planner.region,
+        VersionListQuery {
+            kind,
+            minecraft: &args.minecraft,
+            limit: args.limit,
+        },
+    )
+    .await?;
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&versions).map_err(json_error)?
+        );
+        return Ok(());
+    }
+    println!("{} for Minecraft {}", kind.title(), args.minecraft);
+    for version in versions {
+        println!(
+            "  {:<20} {}{}",
+            version.version,
+            if version.stable { "" } else { "preview" },
+            version
+                .note
+                .as_deref()
+                .map(|note| format!("  (Forge {note})"))
+                .unwrap_or_default()
+        );
+    }
+    Ok(())
+}
+
 async fn command_install(
     root: &std::path::Path,
     table: &MirrorTable,
@@ -1066,6 +1160,42 @@ async fn command_install(
         Some(instance)
     };
 
+    let loader_kind = args.loader.as_deref().map(LoaderKind::parse).transpose()?;
+    let loader_version = if let Some(kind) = loader_kind {
+        let version = if let Some(version) = args
+            .loader_version
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            version.to_string()
+        } else {
+            LoaderPlanner::new(
+                &downloader,
+                table,
+                source,
+                region,
+                LoaderPaths::new(layout.root(), layout.libraries(), layout.cache()),
+            )
+            .latest_version(kind, &args.version)
+            .await?
+            .version
+        };
+        Some(version)
+    } else {
+        None
+    };
+    let base = resolver.resolve_remote(&args.version).await?;
+    let java = if loader_kind.is_some_and(LoaderKind::requires_java) {
+        let runtimes = scan_java(&layout, true).await;
+        Some(
+            select(&runtimes, base.java_major, JavaArch::host())?
+                .runtime
+                .executable,
+        )
+    } else {
+        None
+    };
     let installer = Installer::new(
         downloader,
         resolver,
@@ -1074,7 +1204,8 @@ async fn command_install(
         source,
         region,
         RuleContext::current(),
-    );
+    )
+    .with_java(java);
     println!(
         "planning {}{}",
         args.version,
@@ -1083,13 +1214,32 @@ async fn command_install(
             .map(|instance| format!(" for instance {}", instance.id))
             .unwrap_or_default()
     );
-    let plan = installer
-        .plan(
-            &args.version,
-            args.refresh,
-            instance.as_ref().map(|instance| instance.id.as_str()),
-        )
-        .await?;
+    let plan = match (loader_kind, loader_version.as_deref()) {
+        (Some(kind), Some(version)) => {
+            installer
+                .plan_loader(
+                    &args.version,
+                    kind,
+                    version,
+                    instance.as_ref().map(|instance| instance.id.as_str()),
+                )
+                .await?
+        }
+        _ => {
+            installer
+                .plan(
+                    &args.version,
+                    args.refresh,
+                    instance.as_ref().map(|instance| instance.id.as_str()),
+                )
+                .await?
+        }
+    };
+    if let (Some(kind), Some(version)) = (loader_kind, loader_version.as_deref())
+        && let Some(instance) = &mut instance
+    {
+        instance.set_loader(kind.as_str(), version, &plan.version_id);
+    }
     println!("  java {} · main {}", plan.java_major, plan.main_class);
 
     for (kind, count, bytes) in category_counts(&plan) {
@@ -1108,6 +1258,7 @@ async fn command_install(
     );
     let missing = plan.missing(layout.root(), args.strict);
     println!("  {} already present", plan.files.len() - missing.len());
+    plan.save(&layout)?;
 
     if args.dry_run {
         for file in missing.iter().take(20) {
@@ -1119,7 +1270,6 @@ async fn command_install(
         return Ok(());
     }
 
-    plan.save(&layout)?;
     let graph = Arc::new(installer.graph(&plan));
     let reporter = spawn_graph_reporter(graph.clone());
     let report = run_graph_interruptible(graph).await?;
@@ -1153,13 +1303,13 @@ async fn command_install(
             ));
         }
     }
-    InstallPlan::remove(&layout, &args.version);
+    InstallPlan::remove(&layout, &plan.version_id);
     println!(
         "installed {} in {:.1}s",
-        args.version,
+        plan.version_id,
         report.elapsed.as_secs_f64()
     );
-    println!("  client   {}", layout.version_jar(&args.version).display());
+    println!("  client   {}", layout.version_jar(&plan.base_id).display());
     println!("  libraries {}", layout.libraries().display());
     println!("  assets    {}", layout.assets().display());
     if let Some(instance) = &mut instance {
@@ -1191,30 +1341,21 @@ async fn command_launch(
         let globals = config::read_config(root)?.game;
         instance.overrides = fg_game::manager::overrides_for_launch(&instance, &globals);
     }
-    if !instance.loader.is_vanilla() {
-        return Err(Error::with_detail(
-            ErrorKind::Unsupported,
-            "error.launch.loader_unsupported",
-            format!("loader {:?} is an M5 feature", instance.loader.kind),
-        ));
-    }
-
-    let resolved = resolver
-        .resolve_local(&instance.minecraft)
-        .map_err(|error| {
-            if error.kind == ErrorKind::NotFound {
-                Error::with_detail(
-                    ErrorKind::NotFound,
-                    "error.launch.not_installed",
-                    format!(
-                        "{} is not installed; run `fg-cli install {}`",
-                        instance.minecraft, instance.minecraft
-                    ),
-                )
-            } else {
-                error
-            }
-        })?;
+    let version_id = instance.version_id().to_string();
+    let resolved = resolver.resolve_local(&version_id).map_err(|error| {
+        if error.kind == ErrorKind::NotFound {
+            Error::with_detail(
+                ErrorKind::NotFound,
+                "error.launch.not_installed",
+                format!(
+                    "{version_id} is not installed; run `fg-cli install {}`",
+                    instance.minecraft
+                ),
+            )
+        } else {
+            error
+        }
+    })?;
 
     let runtimes = scan_java(&layout, true).await;
     let java = pick_java(&instance, &resolved, &args, &runtimes)?;
@@ -1266,7 +1407,16 @@ async fn command_launch(
         return Ok(());
     }
 
-    println!("instance  {} ({})", instance.id, instance.minecraft);
+    println!(
+        "instance  {} ({}{})",
+        instance.id,
+        instance.minecraft,
+        if instance.loader.is_vanilla() {
+            String::new()
+        } else {
+            format!(" · {} {}", instance.loader.kind, instance.loader.version)
+        }
+    );
     println!(
         "java      {} ({} {})",
         java.executable.display(),
@@ -1616,7 +1766,18 @@ fn command_instance(root: &std::path::Path, args: InstanceArgs) -> Result<()> {
             println!("id          {}", instance.id);
             println!("name        {}", instance.name);
             println!("minecraft   {}", instance.minecraft);
-            println!("loader      {}", instance.loader.kind);
+            println!(
+                "loader      {}{}",
+                instance.loader.kind,
+                if instance.loader.version.is_empty() {
+                    String::new()
+                } else {
+                    format!(" {}", instance.loader.version)
+                }
+            );
+            if !instance.loader.version_id.is_empty() {
+                println!("profile     {}", instance.loader.version_id);
+            }
             println!("game dir    {}", instance.game_dir(&layout).display());
             println!(
                 "java        {}",
@@ -1705,6 +1866,7 @@ fn file_kind_label(kind: FileKind) -> &'static str {
         FileKind::Asset => "assets",
         FileKind::AssetIndex => "asset index",
         FileKind::LogConfig => "logging",
+        FileKind::Loader => "loader",
     }
 }
 

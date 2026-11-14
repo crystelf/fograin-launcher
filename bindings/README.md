@@ -38,7 +38,7 @@ owns the boundary between them.
   `game.line`, `game.exited`) as a JSON array.
 - `fg_string_free(value)` — releases strings returned by the core.
 
-### RPC methods implemented (M4)
+### RPC methods implemented (M4/M5)
 
 | Method | Params → Result |
 | --- | --- |
@@ -52,14 +52,21 @@ owns the boundary between them.
 | `instances.verify` | `{id}` → resource completeness report |
 | `instances.dir` | `{id}` → gameDir |
 | `versions.list` | `{kind, limit, refresh}` → manifest entries; `kind` is `release`, `snapshot`, `april_fools`, `old`, or empty for all |
+| `loaders.versions` | `{kind, minecraft, limit?}` → `{versions:[{version, stable, label?, note?}]}`; `kind` is `fabric`, `quilt`, `forge`, `neoforge`, `optifine` |
 | `versions.news` | `{limit, refresh}` → latest releases |
-| `version.plan` | `{version}` → files/totalBytes/javaMajor preview |
-| `install.start` | `{version, instanceId?, instanceName?}` → `{taskId}`; creates the instance when missing or reuses an existing one with the same Minecraft version (so 开始游戏 can complete an incomplete instance); pushes `task.*` events |
+| `version.plan` | `{version, loaderKind?, loaderVersion?}` → files/totalBytes/javaMajor preview, plus `loaderKind` / `loaderVersion` |
+| `install.start` | `{version, instanceId?, instanceName?, loaderKind?, loaderVersion?}` → `{taskId, versionId}`; creates the instance when missing or reuses an existing one with the same Minecraft version (so 开始游戏 can complete an incomplete instance); pushes `task.*` events. Forge/NeoForge/OptiFine require a discovered Java runtime before the task is queued |
 | `tasks.list` / `tasks.cancel` | `{}` / `{taskId}` |
 | `launch.start` | `{instanceId, username?}` → `{pid}`; needs installed files + matching Java |
 | `launch.status` / `session.wait` / `session.stop` | session polling and stop |
 | `game.log.recent` | `{instanceId, limit}` → last buffered log lines |
 | `gameConfig.get` / `.set` | `[game]` read / merge-write |
+
+Loader installs write `shared/versions/<versionId>/<versionId>.json` and record
+that id in `instance.toml [loader] version_id`; vanilla instances leave it empty
+and resolve `minecraft` directly. `instances.verify` and `launch.start` both use
+the effective id. The loader planning/execution contract is documented in
+[../docs/m5.md](../docs/m5.md).
 
 Errors always keep the shape `{kind, messageKey, detail}` and camelCase keys
 throughout.

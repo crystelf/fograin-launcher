@@ -2,6 +2,7 @@ package com.fograin.launcher.app
 
 import com.fograin.launcher.model.ContentLoaderFilter
 import com.fograin.launcher.model.DownloadVersionChannel
+import com.fograin.launcher.model.GameLoaderKind
 import com.fograin.launcher.model.DownloadsCategory
 import com.fograin.launcher.model.Instance
 import com.fograin.launcher.model.InstanceFormat
@@ -14,10 +15,12 @@ import com.fograin.launcher.platform.CoreException
 import com.fograin.launcher.platform.CoreGameConfig
 import com.fograin.launcher.platform.CoreInstanceRow
 import com.fograin.launcher.platform.CoreInstanceSettings
+import com.fograin.launcher.platform.CoreLoaderVersion
 import com.fograin.launcher.platform.CoreTaskRow
 import com.fograin.launcher.platform.DirectoryPick
 import com.fograin.launcher.platform.PlatformServices
 import com.fograin.launcher.platform.decode
+import com.fograin.launcher.platform.objectRows
 import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.platform.resultRows
 import com.fograin.launcher.settings.ThemeMode
@@ -39,6 +42,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * Launcher state shared by Android and desktop.
@@ -428,8 +433,31 @@ class AppModel internal constructor(
 
     fun installVersion(version: String) = downloads.installVersion(version)
 
-    suspend fun startGameInstall(version: String, instanceName: String) =
-        downloads.startGameInstall(version, instanceName)
+    suspend fun startGameInstall(
+        version: String,
+        instanceName: String,
+        loader: GameLoaderKind = GameLoaderKind.VANILLA,
+        loaderVersion: String = "",
+    ) = downloads.startGameInstall(version, instanceName, loader, loaderVersion)
+
+    /** Real loader builds for a Minecraft version, newest first. */
+    suspend fun loadLoaderVersions(
+        loader: GameLoaderKind,
+        minecraft: String,
+    ): List<CoreLoaderVersion> {
+        if (loader == GameLoaderKind.VANILLA || minecraft.isBlank()) return emptyList()
+        val payload = core.rpc(
+            "loaders.versions",
+            buildJsonObject {
+                put("kind", loader.wireName)
+                put("minecraft", minecraft)
+                put("limit", 50)
+            },
+        )
+        return payload.objectRows("versions").mapNotNull { row ->
+            runCatching { row.decode<CoreLoaderVersion>() }.getOrNull()
+        }
+    }
 
     fun isDownloading(instance: Instance): Boolean = downloads.isDownloading(instance)
 

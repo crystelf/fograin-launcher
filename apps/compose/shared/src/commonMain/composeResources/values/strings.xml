@@ -189,13 +189,14 @@
     <string name="install_game_version">游戏版本</string>
     <string name="install_choose_version">选择版本</string>
     <string name="install_loader">加载器</string>
-    <string name="install_loader_note">原版可直接安装；其余为 M5 预留位</string>
+    <string name="install_loader_note">Fabric、Quilt、Forge、NeoForge 与 OptiFine 已接入</string>
     <string name="install_loader_versions">%1$s 版本</string>
-    <string name="install_loader_pending">%1$s 安装器将在 M5 接入；版本列表是预留位。当前请选择原版安装。</string>
+    <string name="install_loader_loading">正在读取加载器版本…</string>
+    <string name="install_loader_java_note">该加载器需要 Java 执行安装处理器；未找到 Java 时会给出提示。</string>
     <string name="install_instance_name">实例名称</string>
     <string name="install_instance_name_hint">留空时使用版本号。内存、JVM 参数与显示选项在下载完成后的「游戏设置」里调整。</string>
     <string name="install_summary">将安装 %1$s（原版）</string>
-    <string name="install_loader_unavailable">%1$s 暂不可用</string>
+    <string name="install_summary_loader">将安装 %1$s · %2$s %3$s</string>
 
     <!-- Settings -->
     <string name="settings_title">设置</string>

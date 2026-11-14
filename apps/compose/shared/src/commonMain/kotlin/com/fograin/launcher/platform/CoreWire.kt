@@ -90,6 +90,28 @@ data class CoreErrorPayload(
             "error.task.already_running" -> "已有下载任务在进行，请等待完成或取消。"
             "error.network" -> "网络请求失败，请检查网络或代理设置。"
             "error.install.failed" -> "安装没有完成，请重试。"
+            "error.loader.unknown_kind" -> "不支持的加载器类型。"
+            "error.loader.unsupported_minecraft" -> "这个加载器没有适配该 Minecraft 版本。"
+            "error.loader.version_invalid" -> "加载器版本格式不正确。"
+            "error.loader.version_missing" -> "请选择加载器版本。"
+            "error.loader.profile_unavailable" -> "无法获取加载器版本信息，请稍后重试。"
+            "error.loader.profile_parse", "error.loader.install_profile",
+            "error.loader.version_json", "error.loader.version_json_missing" ->
+                "加载器安装文件无法解析。"
+            "error.loader.installer_download" -> "加载器安装包下载失败，请检查网络或镜像设置。"
+            "error.loader.installer_zip", "error.loader.installer_entry" ->
+                "加载器安装包不完整或已损坏。"
+            "error.loader.installer_missing" -> "加载器安装包缺失，请重新下载。"
+            "error.loader.processor_failed", "error.loader.processor_spawn",
+            "error.loader.processor_jar", "error.loader.processor_classpath",
+            "error.loader.processor_manifest" ->
+                "Forge/NeoForge 安装处理器执行失败，请查看日志。"
+            "error.loader.patcher_failed", "error.loader.patcher_spawn",
+            "error.loader.client_jar" -> "OptiFine 补丁执行失败，请确认游戏文件完整。"
+            "error.loader.java_required" -> "安装这个加载器需要 Java。M6 接入自动下载前，请先准备 Java。"
+            "error.loader.output_hash" -> "加载器安装产物校验失败，请重试或更换镜像。"
+            "error.loader.minecraft_mismatch" -> "加载器安装包与所选 Minecraft 版本不一致。"
+            "error.loader.mappings_missing" -> "该版本缺少 Mojang 映射文件，无法安装 Forge/NeoForge。"
             "error.instance.invalid_id" -> "实例名称无法转换为安全的目录名。"
             "error.core.unavailable" -> "无法连接启动器核心。请确认应用已正确安装原生库。"
             "error.data_root.already_set", "error.data_root.service_started" ->
@@ -160,6 +182,15 @@ data class CoreTaskRow(
     val state: String = "running",
     val fraction: Double = 0.0,
     val speed: Double = 0.0,
+)
+
+/** One entry of `loaders.versions`. */
+@Serializable
+data class CoreLoaderVersion(
+    val version: String,
+    val stable: Boolean = true,
+    val label: String? = null,
+    val note: String? = null,
 )
 
 /** One entry of `versions.list`. */

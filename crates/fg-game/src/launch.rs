@@ -116,6 +116,9 @@ impl LaunchPlan {
             .rule_context
             .clone()
             .unwrap_or_else(RuleContext::current);
+        // Loader plans may generate client jars (Forge processors, OptiFine
+        // patcher) that are not part of `version.json`'s classpath.
+        verify_installed(layout, resolved, &context)?;
         let resolved_libraries = resolved.libraries(&context)?;
         if context.os.name == "osx"
             && context.os.arch == JavaArch::Arm64
@@ -136,7 +139,7 @@ impl LaunchPlan {
         }
         let classpath_libraries = resolved.classpath_libraries(&resolved_libraries);
 
-        let client_jar = layout.version_jar(&resolved.id);
+        let client_jar = client_jar_path(layout, resolved);
         require_file(&client_jar, "error.launch.client_missing")?;
 
         let classpath: Vec<PathBuf> = classpath_libraries
@@ -502,6 +505,15 @@ fn dedupe_flags(args: Vec<String>) -> Vec<String> {
                 | "--quickPlaySingleplayer"
                 | "--quickPlayMultiplayer"
                 | "--quickPlayRealms"
+                | "--add-opens"
+                | "--add-exports"
+                | "--add-modules"
+                | "--add-reads"
+                | "--patch-module"
+                | "--module-path"
+                | "--upgrade-module-path"
+                | "--limit-modules"
+                | "-p"
         );
         if !argument.starts_with('-') || takes_value {
             output.push(argument.clone());
@@ -1245,6 +1257,20 @@ pub fn needs_x86_64_java(version_id: &str) -> bool {
     minor < 19
 }
 
+/// Client jar for a resolved profile.
+///
+/// Loader profiles (`inheritsFrom`) do not ship a jar of their own; the vanilla
+/// jar lives under the base version id.
+#[must_use]
+pub fn client_jar_path(layout: &Layout, resolved: &ResolvedVersion) -> PathBuf {
+    let child = layout.version_jar(&resolved.id);
+    if resolved.id != resolved.base_id && !child.is_file() {
+        layout.version_jar(&resolved.base_id)
+    } else {
+        child
+    }
+}
+
 /// Checks that all installed files for a launch exist.
 ///
 /// # Errors
@@ -1256,17 +1282,26 @@ pub fn verify_installed(
     context: &RuleContext,
 ) -> Result<()> {
     require_file(
-        &layout.version_jar(&resolved.id),
+        &client_jar_path(layout, resolved),
         "error.launch.client_missing",
     )?;
     let libraries = resolved.libraries(context)?;
-    let missing: Vec<String> = libraries
-        .iter()
-        .map(|library| layout.libraries().join(&library.artifact.path))
+    let mut missing: Vec<String> = crate::install::InstallMeta::load(layout, &resolved.id)
+        .map(|meta| meta.loader_outputs)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|output| layout.root().join(output.path))
         .filter(|path| !path.is_file())
         .map(|path| path.display().to_string())
-        .take(5)
         .collect();
+    missing.extend(
+        libraries
+            .iter()
+            .map(|library| layout.libraries().join(&library.artifact.path))
+            .filter(|path| !path.is_file())
+            .map(|path| path.display().to_string()),
+    );
+    missing.truncate(5);
     if !missing.is_empty() {
         return Err(Error::with_detail(
             ErrorKind::NotFound,
@@ -1462,6 +1497,23 @@ mod tests {
     }
 
     #[test]
+    fn dedupe_keeps_repeated_module_options_with_their_values() {
+        let args = vec![
+            "--add-opens".to_string(),
+            "java.base/java.util.jar=mod".to_string(),
+            "--add-opens".to_string(),
+            "java.base/java.lang.invoke=mod".to_string(),
+            "--add-exports".to_string(),
+            "java.base/sun.security.util=mod".to_string(),
+            "--add-exports".to_string(),
+            "jdk.naming.dns/com.sun.jndi.dns=java.naming".to_string(),
+            "-p".to_string(),
+            "modules".to_string(),
+        ];
+        assert_eq!(dedupe_flags(args.clone()), args);
+    }
+
+    #[test]
     fn builds_legacy_command_with_classpath_and_natives() {
         let (_directory, layout) = layout();
         let instance = Instance::create(&layout, "1.7.10", "1.7.10").expect("instance");
@@ -1546,6 +1598,39 @@ mod tests {
             },
         )
         .expect("build")
+    }
+
+    #[test]
+    fn loader_profiles_use_the_base_client_jar() {
+        let (_directory, layout) = layout();
+        std::fs::create_dir_all(layout.version_dir("1.21.4")).expect("base dir");
+        std::fs::write(
+            layout.version_json("1.21.4"),
+            include_str!("../tests/fixtures/versions/1.21.4.json"),
+        )
+        .expect("base json");
+        std::fs::write(layout.version_jar("1.21.4"), b"jar").expect("base jar");
+        std::fs::create_dir_all(layout.version_dir("fabric-loader")).expect("child dir");
+        std::fs::write(
+            layout.version_json("fabric-loader"),
+            r#"{"id":"fabric-loader","inheritsFrom":"1.21.4","mainClass":"child.Main"}"#,
+        )
+        .expect("child json");
+
+        let resolved = crate::resolver::VersionResolver::new(
+            Arc::new(Downloader::new(layout.root()).expect("downloader")),
+            layout.clone(),
+            MirrorTable::embedded().clone(),
+            DownloadSource::Official,
+            Region::RestOfWorld,
+        )
+        .resolve_local("fabric-loader")
+        .expect("resolve");
+        assert_eq!(resolved.base_id, "1.21.4");
+        assert_eq!(
+            client_jar_path(&layout, &resolved),
+            layout.version_jar("1.21.4")
+        );
     }
 
     #[test]

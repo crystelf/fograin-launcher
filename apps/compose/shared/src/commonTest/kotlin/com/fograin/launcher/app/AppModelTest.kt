@@ -14,6 +14,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * State-machine coverage for [AppModel]: what `app.snapshot`, the download
@@ -168,6 +169,39 @@ class AppModelTest {
 
         assertFalse(model.state.value.sessionRunning)
         assertEquals("游戏已退出（2 分钟）", model.state.value.notice?.message)
+    }
+
+    @Test
+    fun loaderInstallSendsKindAndVersion() = runTest {
+        val core = FakeCore()
+        val model = model(backgroundScope, core)
+        runCurrent()
+
+        model.startGameInstall(
+            version = "1.21.4",
+            instanceName = "雾林 Fabric",
+            loader = com.fograin.launcher.model.GameLoaderKind.FABRIC,
+            loaderVersion = "0.16.9",
+        )
+        runCurrent()
+
+        val request = core.installRequests.single()
+        assertEquals("fabric", (request["loaderKind"] as JsonPrimitive).content)
+        assertEquals("0.16.9", (request["loaderVersion"] as JsonPrimitive).content)
+    }
+
+    @Test
+    fun loaderVersionsComeFromTheCore() = runTest {
+        val core = FakeCore()
+        val model = model(backgroundScope, core)
+        runCurrent()
+
+        val versions = model.loadLoaderVersions(
+            com.fograin.launcher.model.GameLoaderKind.FABRIC,
+            "1.21.4",
+        )
+        assertEquals(listOf("0.16.9", "0.15.11"), versions.map { it.version })
+        assertTrue(core.rpcCalls.contains("loaders.versions"))
     }
 
     @Test

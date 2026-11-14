@@ -31,7 +31,6 @@ import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.LocalFireDepartment
-import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.ViewInAr
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -44,6 +43,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,9 +57,9 @@ import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.model.GameLoaderKind
+import com.fograin.launcher.platform.CoreLoaderVersion
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.components.DropdownField
-import com.fograin.launcher.ui.components.MilestoneChip
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
@@ -67,6 +67,9 @@ import org.jetbrains.compose.resources.stringResource
 /**
  * Install dialog: the only place that asks for loader / loader version /
  * instance name. Memory and display options belong to 游戏设置 after install.
+ *
+ * The loader dropdown is populated from `loaders.versions`; Forge/NeoForge and
+ * OptiFine need a Java runtime, which the core checks before queueing the task.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,6 +84,9 @@ fun GameInstallSheet(
     }
     var loader by remember { mutableStateOf(GameLoaderKind.VANILLA) }
     var loaderVersion by remember { mutableStateOf("") }
+    var loaderVersions by remember { mutableStateOf<List<CoreLoaderVersion>>(emptyList()) }
+    var isLoadingLoaders by remember { mutableStateOf(false) }
+    var loaderError by remember { mutableStateOf<String?>(null) }
     var instanceName by remember { mutableStateOf("") }
     var isInstalling by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -92,7 +98,44 @@ fun GameInstallSheet(
         }
         ids
     }
-    val canInstall = loader.isAvailable && selectedVersionId.isNotEmpty() && !isInstalling
+    val needsJava = loader == GameLoaderKind.FORGE ||
+        loader == GameLoaderKind.NEOFORGE ||
+        loader == GameLoaderKind.OPTIFINE
+    val canInstall = selectedVersionId.isNotEmpty() &&
+        (loader == GameLoaderKind.VANILLA || (loaderVersion.isNotEmpty() && !isLoadingLoaders)) &&
+        !isInstalling
+
+    LaunchedEffect(loader, selectedVersionId) {
+        loaderVersions = emptyList()
+        loaderVersion = ""
+        loaderError = null
+        if (loader == GameLoaderKind.VANILLA || selectedVersionId.isEmpty()) {
+            isLoadingLoaders = false
+            return@LaunchedEffect
+        }
+        isLoadingLoaders = true
+        try {
+            val versions = model.loadLoaderVersions(loader, selectedVersionId)
+            loaderVersions = versions
+            loaderVersion = versions.firstOrNull { it.stable }?.version
+                ?: versions.firstOrNull()?.version.orEmpty()
+            if (versions.isEmpty()) {
+                loaderError = model.errorMessage(
+                    com.fograin.launcher.platform.CoreException(
+                        "notFound",
+                        "error.loader.unsupported_minecraft",
+                        "${loader.title} 没有适配 Minecraft $selectedVersionId 的版本。",
+                    ),
+                )
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            loaderError = model.errorMessage(error)
+        } finally {
+            isLoadingLoaders = false
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -136,18 +179,10 @@ fun GameInstallSheet(
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = stringResource(Res.string.install_loader),
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                Spacer(Modifier.weight(1f))
-                Text(
-                    text = stringResource(Res.string.install_loader_note),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Text(
+                text = stringResource(Res.string.install_loader),
+                style = MaterialTheme.typography.titleSmall,
+            )
             GameLoaderKind.entries.chunked(2).forEach { row ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -160,7 +195,7 @@ fun GameInstallSheet(
                             modifier = Modifier.weight(1f),
                             onClick = {
                                 loader = option
-                                loaderVersion = option.placeholderVersions.firstOrNull().orEmpty()
+                                loaderVersion = ""
                                 errorMessage = null
                             },
                         )
@@ -173,7 +208,7 @@ fun GameInstallSheet(
         }
 
         AnimatedVisibility(
-            visible = !loader.isAvailable,
+            visible = loader != GameLoaderKind.VANILLA,
             enter = expandVertically(tween(220)) + fadeIn(tween(180)),
             exit = shrinkVertically(tween(180)) + fadeOut(tween(120)),
         ) {
@@ -184,18 +219,43 @@ fun GameInstallSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 DropdownField(
-                    value = loaderVersion.ifEmpty {
-                        stringResource(Res.string.install_choose_version)
+                    value = when {
+                        isLoadingLoaders -> stringResource(Res.string.install_loader_loading)
+                        loaderVersion.isNotEmpty() -> loaderVersion
+                        else -> stringResource(Res.string.install_choose_version)
                     },
-                    options = loader.placeholderVersions.map { version ->
-                        version to { loaderVersion = version }
+                    options = if (isLoadingLoaders) {
+                        emptyList()
+                    } else {
+                        loaderVersions.map { version ->
+                            val suffix = buildString {
+                                if (!version.stable) append(" · preview")
+                                version.note?.takeIf { it.isNotBlank() }?.let {
+                                    append(" · Forge ")
+                                    append(it)
+                                }
+                            }
+                            (version.version + suffix) to {
+                                loaderVersion = version.version
+                                errorMessage = null
+                            }
+                        }
                     },
                 )
-                Text(
-                    text = stringResource(Res.string.install_loader_pending, loader.title),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                loaderError?.let { message ->
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                if (needsJava && loaderError == null && !isLoadingLoaders) {
+                    Text(
+                        text = stringResource(Res.string.install_loader_java_note),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
 
@@ -255,15 +315,21 @@ fun GameInstallSheet(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                text = if (loader.isAvailable) {
-                    stringResource(Res.string.install_summary, selectedVersionId)
-                } else {
-                    stringResource(Res.string.install_loader_unavailable, loader.title)
+                text = when {
+                    isLoadingLoaders -> stringResource(Res.string.install_loader_loading)
+                    loader == GameLoaderKind.VANILLA ->
+                        stringResource(Res.string.install_summary, selectedVersionId)
+                    else -> stringResource(
+                        Res.string.install_summary_loader,
+                        selectedVersionId,
+                        loader.title,
+                        loaderVersion,
+                    )
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             TextButton(onClick = model::closeInstallSheet) {
@@ -276,7 +342,12 @@ fun GameInstallSheet(
                     errorMessage = null
                     scope.launch {
                         try {
-                            model.startGameInstall(selectedVersionId, instanceName)
+                            model.startGameInstall(
+                                version = selectedVersionId,
+                                instanceName = instanceName,
+                                loader = loader,
+                                loaderVersion = loaderVersion,
+                            )
                             model.closeInstallSheet()
                         } catch (error: CancellationException) {
                             throw error
@@ -353,18 +424,12 @@ private fun LoaderCard(
             },
         )
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    text = option.title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                option.milestone?.let { MilestoneChip(it) }
-            }
+            Text(
+                text = option.title,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
             Text(
                 text = option.subtitle,
                 style = MaterialTheme.typography.bodySmall,
@@ -378,10 +443,9 @@ private fun LoaderCard(
 
 private fun loaderIcon(kind: GameLoaderKind): ImageVector = when (kind) {
     GameLoaderKind.VANILLA -> Icons.Outlined.ViewInAr
-    GameLoaderKind.FABRIC, GameLoaderKind.FABRIC_API -> Icons.Outlined.Extension
+    GameLoaderKind.FABRIC -> Icons.Outlined.Extension
     GameLoaderKind.QUILT -> Icons.Outlined.GridView
     GameLoaderKind.FORGE -> Icons.Outlined.Build
     GameLoaderKind.NEOFORGE -> Icons.Outlined.LocalFireDepartment
     GameLoaderKind.OPTIFINE -> Icons.Outlined.AutoAwesome
-    GameLoaderKind.SQL_API -> Icons.Outlined.Storage
 }
