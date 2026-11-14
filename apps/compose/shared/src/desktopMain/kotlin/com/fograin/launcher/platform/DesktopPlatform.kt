@@ -51,8 +51,34 @@ private val desktopServices: PlatformServices by lazy {
                 }
 
             override fun supportsDynamicColor(): Boolean = false
+
+            override var windowFrame: WindowFrame?
+                get() = node.getInt(KEY_WINDOW_WIDTH, 0).takeIf { it > 0 }?.let { width ->
+                    WindowFrame(
+                        x = node.getInt(KEY_WINDOW_X, 0),
+                        y = node.getInt(KEY_WINDOW_Y, 0),
+                        width = width,
+                        height = node.getInt(KEY_WINDOW_HEIGHT, 0),
+                        maximized = node.getBoolean(KEY_WINDOW_MAXIMIZED, false),
+                    )
+                }
+                set(value) {
+                    if (value == null) {
+                        node.remove(KEY_WINDOW_WIDTH)
+                        node.remove(KEY_WINDOW_HEIGHT)
+                        node.remove(KEY_WINDOW_X)
+                        node.remove(KEY_WINDOW_Y)
+                        node.remove(KEY_WINDOW_MAXIMIZED)
+                        return
+                    }
+                    node.putInt(KEY_WINDOW_X, value.x)
+                    node.putInt(KEY_WINDOW_Y, value.y)
+                    node.putInt(KEY_WINDOW_WIDTH, value.width)
+                    node.putInt(KEY_WINDOW_HEIGHT, value.height)
+                    node.putBoolean(KEY_WINDOW_MAXIMIZED, value.maximized)
+                }
         },
-        directories = JvmDirectoryBrowser(),
+        directories = DesktopDirectoryPicker,
         logger = JvmLogger,
         appearance = object : SystemAppearance {
             override val supportsDynamicColor: Boolean = false
@@ -63,16 +89,16 @@ private val desktopServices: PlatformServices by lazy {
             @Composable
             override fun applySystemBars(darkTheme: Boolean) = Unit
         },
-        backDispatcher = object : BackDispatcher {
-            // Escape handling and window back gestures arrive with the desktop
-            // menu work in R4; the default has no back stack.
-            @Composable
-            override fun handleBack(enabled: Boolean, onBack: () -> Unit) = Unit
-        },
+        backDispatcher = DesktopBackDispatcher,
     )
 }
 
 private const val KEY_DYNAMIC_COLOR = "appearance.dynamicColor"
+private const val KEY_WINDOW_X = "window.x"
+private const val KEY_WINDOW_Y = "window.y"
+private const val KEY_WINDOW_WIDTH = "window.width"
+private const val KEY_WINDOW_HEIGHT = "window.height"
+private const val KEY_WINDOW_MAXIMIZED = "window.maximized"
 
 private fun desktopDeviceName(): String {
     val os = System.getProperty("os.name").orEmpty()

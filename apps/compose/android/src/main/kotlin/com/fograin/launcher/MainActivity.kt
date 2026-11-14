@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.graphics.toArgb
 import com.fograin.launcher.generated.FograinTokens
 import com.fograin.launcher.platform.AndroidPlatform
@@ -14,6 +15,17 @@ import com.fograin.launcher.platform.createCoreClient
 import com.fograin.launcher.settings.ThemeMode
 
 class MainActivity : ComponentActivity() {
+
+    /**
+     * SAF directory tree picker for `.minecraft` import. Registered during
+     * construction, as the Activity Result API requires; the shared picker in
+     * `commonMain` reaches it through [AndroidPlatform].
+     */
+    private val treePicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            AndroidPlatform.onTreePicked(uri)
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -21,6 +33,7 @@ class MainActivity : ComponentActivity() {
         // passed before the first RPC call. The platform layer needs the
         // application context for clipboard, device info and preferences.
         AndroidPlatform.install(this)
+        AndroidPlatform.attachTreePicker { treePicker.launch(null) }
         AppRuntime.dataRoot = (getExternalFilesDir(null) ?: filesDir).absolutePath
         val core = createCoreClient()
 

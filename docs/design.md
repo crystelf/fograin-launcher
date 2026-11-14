@@ -130,19 +130,18 @@ fograin-launcher/
 │   │   ├── shared/               # KMP：common / jvm / android / desktop
 │   │   ├── android/              # Android 薄壳：Activity、manifest、res、jniLibs
 │   │   └── desktop/              # JVM 薄壳：main、窗口、菜单、jpackage
-│   └── android/                  # 旧 Android 客户端（仅参照，R6 删除）
 ├── design/                       # tokens.json / assets / screens
 ├── docs/                         # 本文件、ADR、backlog
-└── .github/workflows/            # Rust + Compose Android + macOS 桌面
+└── .github/workflows/            # Rust + Compose（macOS/Linux/Windows 桌面 + Android）+ release
 ```
 
 `shared` 的 source set：
 
 ```text
-commonMain      Compose 页面、AppModel、模型、FFI 客户端
+commonMain      Compose 页面、AppModel 门面 + 四个 feature controller、模型、FFI 客户端
  └── jvmMain    java.io / java.time / JNI 加载 / JNA（Android 与桌面共用）
       ├── androidMain   Context、Activity、SharedPreferences、动态取色
-      └── desktopMain   AWT/Swing 窗口、FileKit、系统主题、jpackage 资源
+      └── desktopMain   AWT/Swing 窗口状态、菜单、JFileChooser、系统主题、jpackage 资源
 commonTest
  └── jvmTest
       ├── androidHostTest
@@ -206,7 +205,7 @@ commonTest
 | 数据根 | `getExternalFilesDir` | `~/Library/Application Support/Fograin` | `%APPDATA%\Fograin` | `$XDG_DATA_HOME/fograin` |
 | 主题 | `isSystemInDarkTheme` + Material You | jSystemThemeDetector | jSystemThemeDetector | jSystemThemeDetector / GTK |
 | 窗口 | 系统窗口 | `Window` + 透明标题栏 | `Window` + 深色标题栏 | `Window` + 系统装饰 |
-| 文件选择 | 应用内目录浏览（路径直传 Rust） | FileKit / NSOpenPanel 语义 | FileKit / Win32 | FileKit / portal |
+| 文件选择 | SAF 目录树 → 映射回路径，失败回退应用内浏览 | `JFileChooser` | `JFileChooser` | `JFileChooser` |
 | 剪贴板 | Compose ClipboardManager | 同左 | 同左 | 同左 |
 | 返回 | 系统返回 / BackHandler | Esc / BackHandler | Esc / BackHandler | Esc / BackHandler |
 | 原生库 | `System.loadLibrary` | 解压 resource 后 `System.load` | 同 macOS（dll） | 同 macOS（so） |
@@ -222,19 +221,18 @@ commonTest
 - 字体：默认使用系统字体（Android Roboto、macOS PingFang/SF、Windows Microsoft YaHei、Linux Noto Sans CJK）。Linux 包内自带 Noto Sans SC 回退，避免缺字。
 - 浅色令牌仍是初稿；等 `fograin.pen` 补浅色画面后统一更新。
 
-### 3.4 桌面外壳（v1 范围）
+### 3.4 桌面外壳（v1，R4 已实现）
 
-- 窗口：默认 1280×860，最小 960×640；位置/大小持久化到数据目录。
-- 菜单：文件（新建实例、导入模组包、导入 .minecraft、打开数据目录）、转到（四个目的地）、视图（主题）、帮助（关于）。
-- 快捷键：`Cmd/Ctrl+N`、`Cmd/Ctrl+F`、`Cmd/Ctrl+,`、`Esc` 返回。
-- macOS：AWT client property 实现透明标题栏 + 红绿灯内边距；不使用私有 API。
-- Windows：DWM 深色标题栏（`DwmSetWindowAttribute`），不做 Mica/自定义 caption（v2）。
-- Linux：使用系统窗口装饰；不强制 CSD。
-- 托盘、任务栏进度、单实例锁、通知：v2，进 `docs/backlog.md`。
+- 窗口：默认 1120×780；位置/大小/最大化写入 `java.util.prefs`（`window.*`），下次启动恢复。
+- 菜单：文件（新建实例、前往实例库、退出）、编辑（搜索实例、切换主题）、前往（四个目的地）。
+- 快捷键：`Cmd/Ctrl+N`、`Cmd/Ctrl+I`、`Cmd/Ctrl+F`、`Cmd/Ctrl+Shift+T`、`Cmd/Ctrl+1..4`、`Cmd/Ctrl+Q`、`Esc`。
+- `Esc` 走共享的 `BackDispatcher`：先关 sheet/对话框，再回主页；Android 的返回手势是同一实现。
+- 宽度 ≥ 840 dp 用 `NavigationRail`，否则用底栏；两档离屏截图作为验收（`AdaptiveLayoutRenderTest`）。
+- macOS 透明标题栏、Windows DWM 深色标题栏、托盘、任务栏进度、单实例锁、通知：v2，见 `docs/backlog.md`。
 
 ### 3.5 已知差异与优化项
 
-- 桌面端沿用 Android 的 4 项底栏。宽窗口下会显得空；**自适应布局（≥840dp 切 NavigationRail / 侧栏）列入待办，不在本次重构内实现**，见 [backlog](backlog.md)。
+- 自适应布局已实现（≥840 dp 切 `NavigationRail`）。仍需按窗口形态记住用户偏好、以及 1280 dp 以上的三栏布局，见 [backlog](backlog.md)。
 - Android 的 `LargeTopAppBar`、`ModalBottomSheet` 在桌面可用，但手势与滚动回弹按桌面习惯调优属于 v2。
 - 桌面端不做像素级复刻；以页面结构、信息密度和操作路径一致为准。
 
@@ -458,12 +456,12 @@ M0–M4 见 §1.1。M4 的实例管理、安装、启动链路已经在 macOS / 
 | **R0 技术验证** ✅ | 新建 `apps/compose` 三模块；Kotlin 2.4 / CMP 1.12 / AGP 9 / Gradle 9.3 / JDK 21；桌面 JNI 加载；`app.snapshot` 打通；macOS DMG 打包 | 完成 2026-11-12 | Android 模拟器与 macOS 应用均显示核心数据；基线见 §7.4 |
 | **R1 共享层** ✅ | JSON 层迁 kotlinx.serialization；`CoreNative`/`AppModel` 去 Android 化；抽 9 个平台接口；单测迁 `commonTest` | 完成 2026-11-13 | `commonMain` 无 `android.*` / `java.*`；桌面经 JNI 列出实例 |
 | **R2 UI 迁移** ✅ | theme/components/home/library/downloads/settings/instances 逐页搬；字符串与图片资源化；Material3 API 差异处理 | 完成 2026-11-13 | 四页 + 3 个 sheet 渲染（含离屏截图测试）；Android 模拟器 26.3 页面回归 |
-| **R3 Android 切换** | manifest/res/jniLibs/Activity 迁入薄壳；构建脚本与 CI 更新（旧 `apps/android` 已在 R0 翻新到 AGP 9 工具链） | 2–3 天 | `assembleDebug` + 单测；模拟器全流程 |
-| **R4 桌面外壳** | 窗口状态、菜单与快捷键、macOS 透明标题栏、Windows 深色标题栏、FileKit 目录导入、打开数据目录 | 5–7 天 | 三 OS 各完成一次 M4 全流程 |
+| **R3 Android 切换** ✅ | manifest/res/jniLibs/Activity 迁入薄壳；构建脚本与 CI 更新 | 完成 2026-11-14 | `assembleDebug` + 模拟器安装启动（Android 15 模拟器，冷启动 1.9–2.5 s） |
+| **R4 桌面外壳** ✅ | 窗口状态持久化、菜单与快捷键、Esc 返回、JFileChooser/SAF 目录选择、≥840 dp NavigationRail | 完成 2026-11-14 | `:desktop:test` 覆盖两条导航形态与两档窗口尺寸 |
 | **R5 打包与 CI** | jpackage、图标、JRE/jlink、DMG/MSI/DEB、签名与公证、CI 矩阵 | 4–6 天 | 干净机器安装可用；三 OS + Android CI 绿 |
-| **R6 清理** | 删除旧 `apps/android`（R2 后）；更新 README/design；打 tag | 2–3 天 | `cargo test --workspace` + Gradle 构建通过 |
+| **R6 清理** ✅ | 删除旧 `apps/android`；更新 README/design/backlog；tag 流程见 `docs/release.md` | 完成 2026-11-14 | `cargo test --workspace` + Gradle 构建通过 |
 
-合计约 25–36 人天（一人全职 5–7 周，加 20% buffer 约 6–8 周）。R0–R2 已通过（R0 基线见 §7.4），下一步 R3（Android 薄壳切换）。
+合计约 25–36 人天（一人全职 5–7 周，加 20% buffer 约 6–8 周）。R0–R4 与 R6 已通过（R0 基线见 §7.4），剩余 R5（打包、签名、三 OS CI 矩阵的签名部分）。
 
 ### 7.3 后续核心里程碑
 
@@ -490,8 +488,8 @@ M5+ 只改 Rust 核心与共享 UI，不再有"每端各接一次"的工作。
 | 安装后体积 | ≤ 160 MB | 132 MB |
 | 冷启动到首帧 | ≤ 2.5 s | 1.61 s（进程启动到首次组合） |
 | 空闲 RSS | ≤ 300 MB | 196 MB（启动 8 s 后） |
-| 中文输入法 | 可用 | 页面已迁入 `commonMain`，待三 OS 人工回归（R4/R5） |
-| Android APK 体积 | 与现状相当（±15%） | 54 MB（debug，arm64 + x86_64） |
+| 中文输入法 | 可用 | 页面已迁入 `commonMain`，待三 OS 人工回归（R5） |
+| Android APK 体积 | 与现状相当（±15%） | 24.3 MB（debug，arm64 + x86_64，2026-11-14 复测） |
 
 ## 8. 风险与待决问题
 

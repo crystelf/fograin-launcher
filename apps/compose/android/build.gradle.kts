@@ -4,6 +4,14 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val fograinVersion = providers.gradleProperty("fograin.version").get()
+
+/** major*10000 + minor*100 + patch, so 0.1.0 becomes versionCode 100. */
+val fograinVersionCode: Int = fograinVersion
+    .split('.')
+    .mapNotNull { it.toIntOrNull() }
+    .let { parts -> (parts.getOrElse(0) { 0 } * 10_000) + (parts.getOrElse(1) { 0 } * 100) + parts.getOrElse(2) { 0 } }
+
 android {
     namespace = "com.fograin.launcher"
     compileSdk = 37
@@ -12,8 +20,8 @@ android {
         applicationId = "com.fograin.launcher"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = fograinVersionCode
+        versionName = fograinVersion
 
         // Stage the JNI library with scripts/build-android.sh.
         ndk {

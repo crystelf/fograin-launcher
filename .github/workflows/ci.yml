@@ -28,9 +28,54 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
 
-  compose-desktop:
+  # The three desktop jobs are identical except for the runner and the X11
+  # shim: the shared UI, the JNI bridge and the Compose UI tests must pass on
+  # every OS, not just macOS.
+  compose-desktop-macos:
     name: Compose Desktop (macOS)
     runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build the host JNI library
+        run: ./scripts/build-jni-desktop.sh
+      - name: Test the shared layer and the desktop shell
+        run: ./apps/compose/gradlew -p apps/compose :shared:desktopTest :desktop:test
+
+  compose-desktop-linux:
+    name: Compose Desktop (Linux)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Install the X11/GL runtime Skiko needs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb libgl1 libglx-mesa0 libgtk-3-0
+      - name: Build the host JNI library
+        run: ./scripts/build-jni-desktop.sh
+      # AWT/Skiko need a display; the Compose UI tests run headless under Xvfb.
+      - name: Test the shared layer and the desktop shell
+        run: xvfb-run -a ./apps/compose/gradlew -p apps/compose :shared:desktopTest :desktop:test
+
+  compose-desktop-windows:
+    name: Compose Desktop (Windows)
+    runs-on: windows-2025
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -68,3 +113,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Build the Android client
         run: ./apps/compose/gradlew -p apps/compose :android:assembleDebug
+      - name: Upload the debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: fograin-android-debug
+          path: apps/compose/android/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

@@ -2,8 +2,15 @@ package com.fograin.launcher.platform
 
 import java.io.File
 
-/** Directory browsing shared by the Android and desktop targets. */
-internal class JvmDirectoryBrowser : DirectoryBrowser {
+/** Directory listing shared by the Android and desktop targets. */
+internal open class JvmDirectoryBrowser : DirectoryBrowser {
+    /** Listing-only targets override [pick]; the base has no native chooser. */
+    override val isAvailable: Boolean
+        get() = false
+
+    override suspend fun pick(title: String, initialPath: String?): DirectoryPick =
+        DirectoryPick.Unavailable("no-native-picker")
+
     override fun listDirectories(path: String): List<DirectoryEntry> = runCatching {
         File(path).listFiles()
             ?.filter { it.isDirectory }

@@ -52,6 +52,7 @@ kotlin {
 
     sourceSets.commonTest.dependencies {
         implementation(kotlin("test"))
+        implementation(libs.kotlinx.coroutines.test)
     }
 
     // Android needs the Main dispatcher for AppModel and the activity

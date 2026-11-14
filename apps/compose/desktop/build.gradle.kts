@@ -13,7 +13,10 @@ dependencies {
 
     testImplementation(kotlin("test"))
     testImplementation(libs.kotlinx.serialization.json)
+    testImplementation(compose.desktop.uiTestJUnit4)
 }
+
+val fograinPackageVersion = providers.gradleProperty("fograin.packageVersion").get()
 
 compose.desktop {
     application {
@@ -23,8 +26,9 @@ compose.desktop {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "Fograin"
             // jpackage rejects versions whose first component is 0, so the
-            // installer uses 1.0.0 while the app/core version is 0.1.0.
-            packageVersion = "1.0.0"
+            // installer line (fograin.packageVersion) differs from the app
+            // version (fograin.version) until the app itself reaches 1.0.
+            packageVersion = fograinPackageVersion
             description = "Fograin Launcher"
             vendor = "Fograin Launcher contributors"
 

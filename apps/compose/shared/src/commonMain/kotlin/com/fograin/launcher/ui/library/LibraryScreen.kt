@@ -43,6 +43,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -58,7 +59,9 @@ import com.fograin.launcher.model.InstanceFormat
 import com.fograin.launcher.model.LibraryQuery
 import com.fograin.launcher.model.LibraryScope
 import com.fograin.launcher.model.LibrarySort
+import com.fograin.launcher.platform.DirectoryPick
 import com.fograin.launcher.platform.platformServices
+import kotlinx.coroutines.launch
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.components.EmptyState
 import com.fograin.launcher.ui.components.SectionHeader
@@ -76,6 +79,7 @@ fun LibraryScreen(model: AppModel, state: AppUiState) {
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var showDirectoryPicker by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val searchFocusRequester = remember { FocusRequester() }
     val nowMillis = remember { InstanceFormat.nowMillis() }
@@ -104,6 +108,10 @@ fun LibraryScreen(model: AppModel, state: AppUiState) {
     backDispatcher.handleBack(enabled = searchExpanded, onBack = closeSearch)
     LaunchedEffect(searchExpanded) {
         if (searchExpanded) searchFocusRequester.requestFocus()
+    }
+    // Desktop menu / Cmd-F: the model asks the page to reveal its search field.
+    LaunchedEffect(state.librarySearchRequest) {
+        if (state.librarySearchRequest > 0) searchExpanded = true
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -146,7 +154,18 @@ fun LibraryScreen(model: AppModel, state: AppUiState) {
                                 text = { Text(stringResource(Res.string.library_import_directory)) },
                                 onClick = {
                                     menuExpanded = false
-                                    showDirectoryPicker = true
+                                    scope.launch {
+                                        // The native picker (JFileChooser / SAF) is the
+                                        // primary path; the in-app browser is the fallback
+                                        // for trees the platform cannot map to a path.
+                                        when (val pick = model.pickImportDirectory()) {
+                                            is DirectoryPick.Picked ->
+                                                model.importMinecraftDirectory(pick.path)
+
+                                            DirectoryPick.Cancelled -> Unit
+                                            is DirectoryPick.Unavailable -> showDirectoryPicker = true
+                                        }
+                                    }
                                 },
                             )
                             DropdownMenuItem(

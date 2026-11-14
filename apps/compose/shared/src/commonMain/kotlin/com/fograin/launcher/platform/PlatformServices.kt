@@ -14,8 +14,17 @@ object AppRuntime {
     var dataRoot: String? = null
 }
 
-/** A directory row returned by [DirectoryBrowser]. Paths stay absolute strings. */
-data class DirectoryEntry(val name: String, val path: String)
+/**
+ * Saved desktop window geometry. Android has no movable window, so its
+ * `LocalPreferences.windowFrame` stays `null`.
+ */
+data class WindowFrame(
+    val x: Int,
+    val y: Int,
+    val width: Int,
+    val height: Int,
+    val maximized: Boolean = false,
+)
 
 // ---------------------------------------------------------------------------
 // The nine platform interfaces the shared UI depends on. `commonMain` never
@@ -53,16 +62,44 @@ interface ClipboardService {
 interface LocalPreferences {
     var dynamicColor: Boolean
     fun supportsDynamicColor(): Boolean
+
+    /** Desktop window geometry; `null` on Android and until the user moves a window. */
+    var windowFrame: WindowFrame?
 }
 
+/** A directory row returned by [DirectoryBrowser]. Paths stay absolute strings. */
+data class DirectoryEntry(val name: String, val path: String)
+
 /**
- * 6. Directory listing for the external `.minecraft` import picker. Android
- * cannot hand a SAF tree to the Rust core, so the picker walks the app data
- * root; desktop uses the same abstraction until FileKit lands in R4.
+ * 6. Directory access for `instances.import`: a native picker plus the listing
+ * used by the in-app fallback browser.
+ *
+ * Desktop opens the OS file chooser; Android opens SAF's directory tree picker
+ * and maps the chosen tree back to a filesystem path the Rust core can read
+ * (SAF content URIs never reach the core). A tree the platform cannot map, or
+ * one the app cannot read, reports [DirectoryPick.Unavailable] so the caller
+ * can fall back to [listDirectories].
  */
 interface DirectoryBrowser {
+    val isAvailable: Boolean
+
+    suspend fun pick(title: String, initialPath: String?): DirectoryPick
+
     fun listDirectories(path: String): List<DirectoryEntry>
+
     fun parentDirectory(path: String): String?
+}
+
+/** Outcome of [DirectoryPicker.pick]. */
+sealed interface DirectoryPick {
+    /** Absolute path of a readable directory. */
+    data class Picked(val path: String) : DirectoryPick
+
+    /** The user dismissed the picker; nothing should happen. */
+    data object Cancelled : DirectoryPick
+
+    /** No native picker, or a tree that cannot be mapped to a readable path. */
+    data class Unavailable(val reason: String) : DirectoryPick
 }
 
 /** 7. Platform logging facade (`android.util.Log` / stdout). */

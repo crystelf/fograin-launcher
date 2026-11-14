@@ -82,6 +82,8 @@ data class AppUiState(
     val gameConfig: CoreGameConfig? = null,
     val currentInstanceId: String = "",
     val libraryQuery: String = "",
+    /** Incremented by the desktop menu to open and focus the library search field. */
+    val librarySearchRequest: Long = 0,
     val librarySelection: String? = null,
     val libraryScope: LibraryScope = LibraryScope.ALL,
     val librarySort: LibrarySort = LibrarySort.RECENT,

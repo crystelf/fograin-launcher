@@ -17,7 +17,6 @@ rustc-ice-*.txt
 # Native libraries staged by scripts/build-*.sh
 apps/compose/android/src/main/jniLibs/
 apps/compose/desktop/src/main/resources/native/
-apps/android/app/src/main/jniLibs/
 
 # Local data and logs
 logs/

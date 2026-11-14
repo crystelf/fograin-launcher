@@ -14,16 +14,12 @@ import com.fograin.launcher.platform.CoreException
 import com.fograin.launcher.platform.CoreGameConfig
 import com.fograin.launcher.platform.CoreInstanceRow
 import com.fograin.launcher.platform.CoreInstanceSettings
-import com.fograin.launcher.platform.CorePlanPreview
 import com.fograin.launcher.platform.CoreTaskRow
-import com.fograin.launcher.platform.CoreVersionEntry
+import com.fograin.launcher.platform.DirectoryPick
 import com.fograin.launcher.platform.PlatformServices
-import com.fograin.launcher.platform.booleanOrNull
 import com.fograin.launcher.platform.decode
-import com.fograin.launcher.platform.objectRows
 import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.platform.resultRows
-import com.fograin.launcher.platform.stringOrNull
 import com.fograin.launcher.settings.ThemeMode
 import com.fograin.launcher.ui.AppDestination
 import kotlinx.coroutines.CancellationException
@@ -42,24 +38,22 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 
 /**
  * Launcher state shared by Android and desktop.
  *
  * The Rust core is the source of truth: every instance, task and session value
- * comes from RPC responses or the event queue. The model owns the event pump
- * (250 ms), the install/launch flows and the
- * transient notice/alert channels; Compose only renders [state].
+ * comes from RPC responses or the event queue. This facade owns the state
+ * container, the event pump (250 ms), the notice/alert channels and navigation;
+ * the feature flows live in [LibraryActions], [DownloadsActions],
+ * [LaunchActions] and [InstanceSettingsActions] so no single file has to hold
+ * every RPC.
  */
 class AppModel internal constructor(
-    private val core: CoreClient,
-    private val platform: PlatformServices,
-    private val scope: CoroutineScope,
+    internal val core: CoreClient,
+    internal val platform: PlatformServices,
+    internal val scope: CoroutineScope,
 ) {
     companion object {
         private const val TAG = "AppModel"
@@ -76,19 +70,19 @@ class AppModel internal constructor(
         ): AppModel = AppModel(core, platform, scope)
     }
 
+    internal val library = LibraryActions(this)
+    internal val downloads = DownloadsActions(this)
+    internal val session = LaunchActions(this)
+    internal val instanceSettings = InstanceSettingsActions(this)
+
     private val refreshMutex = Mutex()
 
     private val _state: MutableStateFlow<AppUiState>
     val state: StateFlow<AppUiState>
 
     private var idGenerator = 0L
-    private var pendingDownloadTaskId: String? = null
-    private var pendingDownloadInstanceId: String? = null
-    private var stopRequested = false
     private var noticeJob: Job? = null
     private var pollJob: Job? = null
-    private var downloadVersionsGeneration = 0
-    private var loadingDownloadChannel: DownloadVersionChannel? = null
 
     /** True once the JNI library loaded and the settings snapshot answered. */
     val isCoreAvailable: Boolean
@@ -117,10 +111,15 @@ class AppModel internal constructor(
         core.initError?.let { showNotice(it, Notice.Tone.WARNING) }
     }
 
-    private val username: String
+    /** Mutable state entry point for the feature controllers in this package. */
+    internal fun setState(transform: (AppUiState) -> AppUiState) {
+        _state.update(transform)
+    }
+
+    internal val username: String
         get() = state.value.gameConfig?.username ?: "Steve"
 
-    private fun nextId(): Long {
+    internal fun nextId(): Long {
         idGenerator += 1
         return idGenerator
     }
@@ -271,8 +270,38 @@ class AppModel internal constructor(
         _state.update { it.copy(alert = null) }
     }
 
+    // ------------------------------------------------------------------
+    // Navigation and view state. Everything below is pure state: no RPC.
+    // ------------------------------------------------------------------
+
     fun navigate(destination: AppDestination) {
         _state.update { it.copy(destination = destination) }
+    }
+
+    /**
+     * True when [back] would change something: a dialog or sheet is open, or
+     * the shell is not on the home destination. Drives Android's back gesture
+     * and the desktop Escape key through the same [com.fograin.launcher.platform.BackDispatcher].
+     */
+    fun canGoBack(): Boolean {
+        val current = state.value
+        return current.alert != null ||
+            current.previewInstanceId != null ||
+            current.instanceSettingsId != null ||
+            current.download.installSheetVersion != null ||
+            current.destination != AppDestination.HOME
+    }
+
+    /** Dismisses the topmost overlay, then falls back to the home destination. */
+    fun back() {
+        val current = state.value
+        when {
+            current.alert != null -> dismissAlert()
+            current.previewInstanceId != null -> closePreview()
+            current.instanceSettingsId != null -> closeInstanceSettings()
+            current.download.installSheetVersion != null -> closeInstallSheet()
+            current.destination != AppDestination.HOME -> navigate(AppDestination.HOME)
+        }
     }
 
     fun selectHomeInstance(instance: Instance) {
@@ -312,6 +341,16 @@ class AppModel internal constructor(
         _state.update { it.copy(instanceSettingsId = null) }
     }
 
+    /** Menu/shortcut entry point: open the library page with the search field focused. */
+    fun requestLibrarySearch() {
+        _state.update {
+            it.copy(
+                destination = AppDestination.LIBRARY,
+                librarySearchRequest = it.librarySearchRequest + 1,
+            )
+        }
+    }
+
     fun setLibraryQuery(query: String) {
         _state.update { it.copy(libraryQuery = query) }
     }
@@ -338,474 +377,78 @@ class AppModel internal constructor(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                showError("无法保存外观设置", error)
+                showError("外观切换失败", error)
             }
         }
     }
 
-    /** Loads the manifest for the selected channel after the page appeared. */
-    suspend fun loadDownloadVersions() {
-        val channel = state.value.download.channel
-        if (state.value.download.versionsChannel == channel) {
-            refreshDownloadPlan()
-            return
-        }
-        fetchDownloadVersions()
+    /** Flips light/dark, the pair users actually toggle; SYSTEM stays untouched. */
+    fun toggleTheme() {
+        val next = if (state.value.theme == ThemeMode.DARK) ThemeMode.LIGHT else ThemeMode.DARK
+        setTheme(next)
     }
 
-    /** Called when the channel dropdown changes; clears stale rows first. */
-    suspend fun reloadDownloadVersions() {
-        _state.update {
-            it.copy(
-                download = it.download.copy(
-                    versions = emptyList(),
-                    versionsChannel = null,
-                    selectedVersionId = null,
-                    plan = null,
-                    planError = null,
-                    versionsError = null,
-                    query = "",
-                ),
-            )
-        }
-        fetchDownloadVersions()
-    }
+    // ------------------------------------------------------------------
+    // Feature facade. Each method forwards to its controller so the UI keeps
+    // a single `model.` surface.
+    // ------------------------------------------------------------------
 
-    private suspend fun fetchDownloadVersions() {
-        val channel = state.value.download.channel
-        if (loadingDownloadChannel == channel) return
-        loadingDownloadChannel = channel
-        downloadVersionsGeneration += 1
-        val generation = downloadVersionsGeneration
-        _state.update {
-            it.copy(download = it.download.copy(isLoadingVersions = true, versionsError = null))
-        }
+    fun openAddInstance() = library.openAddInstance()
 
-        try {
-            val payload = core.rpc(
-                "versions.list",
-                buildJsonObject {
-                    put("kind", channel.kindValue)
-                    put("limit", 500)
-                    put("refresh", false)
-                },
-            )
-            if (generation != downloadVersionsGeneration ||
-                channel != state.value.download.channel
-            ) {
-                return
-            }
+    fun uniqueInstanceID(name: String, version: String): String =
+        library.uniqueInstanceID(name, version)
 
-            val versions = payload.objectRows("versions")
-                .mapNotNull { row -> runCatching { row.decode<CoreVersionEntry>() }.getOrNull() }
-            _state.update {
-                it.copy(
-                    download = it.download.copy(
-                        versions = versions,
-                        versionsChannel = channel,
-                        selectedVersionId = versions.firstOrNull()?.id,
-                        plan = null,
-                        planError = null,
-                        isLoadingVersions = false,
-                    ),
-                )
-            }
-            if (versions.isNotEmpty()) refreshDownloadPlan()
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Throwable) {
-            if (generation != downloadVersionsGeneration ||
-                channel != state.value.download.channel
-            ) {
-                return
-            }
-            _state.update {
-                it.copy(
-                    download = it.download.copy(
-                        versionsError = errorMessage(error),
-                        isLoadingVersions = false,
-                    ),
-                )
-            }
-            showError("无法读取版本清单", error)
-        } finally {
-            if (generation == downloadVersionsGeneration) {
-                loadingDownloadChannel = null
-            }
-        }
-    }
+    fun importMinecraftDirectory(directory: String) = library.importMinecraftDirectory(directory)
 
-    fun setDownloadCategory(category: DownloadsCategory) {
-        _state.update { it.copy(download = it.download.copy(category = category)) }
-        if (category == DownloadsCategory.GAME) {
-            scope.launch { loadDownloadVersions() }
-        }
-    }
+    suspend fun pickImportDirectory(): DirectoryPick = library.pickImportDirectory()
 
-    fun setDownloadChannel(channel: DownloadVersionChannel) {
-        if (channel == state.value.download.channel) return
-        _state.update { it.copy(download = it.download.copy(channel = channel)) }
-        scope.launch { reloadDownloadVersions() }
-    }
+    fun toggleFavorite(instance: Instance) = library.toggleFavorite(instance)
 
-    fun setDownloadContentLoader(loader: ContentLoaderFilter) {
-        _state.update { it.copy(download = it.download.copy(contentLoader = loader.name)) }
-    }
+    fun deleteInstance(instance: Instance) = library.deleteInstance(instance)
 
-    fun setDownloadQuery(query: String) {
-        _state.update { it.copy(download = it.download.copy(query = query)) }
-    }
+    suspend fun loadDownloadVersions() = downloads.loadVersions()
 
-    fun selectDownloadVersion(versionId: String) {
-        _state.update {
-            it.copy(
-                download = it.download.copy(
-                    selectedVersionId = versionId,
-                    plan = null,
-                    planError = null,
-                ),
-            )
-        }
-        scope.launch { refreshDownloadPlan() }
-    }
+    suspend fun reloadDownloadVersions() = downloads.reloadVersions()
 
-    fun refreshDownloadPlan() {
-        scope.launch { refreshDownloadPlanNow() }
-    }
+    fun setDownloadCategory(category: DownloadsCategory) = downloads.setCategory(category)
 
-    private suspend fun refreshDownloadPlanNow() {
-        val version = state.value.download.selectedVersionId ?: run {
-            _state.update { it.copy(download = it.download.copy(plan = null, planError = null)) }
-            return
-        }
-        _state.update { it.copy(download = it.download.copy(planError = null)) }
-        try {
-            val payload = core.rpc(
-                "version.plan",
-                buildJsonObject { put("version", version) },
-            )
-            if (state.value.download.selectedVersionId != version) return
-            val plan = payload.decode<CorePlanPreview>()
-            _state.update { it.copy(download = it.download.copy(plan = plan)) }
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Throwable) {
-            if (state.value.download.selectedVersionId != version) return
-            _state.update {
-                it.copy(download = it.download.copy(plan = null, planError = errorMessage(error)))
-            }
-        }
-    }
+    fun setDownloadChannel(channel: DownloadVersionChannel) = downloads.setChannel(channel)
 
-    fun openInstallSheet(version: String? = null) {
-        if (!version.isNullOrEmpty()) {
-            _state.update { it.copy(download = it.download.copy(selectedVersionId = version)) }
-        }
-        _state.update {
-            it.copy(download = it.download.copy(installSheetVersion = version.orEmpty()))
-        }
-    }
+    fun setDownloadContentLoader(loader: ContentLoaderFilter) = downloads.setContentLoader(loader)
 
-    fun closeInstallSheet() {
-        _state.update { it.copy(download = it.download.copy(installSheetVersion = null)) }
-    }
+    fun setDownloadQuery(query: String) = downloads.setQuery(query)
 
-    /** 新建实例 / 添加实例 routes to the download page (HMCL/PCL behaviour). */
-    fun openAddInstance() {
-        _state.update {
-            it.copy(
-                download = it.download.copy(category = DownloadsCategory.GAME),
-                destination = AppDestination.DOWNLOADS,
-            )
-        }
-        scope.launch { loadDownloadVersions() }
-    }
+    fun selectDownloadVersion(versionId: String) = downloads.selectVersion(versionId)
 
-    /**
-     * Safe directory id for a display name. CJK names keep their display name
-     * and fall back to a generic id; collisions get a numeric suffix so the
-     * download page never fails just because an instance already exists.
-     */
-    fun uniqueInstanceID(name: String, version: String): String {
-        val sanitized = InstanceFormat.sanitizedInstanceID(name)
-        val base = sanitized.ifEmpty {
-            InstanceFormat.sanitizedInstanceID(version).ifEmpty { "instance" }
-        }
-        if (state.value.instances.none { it.id == base }) return base
-        var suffix = 2
-        while (state.value.instances.any { it.id == "$base-$suffix" }) {
-            suffix += 1
-        }
-        return "$base-$suffix"
-    }
+    fun refreshDownloadPlan() = downloads.requestPlanRefresh()
 
-    /**
-     * Starts the download after the install sheet confirms loader, version and
-     * name. After `task.finished` the launcher jumps to 游戏设置 (PCL flow).
-     */
-    suspend fun startGameInstall(version: String, instanceName: String) {
-        if (state.value.isInitialLoading) refreshCoreData()
-        if (state.value.download.isGameDownloadRunning) {
-            throw CoreException(
-                "conflict",
-                "error.task.already_running",
-                "已有下载任务在进行，请等待完成或取消。",
-            )
-        }
-        val name = instanceName.trim()
-        val id = uniqueInstanceID(name, version)
-        val response = core.rpc(
-            "install.start",
-            buildJsonObject {
-                put("version", version)
-                put("instanceId", id)
-                put("instanceName", name.ifEmpty { id })
-            },
-        )
-        pendingDownloadTaskId = response.stringOrNull("taskId")
-        pendingDownloadInstanceId = id
-        _state.update {
-            it.copy(
-                download = it.download.copy(
-                    isGameDownloadRunning = true,
-                    category = DownloadsCategory.GAME,
-                    installSheetVersion = null,
-                ),
-                destination = AppDestination.DOWNLOADS,
-            )
-        }
-        showNotice("已开始安装 $version", Notice.Tone.INFO)
-        refreshCoreData()
-    }
+    fun openInstallSheet(version: String? = null) = downloads.openInstallSheet(version)
 
-    private suspend fun finishGameDownload() {
-        _state.update {
-            it.copy(download = it.download.copy(isGameDownloadRunning = false))
-        }
-        pendingDownloadTaskId = null
-        val instanceId = pendingDownloadInstanceId ?: return
-        pendingDownloadInstanceId = null
-        refreshCoreData()
-        if (state.value.instances.none { it.id == instanceId }) return
-        _state.update {
-            it.copy(
-                currentInstanceId = instanceId,
-                librarySelection = instanceId,
-                destination = AppDestination.LIBRARY,
-                instanceSettingsId = instanceId,
-            )
-        }
-    }
+    fun closeInstallSheet() = downloads.closeInstallSheet()
 
-    fun installVersion(version: String) {
-        callCore(
-            "install.start",
-            buildJsonObject { put("version", version) },
-            notice = "已开始安装 $version",
-        )
-    }
+    fun installVersion(version: String) = downloads.installVersion(version)
 
-    fun startGame(instance: Instance) {
-        _state.update { it.copy(currentInstanceId = instance.id) }
-        if (!instance.isInstalled) {
-            if (isDownloading(instance)) {
-                showNotice("“${instance.name}”的资源仍在下载，请稍候再启动")
-            } else {
-                completeResources(instance)
-            }
-            return
-        }
-        if (state.value.sessionRunning) {
-            showError("无法启动游戏", "已经有一个游戏在运行了。")
-            return
-        }
-        if (state.value.isSessionLoading) return
-        launchGame(instance)
-    }
+    suspend fun startGameInstall(version: String, instanceName: String) =
+        downloads.startGameInstall(version, instanceName)
 
-    private fun launchGame(instance: Instance) {
-        _state.update { it.copy(isSessionLoading = true) }
-        scope.launch {
-            try {
-                core.rpc(
-                    "launch.start",
-                    buildJsonObject {
-                        put("instanceId", instance.id)
-                        put("username", username)
-                    },
-                )
-                // Keep the spinner until `game.started` arrives.
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                _state.update { it.copy(isSessionLoading = false) }
-                showError("无法启动“${instance.name}”", error)
-            }
-        }
-    }
+    fun isDownloading(instance: Instance): Boolean = downloads.isDownloading(instance)
 
-    fun stopGame() {
-        if (!state.value.sessionRunning) {
-            showNotice("没有正在运行的游戏")
-            return
-        }
-        stopRequested = true
-        scope.launch {
-            try {
-                val payload = core.rpc("session.stop")
-                if (payload.booleanOrNull("stopped") != true) {
-                    stopRequested = false
-                    showNotice("没有正在运行的游戏")
-                }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                stopRequested = false
-                showError("无法停止游戏", error)
-            }
-        }
-    }
+    fun startGame(instance: Instance) = session.start(instance)
 
-    /** PCL-style: pressing play on an incomplete instance starts its download. */
-    fun completeResources(instance: Instance) {
-        if (state.value.download.isGameDownloadRunning) {
-            showNotice("已有下载任务在进行")
-            return
-        }
-        scope.launch {
-            try {
-                val response = core.rpc(
-                    "install.start",
-                    buildJsonObject {
-                        put("version", instance.minecraftVersion)
-                        put("instanceId", instance.id)
-                        put("instanceName", instance.name)
-                    },
-                )
-                pendingDownloadInstanceId = instance.id
-                pendingDownloadTaskId = response.stringOrNull("taskId")
-                _state.update {
-                    it.copy(
-                        download = it.download.copy(isGameDownloadRunning = true),
-                        destination = AppDestination.DOWNLOADS,
-                    )
-                }
-                showNotice("正在补全“${instance.name}”的游戏资源")
-                refreshCoreData()
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                showError("无法补全“${instance.name}”的资源", error)
-            }
-        }
-    }
+    fun stopGame() = session.stop()
 
-    fun isDownloading(instance: Instance): Boolean =
-        pendingDownloadInstanceId == instance.id || state.value.isDownloading(instance)
-
-    fun toggleFavorite(instance: Instance) {
-        callCore(
-            "instances.favorite",
-            buildJsonObject {
-                put("id", instance.id)
-                put("favorite", !instance.isFavorite)
-            },
-        )
-    }
-
-    fun deleteInstance(instance: Instance) {
-        scope.launch {
-            try {
-                core.rpc("instances.delete", buildJsonObject { put("id", instance.id) })
-                _state.update {
-                    it.copy(
-                        instanceSettingsId = null,
-                        previewInstanceId = null,
-                        librarySelection = null,
-                    )
-                }
-                showNotice("已删除“${instance.name}”", Notice.Tone.SUCCESS)
-                refreshCoreData()
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                showError("无法删除“${instance.name}”", error)
-            }
-        }
-    }
-
-    /** Registers an external `.minecraft` directory without moving files. */
-    fun importMinecraftDirectory(directory: String) {
-        scope.launch {
-            try {
-                core.rpc(
-                    "instances.import",
-                    buildJsonObject { put("directory", directory) },
-                )
-                val name = directory.trimEnd('/').substringAfterLast('/').ifEmpty { directory }
-                showNotice("已导入“$name”", Notice.Tone.SUCCESS)
-                refreshCoreData()
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                showError("导入 .minecraft 目录失败", error)
-            }
-        }
-    }
-
-    /** Persists one instance setting; `value == null` inherits `[game]`. */
-    /** Reads the effective values, overrides and globals for one instance. */
     suspend fun loadInstanceSettings(id: String): CoreInstanceSettings =
-        core.rpc(
-            "instances.settings.get",
-            buildJsonObject { put("id", id) },
-        ).decode()
+        instanceSettings.load(id)
 
-    fun configureInstance(id: String, setting: String, value: JsonElement?) {
-        val update = buildJsonObject {
-            put("setting", setting)
-            put("value", value ?: JsonNull)
-        }
-        val params = buildJsonObject {
-            put("id", id)
-            put("updates", buildJsonArray { add(update) })
-        }
-        scope.launch {
-            try {
-                core.rpc("instances.settings.set", params)
-                refreshCoreData()
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                showError("设置保存失败", error)
-            }
-        }
-    }
+    fun configureInstance(id: String, setting: String, value: JsonElement?) =
+        instanceSettings.configure(id, setting, value)
 
-    /**
-     * Android has no Finder equivalent for app-private storage, so the folder
-     * action copies the instance directory path instead of opening a file
-     * manager. The data root is the app's external files directory and is
-     * reachable over USB.
-     */
-    fun copyInstanceDirectoryPath(instance: Instance) {
-        scope.launch {
-            try {
-                val payload = core.rpc(
-                    "instances.dir",
-                    buildJsonObject { put("id", instance.id) },
-                )
-                val directory = payload.stringOrNull("gameDir")
-                    ?: "${state.value.settings.dataRoot}/instances/${instance.id}"
-                platform.clipboard.copy(directory)
-                showNotice("实例目录路径已复制")
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                showError("无法复制实例目录路径", error)
-            }
-        }
-    }
+    fun copyInstanceDirectoryPath(instance: Instance) =
+        instanceSettings.copyDirectoryPath(instance)
+
+    // ------------------------------------------------------------------
+    // Core event pump.
+    // ------------------------------------------------------------------
 
     private fun startEventPump() {
         pollJob?.cancel()
@@ -814,100 +457,18 @@ class AppModel internal constructor(
                 delay(250)
                 val events = withContext(Dispatchers.IO) { core.nextEvents() }
                 if (events.isEmpty()) continue
-                events.forEach { raw -> CoreEvent.parse(raw)?.let(::handle) }
+                events.forEach { raw -> CoreEvent.parse(raw)?.let(::handleEvent) }
                 refreshDownloadsFromTasks()
             }
         }
     }
 
-    private fun handle(event: CoreEvent) {
+    internal fun handleEvent(event: CoreEvent) {
         when (event) {
+            is CoreEvent.TaskFinished -> downloads.onTaskFinished(event)
             is CoreEvent.TaskProgress -> Unit
-
-            is CoreEvent.TaskFinished -> handleTaskFinished(event)
-
-            is CoreEvent.GameStarted -> {
-                stopRequested = false
-                _state.update {
-                    it.copy(
-                        sessionRunning = true,
-                        isSessionLoading = false,
-                    )
-                }
-                showNotice("游戏已启动，进程 ${event.pid ?: 0}", Notice.Tone.SUCCESS)
-            }
-
-            is CoreEvent.GameWindowReady -> Unit
-
-            // Log lines are consumed by the core's recent-log buffer; the log
-            // viewer itself is M9.
-            is CoreEvent.GameLine -> Unit
-
-            is CoreEvent.GameExited -> {
-                val wasStopped = stopRequested
-                stopRequested = false
-                _state.update {
-                    it.copy(
-                        sessionRunning = false,
-                        isSessionLoading = false,
-                    )
-                }
-                if (wasStopped) {
-                    showNotice("游戏已停止")
-                } else if (event.exitCode == 0) {
-                    val minutes = (event.playSeconds / 60).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-                    showNotice(
-                        "游戏已退出（${InstanceFormat.playTime(minutes)}）",
-                        Notice.Tone.SUCCESS,
-                    )
-                } else {
-                    showError(
-                        "游戏异常退出",
-                        "游戏进程以代码 ${event.exitCode ?: "signal"} 结束。",
-                        "请查看实例目录 logs/ 下的最新日志。",
-                    )
-                }
-                scope.launch { refreshCoreData() }
-            }
+            else -> session.onEvent(event)
         }
-    }
-
-    private fun handleTaskFinished(event: CoreEvent.TaskFinished) {
-        val title = InstanceFormat.taskTitle(event.name)
-        val isOurDownload = event.taskId == pendingDownloadTaskId
-        when (event.state) {
-            "succeeded" -> {
-                showNotice("$title 完成", Notice.Tone.SUCCESS)
-                scope.launch {
-                    if (isOurDownload) finishGameDownload() else refreshCoreData()
-                }
-            }
-
-            "failed" -> {
-                val message = event.detail.firstOrNull() ?: "未知原因"
-                showError(
-                    "$title 失败",
-                    message,
-                    event.detail.drop(1).joinToString("\n").ifBlank { null },
-                )
-                if (isOurDownload) clearPendingDownload()
-                scope.launch { refreshCoreData() }
-            }
-
-            "cancelled" -> {
-                showNotice("$title 已取消")
-                if (isOurDownload) clearPendingDownload()
-                scope.launch { refreshCoreData() }
-            }
-
-            else -> Unit
-        }
-    }
-
-    private fun clearPendingDownload() {
-        _state.update { it.copy(download = it.download.copy(isGameDownloadRunning = false)) }
-        pendingDownloadTaskId = null
-        pendingDownloadInstanceId = null
     }
 
     /** Convenience for the settings screen's error banner. */

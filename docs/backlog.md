@@ -4,7 +4,7 @@
 
 ## 桌面布局
 
-- **P1 — 桌面自适应布局**：目前桌面端沿用 Android 的 4 项底栏。窗口 ≥ 840dp 时切换为 `NavigationRail`（或侧栏），< 840dp 保持底栏；使用 `androidx.compose.material3.adaptive` 的 `NavigationSuiteScaffold`。要求：同一套目的地与页面，不改内容区布局；记住用户最后一次窗口形态。验收：1280×860 与 960×640 两档截图。
+- ✅ **P1 — 桌面自适应布局**：≥840 dp 用 `NavigationRail`，<840 dp 保持底栏；同一套目的地与页面。验收：1280×860 与 960×640 两档离屏截图（`AdaptiveLayoutRenderTest`）。注：两档都 ≥840 dp，因此都走 rail；720×900 作为底栏对照。
 
 ## 桌面外壳（v2）
 
@@ -36,9 +36,13 @@
 
 ## 工程
 
-- P1 — CI 增加 Windows/Linux 的 Compose Desktop job（macOS 与 Android 已接入）。
-- P1 — FFI 契约测试同时覆盖 C ABI 与 JNI。
-- P2 — Compose 截图测试（四条导航 + 三个 sheet）。
+- ✅ P1 — CI 增加 Windows/Linux 的 Compose Desktop job（Linux 用 Xvfb）。
+- P1 — FFI 契约测试同时覆盖 C ABI 与 JNI（JNI 侧已有 `CoreClientSmokeTest`，C ABI 侧仍只有 `bindings/fg-ffi/tests`）。
+- P1 — AppModel 状态机测试已补（`AppModelTest`），仍缺 launch/download 失败分支的联合覆盖。
+- ✅ P2 — Compose 截图测试（四条导航 + 三个 sheet + 两档窗口尺寸）。
 - ✅ P0 — R1/R2 将模型、`AppModel`、四页与 3 个 sheet 迁入 `apps/compose/shared`；单测迁 `commonTest`。
-- P1 — R3 切换 Android 薄壳（manifest/res/jniLibs/Activity）并让 CI 双跑。
-- P2 — R6 删除旧 `apps/android` 与对应的生成脚本残留。
+- ✅ P1 — R3 切换 Android 薄壳（manifest/res/jniLibs/Activity），CI 已构建。
+- ✅ P2 — R6 删除旧 `apps/android` 与 `.gitignore`/`.idea` 残留。
+- ✅ P1 — `AppModel` 拆分（Library/Downloads/Launch/InstanceSettings 四个 controller）。
+- ✅ P1 — 桌面窗口状态、菜单快捷键、Esc 返回、原生目录选择器（R4）。
+- P1 — Android instrumented 测试（`connectedDebugAndroidTest`）尚未接入 CI。

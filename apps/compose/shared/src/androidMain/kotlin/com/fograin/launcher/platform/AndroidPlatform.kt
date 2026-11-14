@@ -6,6 +6,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.ContextWrapper
+import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.material3.ColorScheme
@@ -37,6 +38,33 @@ object AndroidPlatform {
     fun install(context: Context) {
         appContext = context.applicationContext
         preferences = null
+    }
+
+    // ---------------------------------------------------------------------
+    // SAF directory picker bridge. MainActivity owns the ActivityResultLauncher
+    // (registered at construction time, as the Activity Result API requires) and
+    // publishes a `launch` lambda plus a result sink here; the shared picker
+    // only sees these two functions.
+    // ---------------------------------------------------------------------
+
+    @Volatile
+    internal var treePickerLauncher: (() -> Unit)? = null
+
+    @Volatile
+    private var pendingPick: ((Uri?) -> Unit)? = null
+
+    fun attachTreePicker(launch: () -> Unit) {
+        treePickerLauncher = launch
+    }
+
+    fun onTreePicked(uri: Uri?) {
+        val sink = pendingPick
+        pendingPick = null
+        sink?.invoke(uri)
+    }
+
+    internal fun setPendingPick(sink: (Uri?) -> Unit) {
+        pendingPick = sink
     }
 
     internal fun contextOrNull(): Context? = appContext
@@ -100,8 +128,13 @@ private val androidServices: PlatformServices by lazy {
                 }
 
             override fun supportsDynamicColor(): Boolean = supportsMaterialYou()
+
+            // Android windows are not resizable in the desktop sense.
+            override var windowFrame: WindowFrame?
+                get() = null
+                set(_) = Unit
         },
-        directories = JvmDirectoryBrowser(),
+        directories = AndroidDirectoryPicker,
         logger = object : AppLogger {
             override fun debug(tag: String, message: String) {
                 android.util.Log.d(tag, message)

@@ -14,13 +14,18 @@ Minecraft Java 版启动器：一套 Rust 核心 + 一套 Compose Multiplatform 
 | M3 | 原版安装与启动（`fg-game`、`fg-java`、`fg-auth`、`fg-cli`） | 完成（核心与 CLI） |
 | M4 | 实例管理、安装/启动 UI 接线、任务队列、外部导入 | 完成 |
 | R0 | Compose Multiplatform 重构：技术验证 | 完成（2026-11-12） |
-| R1 | 共享层：kotlinx.serialization、9 个平台接口、`AppModel` 去 Android 化、commonTest | 完成（2026-11-13） |
+| R1 | 共享层：kotlinx.serialization、平台接口、`AppModel` 去 Android 化、commonTest | 完成（2026-11-13） |
 | R2 | UI 迁移：四页 + 3 个 sheet、字符串与图片资源化、Material 3 差异 | 完成（2026-11-13） |
-| R6 | 清理桌面原生客户端与旧文档 | 桌面部分完成（2026-11-13）；旧 Android 客户端待 R6 删除 |
+| R3 | Android 薄壳切换：manifest/res/jniLibs/Activity 迁入 `apps/compose/android` | 完成（2026-11-14） |
+| R4 | 桌面外壳：窗口状态、菜单快捷键、Esc 返回、原生目录选择器、宽屏 NavigationRail | 完成（2026-11-14） |
+| R5 | 打包与 CI：DMG/MSI/DEB、tag 触发的 release workflow、三 OS CI 矩阵 | 进行中 |
+| R6 | 清理：删除旧 `apps/android` 与旧文档 | 完成（2026-11-14） |
 
 M0–M4 早期实现了四套原生 UI（SwiftUI / WinUI 3 / GTK4 / Compose）。四端 UI 合计约 3 万行，同一个页面要写四遍，维护成本过高。2026-11-12 起按 [ADR 0004](docs/adr/0004-compose-multiplatform-ui.md) 收敛为**一套 Compose Multiplatform UI**：Rust 核心、FFI 契约、数据目录与配置不变；Android 端与桌面端运行同一份 `commonMain` 页面，平台外壳各自打包。
 
-R0 已跑通：新工程三模块、Android/desktop 共用 UI、JNI FFI、DMG（71 MB）、冷启动 1.61 s、空闲 RSS 196 MB。R1/R2 把业务模型、`AppModel`、主题、组件与四个页面全部迁入 `commonMain`，桌面与 Android 渲染同一棵 Compose 树；iOS 之外的平台外壳只保留 Activity/Window、原生库与系统外观。三个桌面原生客户端已删除；旧 `apps/android` 作为迁移参照保留，R6 删除。
+R0 已跑通：新工程三模块、Android/desktop 共用 UI、JNI FFI、DMG（71 MB）、冷启动 1.61 s、空闲 RSS 196 MB。R1/R2 把业务模型、`AppModel`、主题、组件与四个页面全部迁入 `commonMain`，桌面与 Android 渲染同一棵 Compose 树；iOS 之外的平台外壳只保留 Activity/Window、原生库与系统外观。三个桌面原生客户端和旧 `apps/android` 均已删除（R6，2026-11-14）。
+
+R3/R4/R6 于 2026-11-14 收尾：`AppModel` 拆成四个按功能的 controller（`LibraryActions` / `DownloadsActions` / `LaunchActions` / `InstanceSettingsActions`），桌面补上窗口状态持久化、菜单快捷键、Esc 返回和系统目录选择器，Android 用 SAF 选目录，≥840 dp 的窗口改用 `NavigationRail`，并补齐 `AppModel` 状态机测试与 Compose UI 测试。
 
 ## 目录
 
@@ -35,7 +40,6 @@ crates/fg-cli      无 UI 的调试与 CI 入口
 bindings/fg-ffi    C ABI / JSON 契约
 bindings/fg-ffi-jni JVM JNI 桥（Android .so + 桌面 .dylib/.dll/.so）
 apps/compose/      Compose Multiplatform 工程（shared + android + desktop）
-apps/android/      旧 Android 客户端（R6 删除，仅作迁移参照）
 design/            设计令牌与参考图
 docs/              设计文档、ADR、backlog
 ```
@@ -61,7 +65,12 @@ cargo test --workspace
 
 # 共享层单测（commonTest，在 desktop JVM 上执行）
 ./apps/compose/gradlew -p apps/compose :shared:desktopTest
+
+# 桌面 UI 测试（含 840 dp 断点、两条导航形态、离屏渲染截图）
+./apps/compose/gradlew -p apps/compose :desktop:test
 ```
+
+三 OS 与 Android 由 CI 覆盖（macOS / Linux（Xvfb）/ Windows / Android SDK 37）；打 tag 触发 `.github/workflows/release.yml` 产出 DMG/MSI/DEB/APK，签名步骤见 [docs/release.md](docs/release.md)。
 
 ## 原版安装与启动手测（M3）
 
@@ -126,5 +135,19 @@ cargo run -p fg-cli -- instance import ~/path/to/.minecraft --name 外部存档
 ```
 
 UI 侧：主页/实例库读 `instances.list` / `instances.summary`；「添加实例」进入下载页，先选游戏 / 整合包 / 模组，再在游戏页选版本与加载器（原版可用，Fabric/Forge/NeoForge 留待 M5），下载完成自动打开该实例的「游戏设置」，内存/JVM/分辨率等全部在设置页调整；下载队列、底栏角标消费 `fg_events_next` 里的 `task.progress/task.finished`；实例设置页通过 `instances.settings.set` 写 `[override]`，留空即继承 `launcher.toml [game]`；开始游戏走 `launch.start`，会话事件（`game.line` / `game.exited`）在退出后自动累加 `play_seconds` 并刷新「上次游玩」。Android 端通过 `bindings/fg-ffi-jni` 加载同一个 `fg-ffi` 服务，数据根目录由 Kotlin 在首次 RPC 前通过 `fg_set_data_root` 设为应用私有外部目录；当前没有内置 Java 运行时，`launch.start` 会如实返回 `error.java.none_installed`，M6 接入 JRE 后即可启动。
+
+## 桌面快捷键
+
+| 快捷键 | 动作 |
+| --- | --- |
+| `Cmd/Ctrl+N` | 新建实例（跳到下载页） |
+| `Cmd/Ctrl+I` | 前往实例库（再点「导入 .minecraft 目录…」） |
+| `Cmd/Ctrl+F` | 打开实例库并聚焦搜索框 |
+| `Cmd/Ctrl+Shift+T` | 切换明/暗主题 |
+| `Cmd/Ctrl+1..4` | 主页 / 实例 / 下载 / 设置 |
+| `Cmd/Ctrl+Q` | 退出 |
+| `Esc` | 关闭当前 sheet/对话框，再返回主页 |
+
+窗口大小、位置与最大化状态写入 `java.util.prefs`，下次启动恢复。
 
 GPL-3.0-only。参考实现与致谢见 `docs/design.md` §11。
