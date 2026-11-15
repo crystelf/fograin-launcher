@@ -4,6 +4,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.unit.Density
 import com.fograin.launcher.app.AppModel
+import com.fograin.launcher.app.AccountStage
 import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.app.DownloadStage
 import com.fograin.launcher.model.GameLoaderKind
@@ -48,6 +49,7 @@ class ScreensRenderTest {
         assertTrue(javaPage.java.catalog.isNotEmpty(), "java.catalog was not applied")
         assertEquals(3, base.instances.size, "instances.list was not applied")
         assertTrue(base.download.versions.isNotEmpty(), "versions.list was not applied")
+        assertTrue(base.account.accounts.isNotEmpty(), "accounts.list was not applied")
 
         model.openInstallPage("1.21.5")
         model.setInstallLoader(GameLoaderKind.FABRIC)
@@ -85,6 +87,25 @@ class ScreensRenderTest {
             "install-page" to installPage,
             "loader-versions-page" to installPage.copy(
                 download = installDownload.copy(stage = DownloadStage.LOADER_VERSIONS),
+            ),
+            "account-sheet" to base.copy(account = base.account.copy(open = true)),
+            "account-offline-sheet" to base.copy(
+                account = base.account.copy(open = true, stage = AccountStage.OFFLINE),
+            ),
+            "account-yggdrasil-sheet" to base.copy(
+                account = base.account.copy(open = true, stage = AccountStage.YGGDRASIL),
+            ),
+            "account-profiles-sheet" to base.copy(
+                account = base.account.copy(
+                    open = true,
+                    stage = AccountStage.PROFILES,
+                    pendingId = "pending-1",
+                    pendingServerName = "LittleSkin",
+                    pendingProfiles = listOf(
+                        com.fograin.launcher.platform.CoreYggdrasilProfile("profile-1", "Fograin"),
+                        com.fograin.launcher.platform.CoreYggdrasilProfile("profile-2", "FograinAlt"),
+                    ),
+                ),
             ),
         )
 
@@ -128,6 +149,7 @@ class ScreensRenderTest {
                 settingsStage = com.fograin.launcher.app.SettingsStage.JAVA,
             ),
             "instance-settings-sheet" to base.copy(instanceSettingsId = "fog-forest"),
+            "account-sheet" to base.copy(account = base.account.copy(open = true)),
             "install-page" to installPage,
         )
 

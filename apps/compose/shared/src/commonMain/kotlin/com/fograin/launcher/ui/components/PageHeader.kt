@@ -60,7 +60,9 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.resources.Res
 import com.fograin.launcher.resources.action_back
 import com.fograin.launcher.resources.search_action
@@ -69,12 +71,32 @@ import com.fograin.launcher.resources.search_close
 import org.jetbrains.compose.resources.stringResource
 
 /**
+ * Vertical metrics shared by the page header and the desktop navigation rail.
+ *
+ * macOS draws the native traffic lights over the content, so the header uses a
+ * 48 dp title-bar row: removing the old 40 dp content inset puts the page title
+ * on the same line as the traffic lights. Other platforms keep the roomier
+ * 64 dp row. The rail uses [ContentGap] to align its search button with the
+ * first content card (the home hero image).
+ */
+object PageHeaderMetrics {
+    val DesktopHeight: Dp = 64.dp
+    val MacHeight: Dp = 48.dp
+    val ContentGap: Dp = 8.dp
+
+    fun heightFor(platformName: String): Dp =
+        if (platformName == "macos") MacHeight else DesktopHeight
+}
+
+/**
  * The single page header used by every destination.
  *
  * One row: the page title on the left, the search box and page actions on the
- * right, all vertically centred. The old `LargeTopAppBar` stacked the title
- * under the action icons and reserved a second line for a subtitle; this
- * compact header gives the content roughly 56–72 dp more room on a phone.
+ * right, all vertically centred. The row is 64 dp on regular platforms and
+ * 48 dp on macOS, where it doubles as the title-bar strip beside the native
+ * traffic lights. The old `LargeTopAppBar` stacked the title under the action
+ * icons and reserved a second line for a subtitle; this compact header gives
+ * the content roughly 56–72 dp more room on a phone.
  *
  * The search field is persistent on wide windows and collapses to an icon on
  * compact ones. When it expands on compact, the title fades out and the field
@@ -101,6 +123,9 @@ fun PageHeader(
 ) {
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
+    val platformName = remember { platformServices().platformName }
+    val headerHeight = PageHeaderMetrics.heightFor(platformName)
+    val denseHeader = platformName == "macos"
 
     BoxWithConstraints(
         modifier = modifier
@@ -133,7 +158,7 @@ fun PageHeader(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp)
-                    .height(64.dp),
+                    .height(headerHeight),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -163,7 +188,7 @@ fun PageHeader(
                     }
                     Text(
                         text = title,
-                        style = if (compact) {
+                        style = if (compact || denseHeader) {
                             MaterialTheme.typography.headlineSmall
                         } else {
                             MaterialTheme.typography.headlineMedium

@@ -5,7 +5,7 @@
 //! ```text
 //! fg-cli versions                 # cached version manifest
 //! fg-cli install <version>        # install vanilla + create an instance
-//! fg-cli launch <instance>        # offline launch, streaming the game log
+//! fg-cli launch <instance>        # selected account launch, streaming the game log
 //! fg-cli java list                # discover JDKs
 //! fg-cli java match <version>     # show the selected JDK for a version
 //! fg-cli instance list            # installed instances
@@ -13,6 +13,7 @@
 //! fg-cli mirror <url>             # show the candidate list for a URL
 //! fg-cli assets <version>         # download every asset object of a version
 //! fg-cli probe <url>...           # HEAD-probe sources and update health data
+//! fg-cli account list             # offline / third-party accounts (M7)
 //! ```
 
 use std::{
@@ -27,7 +28,10 @@ use std::{
 };
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use fg_auth::OfflineAccount;
+use fg_auth::{
+    Account, AccountKind, AccountStore, AuthResponse, AuthSession, AuthlibInjector, InjectorSource,
+    OfflineAccount, YggdrasilClient, YggdrasilProfile, YggdrasilServer, random_token,
+};
 use fg_core::{DownloadSource, Error, ErrorKind, Result, ThemePreference, config, paths};
 use fg_game::install::{FileKind, InstallPlan, Installer, category_counts};
 use fg_game::instance::Instance;
@@ -143,6 +147,8 @@ enum Command {
     Launch(LaunchArgs),
     /// Discover, download and remove Java runtimes.
     Java(JavaArgs),
+    /// Manage offline and third-party accounts.
+    Account(AccountArgs),
     /// Inspect installed instances.
     Instance(InstanceArgs),
 }
@@ -310,9 +316,14 @@ struct LaunchArgs {
     /// Instance id from `fg-cli instance list`.
     instance: String,
 
-    /// Offline player name.
-    #[arg(long, default_value = "Steve")]
-    username: String,
+    /// Account id to use instead of the selected account.
+    #[arg(long)]
+    account: Option<String>,
+
+    /// One-shot offline player name; overrides the selected account for this
+    /// launch without changing the account list.
+    #[arg(long)]
+    username: Option<String>,
 
     /// Explicit Java home (overrides discovery and instance overrides).
     #[arg(long)]
@@ -339,6 +350,98 @@ struct LaunchArgs {
 struct JavaArgs {
     #[command(subcommand)]
     command: JavaCommand,
+}
+
+#[derive(Debug, Args)]
+struct AccountArgs {
+    #[command(subcommand)]
+    command: AccountCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum AccountCommand {
+    /// List saved accounts; `*` marks the selected one.
+    List(AccountListArgs),
+    /// Create and select an offline account.
+    AddOffline(AccountAddOfflineArgs),
+    /// Sign in to a third-party Yggdrasil / authlib-injector server.
+    Login(AccountLoginArgs),
+    /// Inspect an ALI API root and print its metadata.
+    Discover(AccountDiscoverArgs),
+    /// Select a saved account.
+    Select(AccountSelectArgs),
+    /// Remove a saved account and revoke its token when possible.
+    Remove(AccountRemoveArgs),
+    /// Validate (and refresh) a saved account token.
+    Refresh(AccountRefreshArgs),
+    /// Download or locate the cached authlib-injector jar.
+    Injector,
+}
+
+#[derive(Debug, Args)]
+struct AccountListArgs {
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct AccountAddOfflineArgs {
+    /// 3–16 characters of `[A-Za-z0-9_]`.
+    name: String,
+}
+
+#[derive(Debug, Args)]
+struct AccountLoginArgs {
+    /// Yggdrasil API root, e.g. https://littleskin.cn/api/yggdrasil.
+    server: String,
+
+    /// Account name or email.
+    #[arg(long)]
+    username: String,
+
+    /// Password. Prefer FOGRAIN_AUTH_PASSWORD or --password-stdin to keep it
+    /// out of the shell history.
+    #[arg(long)]
+    password: Option<String>,
+
+    /// Read the password from one stdin line.
+    #[arg(long)]
+    password_stdin: bool,
+
+    /// Profile id when the account has more than one character.
+    #[arg(long)]
+    profile: Option<String>,
+
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct AccountDiscoverArgs {
+    server: String,
+
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct AccountSelectArgs {
+    id: String,
+}
+
+#[derive(Debug, Args)]
+struct AccountRemoveArgs {
+    id: String,
+}
+
+#[derive(Debug, Args)]
+struct AccountRefreshArgs {
+    /// Account id; defaults to the selected account.
+    #[arg(long)]
+    id: Option<String>,
+
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -593,6 +696,18 @@ async fn main() -> Result<()> {
         }
         Command::Java(args) => {
             command_java(
+                &root,
+                &table,
+                source,
+                region,
+                cli.concurrency,
+                cli.rate_limit_kib,
+                args,
+            )
+            .await
+        }
+        Command::Account(args) => {
+            command_account(
                 &root,
                 &table,
                 source,
@@ -1448,14 +1563,23 @@ async fn command_launch(
         runtimes = scan_java(&layout, true).await;
     }
     let java = pick_java(&instance, &resolved, &args, &runtimes)?;
-    let account = OfflineAccount::new(&args.username)?;
+    let session = resolve_launch_session(
+        root,
+        table,
+        source,
+        region,
+        &downloader,
+        args.account.as_deref(),
+        args.username.as_deref(),
+    )
+    .await?;
 
     let plan = LaunchPlan::build(
         &layout,
         &instance,
         &resolved,
         &java,
-        &account,
+        &session,
         &LaunchOptions {
             extra_jvm_args: args.jvm_args.clone(),
             ..LaunchOptions::default()
@@ -1514,7 +1638,16 @@ async fn command_launch(
             .map_or_else(|| "?".to_string(), |version| version.full.clone()),
         java.arch
     );
-    println!("account   {} ({})", account.name(), account.uuid());
+    println!(
+        "account   {} ({}){}",
+        session.name(),
+        session.uuid(),
+        if session.user_type() == fg_auth::UserType::Mojang {
+            " · 第三方登录"
+        } else {
+            " · 离线"
+        }
+    );
     println!("natives   {}", plan.natives_dir.display());
     if let Some(log_config) = &plan.log_config {
         println!("log4j     {}", log_config.display());
@@ -1802,6 +1935,373 @@ async fn ensure_java_for_cli(
         ));
     }
     Ok(selection)
+}
+
+/// `fg-cli account ...`: account repository, offline creation and third-party
+/// login. Skin management is intentionally absent; see `docs/m7.md`.
+async fn command_account(
+    root: &std::path::Path,
+    table: &MirrorTable,
+    source: DownloadSource,
+    region: Region,
+    concurrency: Option<usize>,
+    rate_limit_kib: u64,
+    args: AccountArgs,
+) -> Result<()> {
+    let config = config::read_config(root)?;
+    let mut store = AccountStore::load_or_default(root, &config.game.username)?;
+
+    match args.command {
+        AccountCommand::Injector => {
+            let downloader =
+                build_downloader(root, concurrency, rate_limit_kib, false, None, None, 16)?;
+            let jar = InjectorSource::new(build_http_client(root)?, table.clone(), source, region)
+                .ensure(root, &downloader)
+                .await?;
+            println!("{}", jar.display());
+        }
+        AccountCommand::List(args) => {
+            let selected = store.selected_id().unwrap_or_default().to_string();
+            if args.json {
+                let accounts: Vec<serde_json::Value> = store
+                    .accounts()
+                    .iter()
+                    .map(|account| account_json(account, &selected))
+                    .collect();
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "selectedId": selected,
+                        "accounts": accounts,
+                    }))
+                    .map_err(json_error)?
+                );
+            } else {
+                for account in store.accounts() {
+                    print_account_line(account, account.id == selected);
+                }
+            }
+        }
+        AccountCommand::AddOffline(args) => {
+            let account = store.add_offline(args.name.trim())?.clone();
+            store.save()?;
+            print_account_line(&account, true);
+        }
+        AccountCommand::Select(args) => {
+            let account = store.select(&args.id)?.clone();
+            store.save()?;
+            print_account_line(&account, true);
+        }
+        AccountCommand::Remove(args) => {
+            if let Some(account) = store.account(&args.id).cloned() {
+                best_effort_invalidate(root, &account).await;
+            }
+            let removed = store.remove(&args.id);
+            if store.accounts().is_empty() {
+                let name = if fg_auth::validate_name(&config.game.username).is_ok() {
+                    config.game.username.clone()
+                } else {
+                    "Steve".to_string()
+                };
+                store.add_offline(&name)?;
+            }
+            store.save()?;
+            match removed {
+                Some(account) => println!("removed  {} ({})", account.name, account.id),
+                None => println!("no account with id {}", args.id),
+            }
+        }
+        AccountCommand::Refresh(args) => {
+            let account = match args.id.as_deref() {
+                Some(id) => store.account(id).cloned(),
+                None => store.selected().cloned(),
+            }
+            .ok_or_else(|| {
+                Error::new(
+                    ErrorKind::NotFound,
+                    if args.id.is_some() {
+                        "error.auth.account_not_found"
+                    } else {
+                        "error.auth.no_account"
+                    },
+                )
+            })?;
+            let refreshed = account
+                .ensure_valid(&YggdrasilClient::new(build_http_client(root)?))
+                .await?;
+            store.update_account(refreshed.clone())?;
+            store.save()?;
+            if args.json {
+                let selected = store.selected_id().unwrap_or_default().to_string();
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&account_json(&refreshed, &selected))
+                        .map_err(json_error)?
+                );
+            } else {
+                println!("refreshed {}", refreshed.name);
+                print_account_line(&refreshed, true);
+            }
+        }
+        AccountCommand::Discover(args) => {
+            let server = YggdrasilClient::new(build_http_client(root)?)
+                .discover(&args.server)
+                .await?;
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "server": server.api_root(),
+                        "serverName": server.server_name(),
+                        "implementationName": server.implementation_name(),
+                        "implementationVersion": server.implementation_version(),
+                    }))
+                    .map_err(json_error)?
+                );
+            } else {
+                println!("api root   {}", server.api_root());
+                println!("server     {}", server.server_name());
+                if let Some(name) = server.implementation_name() {
+                    println!(
+                        "software   {} {}",
+                        name,
+                        server.implementation_version().unwrap_or("")
+                    );
+                }
+            }
+        }
+        AccountCommand::Login(args) => {
+            let client = YggdrasilClient::new(build_http_client(root)?);
+            let server = client.discover(&args.server).await?;
+            let password = resolve_login_password(&args)?;
+            let client_token = random_token();
+            let response = client
+                .authenticate(&server, args.username.trim(), &password, &client_token)
+                .await?;
+            let profile = choose_profile(&response, args.profile.as_deref())?;
+            let bound = if response
+                .selected_profile
+                .as_ref()
+                .is_some_and(|selected| selected.id == profile.id)
+            {
+                response
+            } else {
+                client
+                    .refresh(
+                        &server,
+                        &response.access_token,
+                        &response.client_token,
+                        Some(&profile),
+                    )
+                    .await?
+            };
+            let account = store.upsert_yggdrasil(&server, &bound, &profile)?.clone();
+            store.save()?;
+            if args.json {
+                let selected = store.selected_id().unwrap_or_default().to_string();
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&account_json(&account, &selected))
+                        .map_err(json_error)?
+                );
+            } else {
+                println!("signed in  {}", server.server_name());
+                print_account_line(&account, true);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn resolve_login_password(args: &AccountLoginArgs) -> Result<String> {
+    if let Some(password) = &args.password
+        && !password.is_empty()
+    {
+        return Ok(password.clone());
+    }
+    if let Ok(password) = std::env::var("FOGRAIN_AUTH_PASSWORD")
+        && !password.is_empty()
+    {
+        return Ok(password);
+    }
+    if args.password_stdin {
+        let mut line = String::new();
+        std::io::stdin().read_line(&mut line)?;
+        let password = line.trim_end_matches(['\r', '\n']).to_string();
+        if !password.is_empty() {
+            return Ok(password);
+        }
+    }
+    Err(Error::new(
+        ErrorKind::InvalidInput,
+        "error.auth.credentials_required",
+    ))
+}
+
+fn choose_profile(response: &AuthResponse, requested: Option<&str>) -> Result<YggdrasilProfile> {
+    let find = |value: &str| -> Option<YggdrasilProfile> {
+        let hex = value.replace('-', "");
+        response
+            .available_profiles
+            .iter()
+            .find(|profile| profile.id == value || profile.id_hex() == hex)
+            .cloned()
+    };
+    if let Some(id) = requested {
+        return find(id).ok_or_else(|| {
+            Error::with_detail(
+                ErrorKind::NotFound,
+                "error.auth.profile_not_found",
+                id.to_string(),
+            )
+        });
+    }
+    if let Some(selected) = &response.selected_profile {
+        return Ok(selected.clone());
+    }
+    if response.available_profiles.len() == 1 {
+        return Ok(response.available_profiles[0].clone());
+    }
+    eprintln!("this account has multiple profiles; choose one with --profile <id>:");
+    for profile in &response.available_profiles {
+        eprintln!("  {}  {}", profile.id, profile.name);
+    }
+    Err(Error::new(ErrorKind::Auth, "error.auth.profile_required"))
+}
+
+fn account_json(account: &Account, selected_id: &str) -> serde_json::Value {
+    serde_json::json!({
+        "id": account.id,
+        "kind": account.kind.as_str(),
+        "name": account.name,
+        "uuid": account.uuid,
+        "server": account.server,
+        "serverName": account.server_name,
+        "selected": account.id == selected_id,
+    })
+}
+
+fn print_account_line(account: &Account, selected: bool) {
+    let marker = if selected { "*" } else { " " };
+    let source = account
+        .server_name
+        .as_deref()
+        .or(account.server.as_deref())
+        .unwrap_or("-");
+    println!(
+        "{marker} {}  {}  {}  {}",
+        account.name,
+        account.uuid,
+        account.kind.as_str(),
+        source
+    );
+}
+
+fn build_http_client(root: &std::path::Path) -> Result<Client> {
+    let config = config::read_config(root)?;
+    Client::builder().from_config(&config.network)?.build()
+}
+
+/// Resolves the account used by `fg-cli launch`, refreshing Yggdrasil tokens
+/// and caching authlib-injector when necessary.
+async fn resolve_launch_session(
+    root: &std::path::Path,
+    table: &MirrorTable,
+    source: DownloadSource,
+    region: Region,
+    downloader: &Downloader,
+    account_id: Option<&str>,
+    username: Option<&str>,
+) -> Result<AuthSession> {
+    if let Some(username) = username.map(str::trim).filter(|name| !name.is_empty()) {
+        if account_id.is_some() {
+            return Err(Error::with_detail(
+                ErrorKind::InvalidInput,
+                "error.auth.conflicting_account",
+                "use either --account or --username, not both",
+            ));
+        }
+        return Ok(AuthSession::offline(&OfflineAccount::new(username)?));
+    }
+
+    let config = config::read_config(root)?;
+    let mut store = AccountStore::load_or_default(root, &config.game.username)?;
+    let account = match account_id {
+        Some(id) => store.account(id).cloned(),
+        None => store.selected().cloned(),
+    }
+    .ok_or_else(|| {
+        Error::new(
+            ErrorKind::NotFound,
+            if account_id.is_some() {
+                "error.auth.account_not_found"
+            } else {
+                "error.auth.no_account"
+            },
+        )
+    })?;
+
+    match account.kind {
+        AccountKind::Offline => account.session(None),
+        AccountKind::Yggdrasil => {
+            let client = YggdrasilClient::new(build_http_client(root)?);
+            let refreshed = account.ensure_valid(&client).await?;
+            if refreshed != account {
+                store.update_account(refreshed.clone())?;
+                store.save()?;
+            }
+            let server = refreshed
+                .server
+                .clone()
+                .ok_or_else(|| Error::new(ErrorKind::Auth, "error.auth.login_required"))?;
+            let injector =
+                InjectorSource::new(build_http_client(root)?, table.clone(), source, region)
+                    .ensure(root, downloader)
+                    .await?;
+            refreshed.session(Some(AuthlibInjector::new(injector, server)))
+        }
+        AccountKind::Microsoft => Err(Error::new(
+            ErrorKind::Unsupported,
+            "error.auth.microsoft_pending",
+        )),
+    }
+}
+
+async fn best_effort_invalidate(root: &std::path::Path, account: &Account) {
+    if account.kind != AccountKind::Yggdrasil {
+        return;
+    }
+    let (Some(server), Some(access_token), Some(client_token)) = (
+        account.server.as_deref(),
+        account.access_token(),
+        account.client_token(),
+    ) else {
+        return;
+    };
+    let server = YggdrasilServer::new(
+        server,
+        account.server_name.clone().unwrap_or_default(),
+        None,
+        None,
+    );
+    match build_http_client(root) {
+        Ok(client) => {
+            if let Err(error) = YggdrasilClient::new(client)
+                .invalidate(&server, access_token, client_token)
+                .await
+            {
+                tracing::warn!(
+                    server = server.api_root(),
+                    detail = %error,
+                    "could not invalidate the removed account token"
+                );
+            }
+        }
+        Err(error) => {
+            tracing::warn!(detail = %error, "could not build a client for token revocation");
+        }
+    }
 }
 
 async fn command_java(
@@ -2229,4 +2729,64 @@ fn format_duration(seconds: u64) -> String {
 
 fn json_error(error: serde_json::Error) -> Error {
     Error::with_detail(ErrorKind::Internal, "error.cli.json", error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn profile(id: &str, name: &str) -> YggdrasilProfile {
+        YggdrasilProfile {
+            id: id.to_string(),
+            name: name.to_string(),
+        }
+    }
+
+    fn response(
+        selected: Option<YggdrasilProfile>,
+        available: Vec<YggdrasilProfile>,
+    ) -> AuthResponse {
+        AuthResponse {
+            access_token: "access".to_string(),
+            client_token: "client".to_string(),
+            available_profiles: available,
+            selected_profile: selected,
+            user_id: None,
+            user_properties: serde_json::json!({}),
+        }
+    }
+
+    #[test]
+    fn choose_profile_prefers_the_server_selection() {
+        let selected = profile("a", "Alpha");
+        let response = response(
+            Some(selected.clone()),
+            vec![selected.clone(), profile("b", "Beta")],
+        );
+        assert_eq!(choose_profile(&response, None).expect("selected"), selected);
+    }
+
+    #[test]
+    fn choose_profile_accepts_a_dashless_profile_id() {
+        let chosen = profile("8f0c1d2e-3a4b-5c6d-7e8f-90a1b2c3d4e5", "Fograin");
+        let response = response(None, vec![chosen.clone(), profile("b", "Beta")]);
+        assert_eq!(
+            choose_profile(&response, Some("8f0c1d2e3a4b5c6d7e8f90a1b2c3d4e5")).expect("dashless"),
+            chosen
+        );
+    }
+
+    #[test]
+    fn choose_profile_requires_a_choice_when_the_server_did_not_pick_one() {
+        let response = response(None, vec![profile("a", "Alpha"), profile("b", "Beta")]);
+        let error = choose_profile(&response, None).expect_err("ambiguous");
+        assert_eq!(error.message_key, "error.auth.profile_required");
+    }
+
+    #[test]
+    fn choose_profile_accepts_a_single_available_profile() {
+        let only = profile("a", "Alpha");
+        let response = response(None, vec![only.clone()]);
+        assert_eq!(choose_profile(&response, None).expect("single"), only);
+    }
 }

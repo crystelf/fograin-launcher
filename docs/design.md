@@ -1,6 +1,6 @@
 # 雾雨启动器（Fograin Launcher）设计文档
 
-> 状态：v1.1 · 2026-11-14 · 单 UI（Compose Multiplatform）架构
+> 状态：v1.2 · 2026-11-15 · 单 UI（Compose Multiplatform）架构
 > 范围：Minecraft Java 版启动器。一套 Rust 核心（`fg-*`），一套 Compose Multiplatform UI（Android / Windows / macOS / Linux），平台外壳按平台适配；Android 的游戏运行时（内置 JRE + LWJGL 移植）仍是第二阶段。
 > 架构决策：[ADR 0004](adr/0004-compose-multiplatform-ui.md)。早期四端原生 UI 的决策记录已随重构删除，内容保留在 §1。
 
@@ -13,7 +13,7 @@
 - 实例（版本隔离）管理：模组、资源包、光影、世界、原理图、日志与崩溃报告、导出与备份。
 - Modrinth / CurseForge 资源浏览与安装，整合包导入导出。
 - Java 运行时自动匹配与下载。
-- 账户：离线、LittleSkin、authlib-injector（Yggdrasil 外置登录）。
+- 账户：离线、LittleSkin、authlib-injector（Yggdrasil 外置登录）；M7 交付，不含皮肤管理与正版登录。
 - 服务器列表（收藏、局域网发现、状态 Ping）。
 - 国内网络友好：BMCLAPI 等镜像源、自动回退。
 - 以 `fograin.pen` 的布局、信息架构和视觉语言为参考，用**一套 Compose Multiplatform UI** 覆盖四个平台；平台外壳（窗口、菜单、文件选择、标题栏）按平台适配；**不做 WebView + CSS 皮肤**。控件使用 Material 3，页面层级、信息密度和操作路径保持一致。
@@ -21,10 +21,12 @@
 ### 0.2 非目标（第一阶段）
 
 - 微软正版登录：延后到 M11（需 Mojang 审核 Azure 应用）。
+- 账户皮肤管理：不提供皮肤/披风的查询、上传、本地皮肤文件与皮肤预览。第三方皮肤由服务端
+  的角色属性与 authlib-injector 在游戏内处理，启动器不参与。
 - 基岩版、iOS：不提供。iOS 无法运行 Minecraft Java 的 JVM/子进程。
 - Web 端：浏览器不能启动游戏进程，WebAssembly 目标不在范围内。
 - 内置联机（EasyTier / Terracotta 类方案）：M12 以后。
-- 自绘皮肤/主题编辑器：使用设计令牌与系统深色模式即可。
+- 自绘主题编辑器：使用设计令牌与系统深色模式即可。
 
 ## 1. 现状、重构动机与结论
 
@@ -39,6 +41,7 @@
 | M4 | 实例 CRUD、设置继承、安装/启动 UI 接线、任务队列、外部 `.minecraft` 导入 | 完成（core + 四端） |
 | M5 | Fabric/Quilt/Forge/NeoForge/OptiFine 安装器与启动接线 | 完成（2026-11-14） |
 | M6 | Java 运行时自动下载、自动补全与管理页 | 完成（2026-11-15） |
+| M7 | 离线与第三方 Yggdrasil / authlib-injector 账户、账户页与启动接线（不含皮肤、不含正版） | 完成（2026-11-15） |
 
 ### 1.2 为什么重构
 
@@ -240,6 +243,8 @@ commonTest
 ### 3.5 已知差异与优化项
 
 - 自适应布局已实现（≥840 dp 切 `NavigationRail`）。仍需按窗口形态记住用户偏好、以及 1280 dp 以上的三栏布局，见 [backlog](backlog.md)。
+- macOS 全窗内容下页面标题行直接贴顶，与原生红绿灯同一行（窄窗口为红绿灯让出左侧空间）；
+  桌面导轨的搜索按钮与首页 hero 图顶部对齐，其余导航项随之下移，Settings 仍固定在底部。
 - `ModalBottomSheet` 的拖拽与滚动回弹在桌面上按桌面习惯调优属于 v2；当前由共享的 `AnimatedSheetHost` 负责保持内容到退场动画结束。
 - 下载页的版本列表在宽窗口采用自适应双列网格，窄窗口为单列；点击版本进入安装页（版本固定、加载器与实例名称同页），加载器版本再从安装页进入独立列表页选择。版本筛选位于页头搜索入口左侧。
 - 桌面端不做像素级复刻；以页面结构、信息密度和操作路径一致为准。
@@ -259,7 +264,8 @@ commonTest
 ```text
 <root>/
 ├─ launcher.toml              # 全局设置
-├─ accounts.json              # 账户元数据（令牌在系统凭据库）
+├─ accounts.json              # 账户元数据（不含令牌/密码）
+├─ credentials.json           # 第三方令牌（Unix 0600）
 ├─ servers.json               # 启动器级服务器收藏
 ├─ shared/
 │  ├─ versions/<id>/
@@ -274,6 +280,7 @@ commonTest
 ├─ cache/
 │  ├─ sha1/<aa>/<sha1>        # 内容寻址缓存
 │  ├─ http/                   # ETag / Last-Modified
+│  ├─ authlib-injector/       # 第三方登录注入器 jar（版本化）
 │  └─ icons/
 ├─ backups/<instance-id>/<timestamp>.zip
 └─ logs/launcher-YYYY-MM-DD.log
@@ -395,10 +402,20 @@ Android 的启动实现是第二阶段：`fg-game::launch` 抽象出 `Launcher` 
 
 ### 5.7 账户（`fg-auth`）
 
-- 离线：UUID v3（`OfflinePlayer:<name>`），可选自定义 UUID、本地皮肤。
-- Yggdrasil / authlib-injector：ALI 发现、`authenticate/refresh/validate/invalidate/signout`、`availableProfiles` 选角色、皮肤查询与上传、authlib-injector jar 下载校验、LittleSkin 预设、拖入链接。
-- 存储：`accounts.json` 只放元数据；令牌进系统凭据库（keyring / Android Keystore）。
-- Microsoft：M11；数据模型预留 `AccountKind::Microsoft`。
+M7 只交付离线账户与第三方服务器登录；皮肤管理和微软正版登录不在本里程碑内
+（细节与验收见 [m7.md](m7.md)）。
+
+- 离线：UUID v3（`OfflinePlayer:<name>`），启动参数 `user_type = legacy`。
+- Yggdrasil / authlib-injector：ALI 发现（含 `x-authlib-injector-api-location`）、
+  `authenticate/refresh/validate/invalidate`、`availableProfiles` 选角色、
+  authlib-injector 官方 `latest.json` 下载与 SHA-256 校验。
+- 启动：第三方账户自动注入 `-javaagent:<jar>=<apiRoot>`、`-Dauthlibinjector.side=client`，
+  `user_type = mojang`，`--userProperties` 使用服务端返回的角色属性。
+- 存储：`accounts.json` 只放元数据；令牌放在 `credentials.json`（Unix `0600`），密码从不落盘。
+  系统凭据库（keyring / Android Keystore）列入后续硬化项。
+- 账户页：主页头像打开面板，列表/切换/离线表单/第三方表单（含 LittleSkin 预设）/角色选择/删除；
+  不包含皮肤、披风、皮肤预览或本地皮肤文件。
+- Microsoft：M11；数据模型预留 `AccountKind::Microsoft`，UI 显示“后续版本”。
 
 ### 5.8 内容与实例（`fg-content` / `fg-world`）
 
@@ -465,7 +482,7 @@ Android 上跑 Java 版需要：内置交叉编译的 OpenJDK（Pojav/Amethyst �
 
 ### 7.1 已完成
 
-M0–M6 见 §1.1。M4 的实例管理、安装、启动链路已经在 macOS / Windows（代码级）/ Linux / Android 上验证或接线；M5 在 Rust 核心与共享 UI 内完成加载器安装，M6 完成 Java 运行时下载与管理，均不改变四端外壳契约。
+M0–M7 见 §1.1。M4 的实例管理、安装、启动链路已经在 macOS / Windows（代码级）/ Linux / Android 上验证或接线；M5 在 Rust 核心与共享 UI 内完成加载器安装，M6 完成 Java 运行时下载与管理，M7 完成离线与第三方账户登录，均不改变四端外壳契约。
 
 ### 7.2 重构阶段（R0–R6）
 
@@ -489,7 +506,7 @@ M0–M6 见 §1.1。M4 的实例管理、安装、启动链路已经在 macOS / 
 | --- | --- | --- |
 | M5 ✅ | Fabric/Quilt/NeoForge/Forge/OptiFine 安装器 | 完成 2026-11-14 |
 | M6 ✅ | Java 运行时自动下载与管理页 | 完成 2026-11-15 |
-| M7 | Yggdrasil / authlib-injector、账户页、皮肤 | 1 周 |
+| M7 ✅ | 离线账户、Yggdrasil / authlib-injector、账户页与启动接线；皮肤管理移出计划，微软正版留 M11 | 完成 2026-11-15 |
 | M8 | 模组、资源包、光影、世界、原理图、下载页六类资源 | 3 周 |
 | M9 | 整合包、服务器、崩溃分析 | 2 周 |
 | M10 | 设置、i18n、自动更新、签名、发布打磨 | 2 周 |
@@ -533,6 +550,9 @@ M6+ 只改 Rust 核心与共享 UI，不再有"每端各接一次"的工作。
 
 - Rust 单元测试：version json 合并、rules、参数构建、镜像替换、murmur2、NBT、崩溃规则；fixtures 在 `crates/*/tests/fixtures/`。
 - 集成测试：`wiremock` 模拟 Mojang / BMCLAPI / Modrinth / Yggdrasil；下载故障注入。
+- 账户：`fg-auth` 覆盖 ALI 发现、登录/多角色/刷新/验证、injector 下载校验；`fg-ffi` 覆盖账户
+  CRUD 与 Yggdrasil 登录（wiremock，确认令牌不进入 `accounts.json`）；Compose 覆盖账户面板
+  状态机与四张离屏截图。
 - 端到端：`fg-cli` 在 CI 三平台安装并启动（Linux 用 `xvfb-run`），检查日志关键行。
 - FFI 契约：C ABI 与 JNI 各一套最小调用测试；JSON 字段名与 `bindings/README.md` 对齐，防止漂移。
 - Compose 测试：
@@ -553,7 +573,7 @@ M6+ 只改 Rust 核心与共享 UI，不再有"每端各接一次"的工作。
 | 游戏会话 | `launch.start`、`launch.status`、`session.wait/stop`、`game.line` | fg-game |
 | 设置 / Java | `gameConfig.get/set`、`java.list/catalog/install/remove/policy.set`、`tasks.*`、`app.snapshot` | fg-core、fg-java |
 | 服务器（M9） | `servers_list`、`server_ping`、`lan_discover` | fg-world |
-| 账户（M7） | `account_*`、`yggdrasil_discover`、`skin_upload` | fg-auth |
+| 账户（M7） | `accounts.list/addOffline/select/remove/refresh`、`accounts.yggdrasil.discover/login/selectProfile`、`launch.start` 的 `accountId` | fg-auth |
 | 内容（M8） | `content_search`、`content_versions`、`content_install` | fg-content |
 | 诊断（M9） | `game.log.recent`、`crash_analyze`、`instance_export` | fg-diag |
 

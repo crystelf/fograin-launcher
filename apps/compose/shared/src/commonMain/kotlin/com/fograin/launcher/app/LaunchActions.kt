@@ -36,10 +36,16 @@ internal class LaunchActions(private val model: AppModel) {
             return
         }
         if (model.state.value.isSessionLoading) return
-        launch(instance)
+        val accountId = model.selectedAccountId
+        if (accountId == null) {
+            model.showNotice("请先添加一个账户")
+            model.openAccounts()
+            return
+        }
+        launch(instance, accountId)
     }
 
-    private fun launch(instance: Instance) {
+    private fun launch(instance: Instance, accountId: String) {
         model.setState { it.copy(isSessionLoading = true) }
         model.scope.launch {
             try {
@@ -47,7 +53,7 @@ internal class LaunchActions(private val model: AppModel) {
                     "launch.start",
                     buildJsonObject {
                         put("instanceId", instance.id)
-                        put("username", model.username)
+                        put("accountId", accountId)
                     },
                 )
                 // Keep the spinner until `game.started` arrives.

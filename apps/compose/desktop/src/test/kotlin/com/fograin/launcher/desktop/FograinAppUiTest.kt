@@ -6,6 +6,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import com.fograin.launcher.App
 import com.fograin.launcher.app.AppModel
@@ -13,6 +14,10 @@ import com.fograin.launcher.app.DownloadStage
 import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.ui.AppDestination
 import com.fograin.launcher.ui.GlobalSearchButtonTag
+import com.fograin.launcher.ui.accounts.AccountAddOfflineTag
+import com.fograin.launcher.ui.accounts.AccountOfflineNameTag
+import com.fograin.launcher.ui.accounts.AccountSheetTag
+import com.fograin.launcher.ui.home.AccountAvatarTag
 import com.fograin.launcher.ui.NavBarTag
 import com.fograin.launcher.ui.NavRailTag
 import com.fograin.launcher.ui.downloads.InstallDownloadTag
@@ -66,6 +71,16 @@ class FograinAppUiTest {
         onNodeWithTag(NavBarTag).assertDoesNotExist()
         onNodeWithTag(GlobalSearchButtonTag).assertIsDisplayed()
         AppDestination.entries.forEach { onNodeWithTag(navItemTag(it)).assertIsDisplayed() }
+
+        // The page title row sits at the window edge (not below a reserved
+        // title-bar strip), while the rail search button is lowered to the
+        // first content card.
+        val avatarTop = onNodeWithTag(AccountAvatarTag)
+            .fetchSemanticsNode().boundsInRoot.top
+        val searchTop = onNodeWithTag(GlobalSearchButtonTag)
+            .fetchSemanticsNode().boundsInRoot.top
+        assertTrue(avatarTop < 10f, "page header should hug the window top; was $avatarTop")
+        assertTrue(searchTop >= 56f, "rail search should sit below the title row; was $searchTop")
 
         // The three content tabs sit a proportional gap below the top edge and
         // Settings is pinned to the bottom of the rail.
@@ -150,4 +165,36 @@ class FograinAppUiTest {
         assertEquals(DownloadStage.BROWSER, afterDownload.stage)
         assertTrue(afterDownload.isGameDownloadRunning)
     }
+    @Test
+    fun accountAvatarOpensThePanelAndOfflineForm() = runDesktopComposeUiTest(width = 1280, height = 900) {
+        val appModel = model()
+        setContent { App(appModel) }
+        waitForIdle()
+
+        onNodeWithTag(AccountAvatarTag).performClick()
+        waitForIdle()
+
+        onNodeWithTag(AccountSheetTag).assertIsDisplayed()
+        assertEquals(true, appModel.state.value.account.open)
+        assertEquals("Steve_Fog", appModel.state.value.account.displayName)
+
+        onNodeWithTag(AccountAddOfflineTag).performClick()
+        waitForIdle()
+
+        onNodeWithTag(AccountOfflineNameTag).assertIsDisplayed()
+        assertEquals(
+            com.fograin.launcher.app.AccountStage.OFFLINE,
+            appModel.state.value.account.stage,
+        )
+
+        onNodeWithTag(AccountOfflineNameTag).performTextInput("Alex")
+        appModel.back()
+        waitForIdle()
+        assertEquals(
+            com.fograin.launcher.app.AccountStage.LIST,
+            appModel.state.value.account.stage,
+        )
+        onNodeWithTag(AccountAddOfflineTag).assertIsDisplayed()
+    }
+
 }

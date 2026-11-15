@@ -15,6 +15,7 @@ Minecraft Java 版启动器：一套 Rust 核心 + 一套 Compose Multiplatform 
 | M4 | 实例管理、安装/启动 UI 接线、任务队列、外部导入 | 完成 |
 | M5 | Fabric/Quilt/Forge/NeoForge/OptiFine 安装器与启动接线 | 完成（2026-11-14） |
 | M6 | Java 运行时自动下载、安装/启动自动补全与管理页 | 完成（2026-11-15） |
+| M7 | 离线与第三方 Yggdrasil / authlib-injector 登录、账户页与启动接线 | 完成（2026-11-15）；不含皮肤管理与正版登录 |
 | R0 | Compose Multiplatform 重构：技术验证 | 完成（2026-11-12） |
 | R1 | 共享层：kotlinx.serialization、平台接口、`AppModel` 去 Android 化、commonTest | 完成（2026-11-13） |
 | R2 | UI 迁移：四页 + 3 个 sheet、字符串与图片资源化、Material 3 差异 | 完成（2026-11-13） |
@@ -29,6 +30,8 @@ R0 已跑通：新工程三模块、Android/desktop 共用 UI、JNI FFI、DMG（
 
 R3/R4/R6 于 2026-11-14 收尾：`AppModel` 拆成四个按功能的 controller（`LibraryActions` / `DownloadsActions` / `LaunchActions` / `InstanceSettingsActions`），桌面补上窗口状态持久化、菜单快捷键、Esc 返回和系统目录选择器，Android 用 SAF 选目录，≥840 dp 的窗口改用 `NavigationRail`，并补齐 `AppModel` 状态机测试与 Compose UI 测试。
 
+M7（2026-11-15）加入离线账户与第三方 Yggdrasil / authlib-injector 登录、账户面板和启动接线。按范围调整，皮肤管理从计划中移除；微软正版登录保留在 M11。
+
 ## 目录
 
 ```text
@@ -38,7 +41,7 @@ crates/fg-task     任务图、进度聚合、取消/暂停、持久化
 crates/fg-game     版本清单、inheritsFrom 合并、rules、安装任务图、启动命令与进程
 crates/fg-java     Java 发现、release/PE/Mach-O 解析、版本匹配
 crates/fg-loader   Fabric/Quilt/Forge/NeoForge/OptiFine 版本发现与安装
-crates/fg-auth     离线账户（Yggdrasil / Microsoft 为 M7 / M11 预留）
+crates/fg-auth     离线账户、Yggdrasil / authlib-injector 登录与账户仓库
 crates/fg-cli      无 UI 的调试与 CI 入口
 bindings/fg-ffi    C ABI / JSON 契约
 bindings/fg-ffi-jni JVM JNI 桥（Android .so + 桌面 .dylib/.dll/.so）
@@ -88,10 +91,11 @@ cargo run -p fg-cli -- java list
 cargo run -p fg-cli -- install 1.21.4
 cargo run -p fg-cli -- install 1.21.4 --id my-instance --dry-run
 
-# 打印启动命令（不联网、不启动游戏）
+# 打印启动命令（不启动游戏；第三方账户仍会校验令牌并准备 injector）
 cargo run -p fg-cli -- launch my-instance --username Steve --dry-run
 
-# 离线账户启动，stdout/stderr 会按 log4j 事件格式化后流式输出
+# 使用选中账户启动；--username 可临时覆盖为离线名称。日志会按 log4j 事件流式输出
+cargo run -p fg-cli -- launch my-instance
 cargo run -p fg-cli -- launch my-instance --username Steve
 
 # 查看实例与已选 Java
@@ -192,6 +196,53 @@ auto_download = true
 
 自动补全只在“一个 Java 都没有”时触发；已有其他 major 时沿用 M3 的降级+警告，避免为了精确
 版本静默下载大文件。实现细节、平台回退表与验收项见 [docs/m6.md](docs/m6.md)。
+
+## 账户（M7）
+
+M7 交付离线账户和第三方服务器登录（Yggdrasil / authlib-injector）。账户面板从主页右上角
+头像进入：切换账户、添加离线账户、第三方登录、多角色选择和删除。**不含皮肤管理**
+（皮肤/披风由第三方服务端和 authlib-injector 在游戏内处理），**不含微软正版登录**
+（保留在 M11）。
+
+```bash
+# 首次运行会从 [game] username 迁移一个选中的离线账户
+cargo run -p fg-cli -- account list
+
+# 添加并切换离线账户
+cargo run -p fg-cli -- account add-offline Steve
+
+# 第三方登录（推荐用环境变量传密码，避免进入 shell history）
+FOGRAIN_AUTH_PASSWORD='…' cargo run -p fg-cli -- account login \
+  https://littleskin.cn/api/yggdrasil --username user@example.com
+
+# 多角色账户先看角色列表，再用 --profile 选择
+cargo run -p fg-cli -- account login https://littleskin.cn/api/yggdrasil \
+  --username user@example.com --profile <profile-id>
+
+# 查看服务器元数据、下载/检查 authlib-injector、切换账户、刷新令牌、删除账户
+cargo run -p fg-cli -- account discover https://littleskin.cn/api/yggdrasil
+cargo run -p fg-cli -- account injector
+cargo run -p fg-cli -- account select <account-id>
+cargo run -p fg-cli -- account refresh
+cargo run -p fg-cli -- account remove <account-id>
+
+# 启动时默认使用选中账户；--account 可临时指定，--username 仅作一次性离线覆盖
+cargo run -p fg-cli -- launch my-instance
+cargo run -p fg-cli -- launch my-instance --account <account-id>
+cargo run -p fg-cli -- launch my-instance --username Steve --dry-run
+```
+
+数据目录新增：
+
+```text
+<root>/accounts.json        # 账户元数据；不含令牌和密码
+<root>/credentials.json     # 第三方 accessToken / clientToken（Unix 0600）
+<root>/cache/authlib-injector/authlib-injector-<version>.jar
+```
+
+第三方账户在启动前会 `validate` 令牌，失效时自动 `refresh`；刷新失败提示重新登录。
+authlib-injector 从官方 `latest.json`（经镜像）下载并校验 SHA-256，首次启动后复用缓存。
+实现细节、接口与验收见 [docs/m7.md](docs/m7.md)。
 
 ## 桌面快捷键
 

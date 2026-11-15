@@ -7,17 +7,22 @@
 //! keys so the Swift, Kotlin and C# clients can share one decoding helper.
 
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use fg_auth::{
+    Account, AccountKind, AccountStore, AuthResponse, AuthSession, AuthlibInjector, InjectorSource,
+    OfflineAccount, YggdrasilClient, YggdrasilServer, random_token, validate_name,
+};
 use fg_core::{Error, ErrorKind, GameConfig, LauncherConfig, Result, config};
 use fg_game::{
     instance::Instance,
@@ -49,6 +54,21 @@ pub struct Service {
     events: Arc<EventQueue>,
     runtime: tokio::runtime::Runtime,
     session: Mutex<Option<SessionHandle>>,
+    accounts: Mutex<AccountStore>,
+    /// Yggdrasil logins waiting for the user to choose a profile. Passwords
+    /// are never stored; only the token pair and profile list live here for
+    /// at most [`PENDING_LOGIN_TTL`].
+    pending_logins: Mutex<HashMap<String, PendingLogin>>,
+}
+
+/// How long a multi-profile login stays selectable.
+const PENDING_LOGIN_TTL: Duration = Duration::from_secs(600);
+
+#[derive(Debug, Clone)]
+struct PendingLogin {
+    server: YggdrasilServer,
+    response: AuthResponse,
+    created: Instant,
 }
 
 /// Live game session; the process itself lives in the watcher task.
@@ -185,6 +205,33 @@ pub struct JavaCatalogRow {
     pub installed_version: Option<String>,
 }
 
+/// One account as the account panel sees it. Secrets never cross this row.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountRow {
+    pub id: String,
+    pub kind: &'static str,
+    pub name: String,
+    pub uuid: String,
+    pub server: Option<String>,
+    pub server_name: Option<String>,
+    pub selected: bool,
+}
+
+impl AccountRow {
+    fn from_account(account: &Account, selected_id: &str) -> Self {
+        Self {
+            id: account.id.clone(),
+            kind: account.kind.as_str(),
+            name: account.name.clone(),
+            uuid: account.uuid.clone(),
+            server: account.server.clone(),
+            server_name: account.server_name.clone(),
+            selected: account.id == selected_id,
+        }
+    }
+}
+
 impl Service {
     /// Builds the engine, task queue and instance manager for `root`.
     ///
@@ -206,6 +253,7 @@ impl Service {
                 Error::with_detail(ErrorKind::Io, "error.io.engine", error.to_string())
             })?
             .into();
+        let accounts = AccountStore::load_or_default(&root, &config.game.username)?;
         let manager = InstanceManager::new(layout.clone(), config.game.clone());
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
@@ -227,6 +275,8 @@ impl Service {
             events: Arc::new(EventQueue::new()),
             runtime,
             session: Mutex::new(None),
+            accounts: Mutex::new(accounts),
+            pending_logins: Mutex::new(HashMap::new()),
         }))
     }
 
@@ -374,6 +424,17 @@ impl Service {
 
             "gameConfig.get" => self.game_config_value(),
             "gameConfig.set" => self.game_config_set(&params).await,
+
+            "accounts.list" => self.accounts_list(),
+            "accounts.addOffline" => self.accounts_add_offline(&params),
+            "accounts.select" => self.accounts_select(&params),
+            "accounts.remove" => self.accounts_remove(&params).await,
+            "accounts.refresh" => self.accounts_refresh(&params).await,
+            "accounts.yggdrasil.discover" => self.accounts_yggdrasil_discover(&params).await,
+            "accounts.yggdrasil.login" => self.accounts_yggdrasil_login(&params).await,
+            "accounts.yggdrasil.selectProfile" => {
+                self.accounts_yggdrasil_select_profile(&params).await
+            }
 
             "java.list" => self.java_list().await,
             "java.catalog" => self.java_catalog().await,
@@ -1286,7 +1347,11 @@ impl Service {
             ));
         }
         let plan = self
-            .build_launch_plan(&request.instance_id, request.username.as_deref())
+            .build_launch_plan(
+                &request.instance_id,
+                request.account_id.as_deref(),
+                request.username.as_deref(),
+            )
             .await?;
         let process = GameProcess::spawn(&plan)?;
         let pid = process.pid();
@@ -1410,9 +1475,333 @@ impl Service {
         self.game_config_value()
     }
 
+    // ------------------------------------------------------------------
+    // Accounts (M7): offline + Yggdrasil / authlib-injector.
+    // ------------------------------------------------------------------
+
+    fn account_rows(&self) -> (Vec<AccountRow>, String) {
+        let store = self.accounts.lock().expect("accounts poisoned");
+        let selected = store.selected_id().unwrap_or_default().to_string();
+        let rows = store
+            .accounts()
+            .iter()
+            .map(|account| AccountRow::from_account(account, &selected))
+            .collect();
+        (rows, selected)
+    }
+
+    fn accounts_list(&self) -> Result<Value> {
+        let (accounts, selected_id) = self.account_rows();
+        Ok(json!({ "accounts": accounts, "selectedId": selected_id }))
+    }
+
+    fn accounts_add_offline(&self, params: &Value) -> Result<Value> {
+        let request: AccountNameRequest = from_value(params)?;
+        let name = request.name.trim();
+        let mut store = self.accounts.lock().expect("accounts poisoned");
+        let account = store.add_offline(name)?.clone();
+        store.save()?;
+        let selected = store.selected_id().unwrap_or_default().to_string();
+        Ok(json!({
+            "account": AccountRow::from_account(&account, &selected),
+            "selectedId": selected,
+        }))
+    }
+
+    fn accounts_select(&self, params: &Value) -> Result<Value> {
+        let request: IdRequest = from_value(params)?;
+        let mut store = self.accounts.lock().expect("accounts poisoned");
+        store.select(&request.id)?;
+        store.save()?;
+        Ok(json!({ "selectedId": request.id }))
+    }
+
+    async fn accounts_remove(&self, params: &Value) -> Result<Value> {
+        let request: IdRequest = from_value(params)?;
+        let account = {
+            let store = self.accounts.lock().expect("accounts poisoned");
+            store.account(&request.id).cloned()
+        };
+        if let Some(account) = account.as_ref()
+            && account.is_yggdrasil()
+        {
+            self.invalidate_best_effort(account).await;
+        }
+
+        let mut store = self.accounts.lock().expect("accounts poisoned");
+        store.remove(&request.id);
+        if store.accounts().is_empty() {
+            let fallback = self.config()?.game.username;
+            let name = if validate_name(&fallback).is_ok() {
+                fallback
+            } else {
+                "Steve".to_string()
+            };
+            store.add_offline(&name)?;
+        }
+        store.save()?;
+        let selected = store.selected_id().unwrap_or_default().to_string();
+        Ok(json!({ "ok": true, "selectedId": selected }))
+    }
+
+    async fn accounts_refresh(&self, params: &Value) -> Result<Value> {
+        let request: OptionalIdRequest = from_value(params)?;
+        let account = {
+            let store = self.accounts.lock().expect("accounts poisoned");
+            match request.id.as_deref() {
+                Some(id) => store.account(id).cloned(),
+                None => store.selected().cloned(),
+            }
+        }
+        .ok_or_else(|| {
+            Error::new(
+                ErrorKind::NotFound,
+                if request.id.is_some() {
+                    "error.auth.account_not_found"
+                } else {
+                    "error.auth.no_account"
+                },
+            )
+        })?;
+
+        let refreshed = account.ensure_valid(&self.yggdrasil_client()?).await?;
+        let mut store = self.accounts.lock().expect("accounts poisoned");
+        store.update_account(refreshed.clone())?;
+        store.save()?;
+        let selected = store.selected_id().unwrap_or_default().to_string();
+        Ok(json!({
+            "account": AccountRow::from_account(&refreshed, &selected),
+            "selectedId": selected,
+        }))
+    }
+
+    async fn accounts_yggdrasil_discover(&self, params: &Value) -> Result<Value> {
+        let request: ServerRequest = from_value(params)?;
+        let server = self.yggdrasil_client()?.discover(&request.server).await?;
+        Ok(json!({
+            "server": server.api_root(),
+            "serverName": server.server_name(),
+            "implementationName": server.implementation_name(),
+            "implementationVersion": server.implementation_version(),
+        }))
+    }
+
+    async fn accounts_yggdrasil_login(&self, params: &Value) -> Result<Value> {
+        let request: YggdrasilLoginRequest = from_value(params)?;
+        let client = self.yggdrasil_client()?;
+        let server = client.discover(&request.server).await?;
+        let client_token = random_token();
+        let response = client
+            .authenticate(
+                &server,
+                request.username.trim(),
+                &request.password,
+                &client_token,
+            )
+            .await?;
+
+        if let Some(profile) = response.selected_profile.clone() {
+            let mut store = self.accounts.lock().expect("accounts poisoned");
+            let account = store
+                .upsert_yggdrasil(&server, &response, &profile)?
+                .clone();
+            store.save()?;
+            let selected = store.selected_id().unwrap_or_default().to_string();
+            return Ok(json!({
+                "account": AccountRow::from_account(&account, &selected),
+                "selectedId": selected,
+            }));
+        }
+
+        if response.available_profiles.is_empty() {
+            return Err(Error::new(ErrorKind::Auth, "error.auth.no_profiles"));
+        }
+
+        let pending_id = random_token();
+        {
+            let mut pending = self.pending_logins.lock().expect("pending logins poisoned");
+            pending.retain(|_, value| value.created.elapsed() < PENDING_LOGIN_TTL);
+            pending.insert(
+                pending_id.clone(),
+                PendingLogin {
+                    server: server.clone(),
+                    response: response.clone(),
+                    created: Instant::now(),
+                },
+            );
+        }
+        Ok(json!({
+            "selectionRequired": true,
+            "pendingId": pending_id,
+            "server": server.api_root(),
+            "serverName": server.server_name(),
+            "profiles": response.available_profiles,
+        }))
+    }
+
+    async fn accounts_yggdrasil_select_profile(&self, params: &Value) -> Result<Value> {
+        let request: ProfileSelectRequest = from_value(params)?;
+        let pending = {
+            let pending = self.pending_logins.lock().expect("pending logins poisoned");
+            pending
+                .get(&request.pending_id)
+                .filter(|value| value.created.elapsed() < PENDING_LOGIN_TTL)
+                .cloned()
+        }
+        .ok_or_else(|| Error::new(ErrorKind::Auth, "error.auth.selection_expired"))?;
+
+        let wanted = request.profile_id.replace('-', "");
+        let profile = pending
+            .response
+            .available_profiles
+            .iter()
+            .find(|profile| profile.id == request.profile_id || profile.id_hex() == wanted)
+            .cloned()
+            .ok_or_else(|| Error::new(ErrorKind::Auth, "error.auth.profile_not_found"))?;
+
+        let response = self
+            .yggdrasil_client()?
+            .refresh(
+                &pending.server,
+                &pending.response.access_token,
+                &pending.response.client_token,
+                Some(&profile),
+            )
+            .await?;
+
+        let mut store = self.accounts.lock().expect("accounts poisoned");
+        let account = store
+            .upsert_yggdrasil(&pending.server, &response, &profile)?
+            .clone();
+        store.save()?;
+        let selected = store.selected_id().unwrap_or_default().to_string();
+        drop(store);
+        self.pending_logins
+            .lock()
+            .expect("pending logins poisoned")
+            .remove(&request.pending_id);
+        Ok(json!({
+            "account": AccountRow::from_account(&account, &selected),
+            "selectedId": selected,
+        }))
+    }
+
+    /// Best-effort revocation when the user deletes a third-party account.
+    async fn invalidate_best_effort(&self, account: &Account) {
+        let (Some(server), Some(access_token), Some(client_token)) = (
+            account.server.as_deref(),
+            account.access_token(),
+            account.client_token(),
+        ) else {
+            return;
+        };
+        let server = YggdrasilServer::new(
+            server,
+            account.server_name.clone().unwrap_or_default(),
+            None,
+            None,
+        );
+        match self.yggdrasil_client() {
+            Ok(client) => {
+                if let Err(error) = client.invalidate(&server, access_token, client_token).await {
+                    tracing::warn!(
+                        target: "fg_ffi",
+                        server = server.api_root(),
+                        detail = %error,
+                        "could not invalidate the removed account token"
+                    );
+                }
+            }
+            Err(error) => {
+                tracing::warn!(
+                    target: "fg_ffi",
+                    detail = %error,
+                    "could not build a client to invalidate the removed account token"
+                );
+            }
+        }
+    }
+
+    fn http_client(&self) -> Result<fg_net::Client> {
+        let config = self.config()?;
+        fg_net::Client::builder()
+            .from_config(&config.network)?
+            .build()
+    }
+
+    fn yggdrasil_client(&self) -> Result<YggdrasilClient> {
+        Ok(YggdrasilClient::new(self.http_client()?))
+    }
+
+    fn injector_source(&self) -> Result<InjectorSource> {
+        let config = self.config()?;
+        Ok(InjectorSource::new(
+            self.http_client()?,
+            self.table.clone(),
+            config.download.source,
+            self.region,
+        ))
+    }
+
+    /// Resolves the launch account, refreshing Yggdrasil tokens and preparing
+    /// authlib-injector before the command is built.
+    async fn resolve_auth_session(
+        &self,
+        account_id: Option<&str>,
+        username: Option<&str>,
+    ) -> Result<AuthSession> {
+        if let Some(username) = username.map(str::trim).filter(|name| !name.is_empty()) {
+            return Ok(AuthSession::offline(&OfflineAccount::new(username)?));
+        }
+
+        let account = {
+            let store = self.accounts.lock().expect("accounts poisoned");
+            match account_id {
+                Some(id) => store.account(id).cloned(),
+                None => store.selected().cloned(),
+            }
+        };
+        let Some(account) = account else {
+            return Err(Error::new(
+                ErrorKind::NotFound,
+                if account_id.is_some() {
+                    "error.auth.account_not_found"
+                } else {
+                    "error.auth.no_account"
+                },
+            ));
+        };
+
+        match account.kind {
+            AccountKind::Offline => account.session(None),
+            AccountKind::Yggdrasil => {
+                let refreshed = account.ensure_valid(&self.yggdrasil_client()?).await?;
+                {
+                    let mut store = self.accounts.lock().expect("accounts poisoned");
+                    store.update_account(refreshed.clone())?;
+                    store.save()?;
+                }
+                let server = refreshed
+                    .server
+                    .clone()
+                    .ok_or_else(|| Error::new(ErrorKind::Auth, "error.auth.login_required"))?;
+                let jar = self
+                    .injector_source()?
+                    .ensure(&self.root, &self.downloader)
+                    .await?;
+                refreshed.session(Some(AuthlibInjector::new(jar, server)))
+            }
+            AccountKind::Microsoft => Err(Error::new(
+                ErrorKind::Unsupported,
+                "error.auth.microsoft_pending",
+            )),
+        }
+    }
+
     async fn build_launch_plan(
         self: &Arc<Self>,
         instance_id: &str,
+        account_id: Option<&str>,
         username: Option<&str>,
     ) -> Result<LaunchPlan> {
         let manager = self.manager();
@@ -1460,13 +1849,13 @@ impl Service {
             .await?
             .runtime
         };
-        let account = fg_auth::offline::OfflineAccount::new(username.unwrap_or(&globals.username))?;
+        let session = self.resolve_auth_session(account_id, username).await?;
         LaunchPlan::build(
             &self.layout,
             &merged,
             &resolved,
             &java,
-            &account,
+            &session,
             &LaunchOptions::default(),
         )
     }
@@ -1884,7 +2273,46 @@ struct JavaRemoveRequest {
 struct LaunchStartRequest {
     instance_id: String,
     #[serde(default)]
+    account_id: Option<String>,
+    /// Legacy one-shot offline override. The account panel sends `accountId`
+    /// instead.
+    #[serde(default)]
     username: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AccountNameRequest {
+    #[serde(default)]
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OptionalIdRequest {
+    #[serde(default)]
+    id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerRequest {
+    server: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct YggdrasilLoginRequest {
+    server: String,
+    username: String,
+    password: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProfileSelectRequest {
+    pending_id: String,
+    profile_id: String,
 }
 
 #[derive(Debug, Deserialize)]

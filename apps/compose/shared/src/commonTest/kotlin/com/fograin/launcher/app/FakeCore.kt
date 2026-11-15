@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import com.fograin.launcher.platform.AppLogger
 import com.fograin.launcher.platform.BackDispatcher
 import com.fograin.launcher.platform.ClipboardService
+import com.fograin.launcher.platform.CoreAccount
 import com.fograin.launcher.platform.CoreClient
 import com.fograin.launcher.platform.CoreJson
 import com.fograin.launcher.platform.CoreSettings
@@ -17,6 +18,7 @@ import com.fograin.launcher.platform.PlatformServices
 import com.fograin.launcher.platform.SystemAppearance
 import com.fograin.launcher.platform.WindowFrame
 import com.fograin.launcher.settings.ThemeMode
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 
@@ -35,6 +37,19 @@ internal class FakeCore : CoreClient {
     val javaInstallRequests = mutableListOf<JsonObject>()
     var javaAutoDownload = true
     var javaRemovedIds = mutableListOf<String>()
+    val launchRequests = mutableListOf<JsonObject>()
+    val accountLoginRequests = mutableListOf<JsonObject>()
+    var yggdrasilNeedsProfile = false
+    var accountRows = mutableListOf(
+        CoreAccount(
+            id = "offline-steve",
+            kind = "offline",
+            name = "Steve_Fog",
+            uuid = "5627dd98-e6be-3c21-b8a8-e92344183641",
+            selected = true,
+        ),
+    )
+    var selectedAccountId: String? = "offline-steve"
 
     override val initError: String? = null
     override val abiVersion: Int = 1
@@ -67,6 +82,57 @@ internal class FakeCore : CoreClient {
                 """{"ok":true,"username":"Steve_Fog","memoryMb":6144,"java":null,"jvmArgs":"","resolution":[1920,1080],"fullscreen":false,"showLog":false,"autoCompleteResources":true}""",
             )
 
+            "accounts.list" -> json(accountsPayload())
+
+            "accounts.addOffline" -> {
+                val name = params.stringOrNull("name").orEmpty()
+                val id = "offline-$name"
+                if (accountRows.none { it.id == id }) {
+                    accountRows += CoreAccount(
+                        id = id,
+                        kind = "offline",
+                        name = name,
+                        uuid = "00000000-0000-0000-0000-000000000001",
+                    )
+                }
+                selectedAccountId = id
+                json("""{"ok":true,"selectedId":"$id","account":${CoreJson.encodeToString(accountRows.first { it.id == id })}}""")
+            }
+
+            "accounts.select" -> {
+                val id = params.stringOrNull("id").orEmpty()
+                selectedAccountId = id
+                json("""{"ok":true,"selectedId":"$id"}""")
+            }
+
+            "accounts.remove" -> {
+                val id = params.stringOrNull("id").orEmpty()
+                accountRows.removeAll { it.id == id }
+                if (selectedAccountId == id) selectedAccountId = accountRows.firstOrNull()?.id
+                json("""{"ok":true,"selectedId":${selectedAccountId?.let { "\"$it\"" } ?: "null"}}""")
+            }
+
+            "accounts.refresh" -> json(
+                """{"ok":true,"account":${CoreJson.encodeToString(accountRows.first { it.id == (params.stringOrNull("id") ?: selectedAccountId) })}}""",
+            )
+
+            "accounts.yggdrasil.login" -> {
+                accountLoginRequests += params
+                if (yggdrasilNeedsProfile) {
+                    json(
+                        """{"ok":true,"selectionRequired":true,"pendingId":"pending-1","serverName":"LittleSkin","profiles":[{"id":"profile-1","name":"Fograin"},{"id":"profile-2","name":"FograinAlt"}]}""",
+                    )
+                } else {
+                    addYggdrasilAccount("profile-1", "Fograin")
+                }
+            }
+
+            "accounts.yggdrasil.selectProfile" -> {
+                val profileId = params.stringOrNull("profileId").orEmpty()
+                val name = if (profileId == "profile-2") "FograinAlt" else "Fograin"
+                addYggdrasilAccount(profileId, name)
+            }
+
             "tasks.list" -> json("""{"ok":true,"result":[]}""")
 
             "loaders.versions" -> json(
@@ -94,6 +160,11 @@ internal class FakeCore : CoreClient {
                 val id = params.stringOrNull("instanceId").orEmpty()
                 if (id.isNotEmpty()) installedInstanceIds += id
                 json("""{"ok":true,"taskId":"task-42"}""")
+            }
+
+            "launch.start" -> {
+                launchRequests += params
+                json("""{"ok":true,"pid":4242}""")
             }
 
             "instances.settings.get" -> json(
@@ -148,6 +219,27 @@ internal class FakeCore : CoreClient {
     }
 
     override fun nextEvents(): List<JsonObject> = emptyList()
+
+    private fun accountsPayload(): String {
+        val rows = accountRows.map { it.copy(selected = it.id == selectedAccountId) }
+        val selected = selectedAccountId?.let { "\"$it\"" } ?: "null"
+        return """{"ok":true,"selectedId":$selected,"accounts":${CoreJson.encodeToString(rows)}}"""
+    }
+
+    private fun addYggdrasilAccount(profileId: String, name: String): JsonObject {
+        val id = "yggdrasil-$profileId"
+        accountRows.removeAll { it.id == id }
+        accountRows += CoreAccount(
+            id = id,
+            kind = "yggdrasil",
+            name = name,
+            uuid = "8f0c1d2e-3a4b-5c6d-7e8f-90a1b2c3d4e5",
+            server = "https://littleskin.cn/api/yggdrasil",
+            serverName = "LittleSkin",
+        )
+        selectedAccountId = id
+        return json("""{"ok":true,"selectedId":"$id","account":${CoreJson.encodeToString(accountRows.first { it.id == id })}}""")
+    }
 
     private fun json(raw: String): JsonObject = CoreJson.parseToJsonElement(raw).jsonObject
 

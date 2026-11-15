@@ -6,7 +6,7 @@
 
 use std::{path::PathBuf, sync::Arc};
 
-use fg_auth::OfflineAccount;
+use fg_auth::{AuthSession, OfflineAccount};
 use fg_core::DownloadSource;
 use fg_game::{
     install::{FileKind, Installer, run_plan},
@@ -242,7 +242,7 @@ async fn installs_and_builds_a_launch_command_against_a_mock_origin() {
         &instance,
         &resolved,
         &java,
-        &OfflineAccount::new("Steve").expect("account"),
+        &AuthSession::offline(&OfflineAccount::new("Steve").expect("account")),
         &LaunchOptions {
             rule_context: Some(context()),
             ..LaunchOptions::default()

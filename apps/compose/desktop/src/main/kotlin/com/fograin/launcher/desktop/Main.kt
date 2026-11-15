@@ -31,6 +31,7 @@ import com.fograin.launcher.platform.WindowFrame
 import com.fograin.launcher.platform.createCoreClient
 import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.ui.AppDestination
+import com.fograin.launcher.ui.components.PageHeaderMetrics
 import java.awt.GraphicsEnvironment
 import java.io.ByteArrayInputStream
 import java.time.Duration
@@ -146,13 +147,14 @@ fun main() {
                 App(model)
                 if (isMac) {
                     // Full-window content hides the native drag area. Keep the
-                    // top strip (right of the traffic lights) draggable so the
-                    // borderless window can still be moved.
+                    // title region right of the traffic lights draggable, but
+                    // stop before the header actions so the avatar, search and
+                    // page buttons remain clickable.
                     Box(
                         Modifier
                             .align(Alignment.TopStart)
-                            .fillMaxWidth()
-                            .height(40.dp)
+                            .fillMaxWidth(0.5f)
+                            .height(PageHeaderMetrics.MacHeight)
                             .padding(start = 76.dp),
                     ) {
                         WindowDraggableArea(Modifier.fillMaxSize()) {

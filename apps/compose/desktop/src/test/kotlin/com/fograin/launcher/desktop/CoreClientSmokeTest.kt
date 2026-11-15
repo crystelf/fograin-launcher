@@ -1,6 +1,7 @@
 package com.fograin.launcher.desktop
 
 import com.fograin.launcher.platform.AppRuntime
+import com.fograin.launcher.platform.CoreAccount
 import com.fograin.launcher.platform.CoreInstanceRow
 import com.fograin.launcher.platform.decode
 import com.fograin.launcher.platform.createCoreClient
@@ -10,10 +11,12 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertNotNull
+import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -82,4 +85,32 @@ class CoreClientSmokeTest {
         assertNotNull(row, "desktop core did not list the created instance")
         assertTrue(row.minecraft == "1.21.4")
     }
+    @Test
+    fun accountsRoundTripThroughJni() = runBlocking {
+        AppRuntime.dataRoot = TestDataRoot.path
+        val core = createCoreClient()
+
+        val listed = core.rpc("accounts.list")
+        val rows = listed["accounts"]?.jsonArray
+        assertNotNull(rows, "accounts.list must return an accounts array")
+        assertTrue(rows.isNotEmpty(), "the core must migrate a default offline account")
+        assertNotNull(listed["selectedId"]?.jsonPrimitive?.contentOrNull)
+
+        val added = core.rpc(
+            "accounts.addOffline",
+            buildJsonObject { put("name", "JniTester") },
+        )
+        val account = added["account"]?.jsonObject?.decode<CoreAccount>()
+        assertNotNull(account, "accounts.addOffline must return the created row")
+        assertEquals("JniTester", account.name)
+        assertEquals("offline", account.kind)
+        assertEquals(account.id, added["selectedId"]?.jsonPrimitive?.contentOrNull)
+
+        val after = core.rpc("accounts.list")
+        val names = after["accounts"]?.jsonArray
+            ?.mapNotNull { it.jsonObject["name"]?.jsonPrimitive?.contentOrNull }
+            .orEmpty()
+        assertTrue(names.contains("JniTester"))
+    }
+
 }

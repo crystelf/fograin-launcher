@@ -19,6 +19,17 @@
 - P2 — 系统通知（`UNUserNotificationCenter` / AppNotification / GNotification）。
 - P2 — 文件拖放导入（`.mrpack`、`.zip`、`.minecraft` 目录）。
 
+## 账户（M7 后续）
+
+- P1 — 第三方令牌迁入系统凭据库：macOS Keychain、Windows Credential Manager、
+  Linux Secret Service、Android Keystore；当前是 `credentials.json`（Unix 0600）。
+- P1 — LittleSkin / 自建 authlib-injector 服务端的真实回归：多角色、令牌过期后自动刷新、
+  进入 online-mode 服务器与游戏内第三方皮肤显示；CI 只用 wiremock。
+- P2 — 账户导入/导出（不含令牌）与多设备同步。
+- P2 — 微软正版登录（M11，需 Azure 应用审核）。
+- P2 — 第三方服务端预设列表（LittleSkin 之外的常用 ALI 服务）。
+- P2 — authlib-injector 版本检查与自动更新：当前缓存优先，不主动查询新版本。
+
 ## 性能与打包
 
 - ✅ P0 — 记录 R0 基线：安装包体积、安装后体积、冷启动、空闲 RSS。

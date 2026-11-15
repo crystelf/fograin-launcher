@@ -426,8 +426,16 @@ name = "fg-auth"
 version = "0.1.0"
 dependencies = [
  "fg-core",
+ "fg-net",
  "md-5",
+ "rand",
+ "reqwest",
  "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "wiremock",
 ]
 
 [[package]]
@@ -485,6 +493,7 @@ dependencies = [
  "tokio",
  "toml",
  "tracing",
+ "wiremock",
 ]
 
 [[package]]

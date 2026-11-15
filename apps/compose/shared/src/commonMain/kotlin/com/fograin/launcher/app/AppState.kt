@@ -6,6 +6,7 @@ import com.fograin.launcher.model.GameLoaderKind
 import com.fograin.launcher.model.Instance
 import com.fograin.launcher.model.LibraryScope
 import com.fograin.launcher.model.LibrarySort
+import com.fograin.launcher.platform.CoreAccount
 import com.fograin.launcher.platform.CoreAppSnapshot
 import com.fograin.launcher.platform.CoreGameConfig
 import com.fograin.launcher.platform.CoreJavaCatalogEntry
@@ -14,6 +15,7 @@ import com.fograin.launcher.platform.CoreLoaderVersion
 import com.fograin.launcher.platform.CorePlanPreview
 import com.fograin.launcher.platform.CoreSettings
 import com.fograin.launcher.platform.CoreVersionEntry
+import com.fograin.launcher.platform.CoreYggdrasilProfile
 import com.fograin.launcher.settings.ThemeMode
 import com.fograin.launcher.ui.AppDestination
 
@@ -79,7 +81,43 @@ data class JavaUiState(
     }
 }
 
-/** Scope of the home instance list, matching the pen's recent filter. */
+/**
+ * Sub-pages of the account panel. Skins are deliberately absent from M7: the
+ * panel only manages identities (offline and third-party sign-in).
+ */
+enum class AccountStage {
+    LIST,
+    OFFLINE,
+    YGGDRASIL,
+    PROFILES,
+}
+
+/** Account panel state owned by [AppModel]. */
+data class AccountUiState(
+    val open: Boolean = false,
+    val accounts: List<CoreAccount> = emptyList(),
+    val selectedId: String? = null,
+    val stage: AccountStage = AccountStage.LIST,
+    val isLoading: Boolean = false,
+    val isSubmitting: Boolean = false,
+    val error: String? = null,
+    /** Server metadata for the profile picker after a multi-profile login. */
+    val pendingId: String? = null,
+    val pendingServerName: String = "",
+    val pendingProfiles: List<CoreYggdrasilProfile> = emptyList(),
+) {
+    val selected: CoreAccount?
+        get() = accounts.firstOrNull { it.id == selectedId } ?: accounts.firstOrNull()
+
+    /** Display name for the greeting and avatar; stable before the first load. */
+    val displayName: String
+        get() = selected?.name ?: "Steve"
+
+    val initial: String
+        get() = displayName.firstOrNull()?.uppercaseChar()?.toString() ?: "?"
+}
+
+/** Scope of the home instance list, matching the pen's recent filter. *//** Scope of the home instance list, matching the pen's recent filter. */
 enum class HomeFilter {
     RECENT,
     FAVORITES,
@@ -168,6 +206,7 @@ data class AppUiState(
     val alert: AppAlert? = null,
     val download: DownloadUiState = DownloadUiState(),
     val java: JavaUiState = JavaUiState(),
+    val account: AccountUiState = AccountUiState(),
     /** Non-null when the instance settings sheet is open. */
     val instanceSettingsId: String? = null,
     /** Instance shown by the library preview sheet. */

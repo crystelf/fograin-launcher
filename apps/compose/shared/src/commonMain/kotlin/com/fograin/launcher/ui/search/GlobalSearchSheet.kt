@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Memory
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -64,6 +65,7 @@ fun GlobalSearchSheet(model: AppModel, state: AppUiState) {
     val focusRequester = remember { FocusRequester() }
     val query = state.globalSearchQuery.trim()
     val javaLabel = stringResource(Res.string.global_search_java)
+    val accountLabel = stringResource(Res.string.global_search_accounts)
     val addLabel = stringResource(Res.string.global_search_add_instance)
 
     LaunchedEffect(Unit) {
@@ -95,6 +97,15 @@ fun GlobalSearchSheet(model: AppModel, state: AppUiState) {
                 subtitle = stringResource(Res.string.global_search_java_body),
                 icon = Icons.Outlined.Memory,
                 action = { closeAnd { model.openJavaSettings() } },
+            ),
+        )
+        add(
+            SearchCommand(
+                id = "accounts",
+                title = accountLabel,
+                subtitle = stringResource(Res.string.global_search_accounts_body),
+                icon = Icons.Outlined.Person,
+                action = { closeAnd { model.openAccounts() } },
             ),
         )
         add(

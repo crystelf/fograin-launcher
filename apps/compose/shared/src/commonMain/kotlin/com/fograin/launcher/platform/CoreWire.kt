@@ -131,6 +131,31 @@ data class CoreErrorPayload(
             "error.loader.minecraft_mismatch" -> "加载器安装包与所选 Minecraft 版本不一致。"
             "error.loader.mappings_missing" -> "该版本缺少 Mojang 映射文件，无法安装 Forge/NeoForge。"
             "error.instance.invalid_id" -> "实例名称无法转换为安全的目录名。"
+            "error.auth.server_url" -> "第三方登录地址不正确，请输入 https:// 开头的 Yggdrasil 地址。"
+            "error.auth.server_unreachable" -> "无法连接第三方登录服务器，请检查地址、网络或代理设置。"
+            "error.auth.server_metadata", "error.auth.server_status" ->
+                "第三方登录服务器返回了无法识别的响应，请确认这是 authlib-injector / Yggdrasil 服务。"
+            "error.auth.credentials_required" -> "请输入账户和密码。"
+            "error.auth.invalid_credentials" -> "用户名或密码不正确。"
+            "error.auth.forbidden" -> "第三方登录服务器拒绝了这个请求。"
+            "error.auth.response" -> "第三方登录响应不完整，请稍后重试。"
+            "error.auth.no_profiles" -> "这个账户还没有可用的游戏角色。"
+            "error.auth.profile_not_found", "error.auth.profile_required" ->
+                "请选择要使用的游戏角色。"
+            "error.auth.selection_expired" -> "角色选择已过期，请重新登录。"
+            "error.auth.login_required" -> "这个账户需要重新登录。"
+            "error.auth.expired" -> "登录已过期，请在账户页重新登录。"
+            "error.auth.account_not_found", "error.auth.no_account" ->
+                "找不到这个账户，请重新选择或添加账户。"
+            "error.auth.kind_mismatch", "error.auth.injector_required",
+            "error.auth.injector_metadata", "error.auth.injector_download" ->
+                "第三方登录组件不可用，请检查网络后重试。"
+            "error.auth.microsoft_pending" -> "正版登录将在后续版本提供。"
+            "error.auth.conflicting_account" -> "不能同时指定账户和离线用户名。"
+            "error.auth.accounts_parse", "error.auth.accounts_read",
+            "error.auth.accounts_write", "error.auth.accounts_serialize",
+            "error.auth.credentials_write", "error.auth.accounts_schema" ->
+                "账户数据无法读取或保存，请检查数据目录权限。"
             "error.core.unavailable" -> "无法连接启动器核心。请确认应用已正确安装原生库。"
             "error.data_root.already_set", "error.data_root.service_started" ->
                 "启动器核心已经启动，无法再切换数据目录。请重启应用。"
@@ -298,6 +323,52 @@ data class CoreInstanceSettings(
     val effective: CoreGameConfig = CoreGameConfig(),
     val overrides: CoreInstanceOverrides = CoreInstanceOverrides(),
     val globals: CoreGameConfig = CoreGameConfig(),
+)
+
+/** One row of `accounts.list`; never contains tokens. */
+@Serializable
+data class CoreAccount(
+    val id: String,
+    val kind: String = "offline",
+    val name: String = id,
+    val uuid: String = "",
+    val server: String? = null,
+    val serverName: String? = null,
+    val selected: Boolean = false,
+)
+
+/** `accounts.list` envelope. */
+@Serializable
+data class CoreAccountList(
+    val accounts: List<CoreAccount> = emptyList(),
+    val selectedId: String? = null,
+)
+
+/** `accounts.yggdrasil.discover` result. */
+@Serializable
+data class CoreYggdrasilServer(
+    val server: String,
+    val serverName: String = "",
+    val implementationName: String? = null,
+    val implementationVersion: String? = null,
+)
+
+/** One selectable Yggdrasil game profile. */
+@Serializable
+data class CoreYggdrasilProfile(
+    val id: String,
+    val name: String = id,
+)
+
+/** `accounts.yggdrasil.login` result: a saved account or a profile choice. */
+@Serializable
+data class CoreYggdrasilLoginResult(
+    val account: CoreAccount? = null,
+    val selectedId: String? = null,
+    val selectionRequired: Boolean = false,
+    val pendingId: String? = null,
+    val serverName: String = "",
+    val profiles: List<CoreYggdrasilProfile> = emptyList(),
 )
 
 // ---------------------------------------------------------------------------

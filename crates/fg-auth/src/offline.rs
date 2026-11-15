@@ -100,13 +100,29 @@ impl fmt::Display for OfflineAccount {
     }
 }
 
-/// Account backend. `Microsoft` is reserved for M11, `Yggdrasil` for M7.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Account backend. `Microsoft` is reserved for M11; skin management is not
+/// part of any kind.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AccountKind {
+    /// Name-only account; the UUID is derived from the name.
+    #[default]
     Offline,
+    /// Third-party Yggdrasil / authlib-injector account.
     Yggdrasil,
+    /// Reserved for the Microsoft login in M11.
     Microsoft,
+}
+
+impl AccountKind {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Offline => "offline",
+            Self::Yggdrasil => "yggdrasil",
+            Self::Microsoft => "microsoft",
+        }
+    }
 }
 
 /// Public (non-secret) account metadata safe to store in `accounts.json`.

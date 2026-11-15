@@ -38,6 +38,8 @@
     <string name="global_search_java_body">管理系统与启动器托管的 Java</string>
     <string name="global_search_add_instance">添加实例</string>
     <string name="global_search_add_instance_body">选择 Minecraft 版本与加载器</string>
+    <string name="global_search_accounts">账户</string>
+    <string name="global_search_accounts_body">离线账户与第三方服务器登录</string>
 
     <!-- Home -->
     <string name="home_greeting_format">%1$s，%2$s</string>
@@ -73,12 +75,50 @@
     <string name="home_runtime_java_pending">缺失的 Java 会按版本自动下载；也可以在设置里管理运行时。</string>
     <string name="home_runtime_java_managed">已管理 %1$d 个下载运行时</string>
     <string name="home_news">版本动态</string>
-    <string name="home_account_pending">账户页将在 M7 接入</string>
     <string name="home_speed_idle">空闲</string>
     <string name="status_succeeded">已完成</string>
     <string name="status_failed">失败</string>
     <string name="status_paused">已暂停</string>
     <string name="status_cancelled">已取消</string>
+
+    <!-- Accounts (M7) -->
+    <string name="account_title">账户</string>
+    <string name="account_close">关闭账户面板</string>
+    <string name="account_back">返回账户列表</string>
+    <string name="account_add_offline">添加离线账户</string>
+    <string name="account_add_yggdrasil">第三方登录</string>
+    <string name="account_kind_offline">离线账户</string>
+    <string name="account_kind_yggdrasil">第三方账户</string>
+    <string name="account_kind_microsoft">正版账户</string>
+    <string name="account_kind_server_format">第三方 · %1$s</string>
+    <string name="account_selected">当前</string>
+    <string name="account_use">使用</string>
+    <string name="account_refresh_login">刷新登录</string>
+    <string name="account_delete">删除账户</string>
+    <string name="account_delete_title">删除账户？</string>
+    <string name="account_delete_body">将从启动器中移除“%1$s”；第三方账户会尝试吊销登录令牌。</string>
+    <string name="account_empty">还没有账户。添加一个离线账户即可开始游戏。</string>
+    <string name="account_note">登录信息只保存在本机，启动器不会保存密码。</string>
+    <string name="account_offline_title">添加离线账户</string>
+    <string name="account_name_label">玩家名称</string>
+    <string name="account_name_support">3–16 位字母、数字或下划线</string>
+    <string name="account_create_and_use">创建并切换</string>
+    <string name="account_yggdrasil_title">第三方服务器登录</string>
+    <string name="account_yggdrasil_body">支持 authlib-injector / Yggdrasil 服务，例如 LittleSkin。登录后启动游戏会自动注入客户端。</string>
+    <string name="account_server_label">服务器地址</string>
+    <string name="account_server_support">API Root，例如 https://littleskin.cn/api/yggdrasil；可省略 https://</string>
+    <string name="account_presets">常用服务</string>
+    <string name="account_preset_littleskin">LittleSkin</string>
+    <string name="account_username_label">账户或邮箱</string>
+    <string name="account_password_label">密码</string>
+    <string name="account_login_action">登录</string>
+    <string name="account_login_working">正在登录…</string>
+    <string name="account_profile_title">选择角色</string>
+    <string name="account_profile_body">%1$s 返回了多个角色，选择本次启动使用的角色。</string>
+    <string name="account_profile_action">使用这个角色</string>
+    <string name="account_microsoft_title">正版登录</string>
+    <string name="account_microsoft_body">将在后续版本提供（M11）。</string>
+    <string name="account_error_title">账户操作没有完成</string>
 
     <!-- Instance summaries -->
     <string name="summary_memory_auto">自动 · 物理内存 %1$s</string>
@@ -337,5 +377,4 @@
     <string name="instance_settings_delete_body">将删除“%1$s”的实例记录与游戏目录。正在运行的游戏无法删除。</string>
 
     <!-- Runtime messages surfaced by AppModel -->
-    <string name="message_account_pending">账户页将在 M7 接入</string>
 </resources>

@@ -38,7 +38,7 @@ owns the boundary between them.
   `game.line`, `game.exited`) as a JSON array.
 - `fg_string_free(value)` — releases strings returned by the core.
 
-### RPC methods implemented (M4/M5/M6)
+### RPC methods implemented (M4/M5/M6/M7)
 
 | Method | Params → Result |
 | --- | --- |
@@ -57,7 +57,7 @@ owns the boundary between them.
 | `version.plan` | `{version, loaderKind?, loaderVersion?}` → files/totalBytes/javaMajor preview, plus `loaderKind` / `loaderVersion` |
 | `install.start` | `{version, instanceId?, instanceName?, loaderKind?, loaderVersion?}` → `{taskId, versionId}`; creates the instance when missing or reuses an existing one with the same Minecraft version (so 开始游戏 can complete an incomplete instance); pushes `task.*` events. Forge/NeoForge/OptiFine require a discovered Java runtime before the task is queued |
 | `tasks.list` / `tasks.cancel` | `{}` / `{taskId}` |
-| `launch.start` | `{instanceId, username?}` → `{pid}`; needs installed files + matching Java |
+| `launch.start` | `{instanceId, accountId?}` → `{pid}`; uses the selected account by default (the legacy `username` override still forces a one-shot offline session); needs installed files + matching Java |
 | `launch.status` / `session.wait` / `session.stop` | session polling and stop |
 | `game.log.recent` | `{instanceId, limit}` → last buffered log lines |
 | `gameConfig.get` / `.set` | `[game]` read / merge-write |
@@ -66,6 +66,19 @@ owns the boundary between them.
 | `java.install` | `{major, component?}` → `{taskId, runtimeId, existing, major, component, version, files, totalBytes}`; queues a `java:<major>` graph and pushes `task.*` events |
 | `java.remove` | `{id}` → `{ok, id}`; refused while the game runs or the same runtime is installing |
 | `java.policy.set` | `{autoDownload}` → `{autoDownload}`; persists `[java] auto_download` |
+| `accounts.list` | `{}` → `{accounts:[AccountRow], selectedId}` |
+| `accounts.addOffline` | `{name}` → `{account, selectedId}`; creates and selects an offline profile |
+| `accounts.select` | `{id}` → `{selectedId}` |
+| `accounts.remove` | `{id}` → `{ok, selectedId}`; a third-party token is revoked best-effort |
+| `accounts.refresh` | `{id?}` → `{account, selectedId}`; validates and refreshes the selected account by default |
+| `accounts.yggdrasil.discover` | `{server}` → `{server, serverName, implementationName?, implementationVersion?}` |
+| `accounts.yggdrasil.login` | `{server, username, password}` → `{account, selectedId}` or `{selectionRequired:true, pendingId, server, serverName, profiles:[{id,name}]}` |
+| `accounts.yggdrasil.selectProfile` | `{pendingId, profileId}` → `{account, selectedId}`; pending logins expire after 10 minutes |
+
+`AccountRow` is `{id, kind, name, uuid, server?, serverName?, selected}`; tokens and
+passwords never cross the RPC boundary. Offline accounts use UUID v3; Yggdrasil
+accounts use the profile UUID. The account panel and launch path are documented in
+[../docs/m7.md](../docs/m7.md).
 
 Loader installs write `shared/versions/<versionId>/<versionId>.json` and record
 that id in `instance.toml [loader] version_id`; vanilla instances leave it empty

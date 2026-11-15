@@ -19,7 +19,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use fg_auth::OfflineAccount;
+use fg_auth::AuthSession;
 use fg_core::{Error, ErrorKind, Result};
 use fg_java::{JavaArch, JavaRuntime};
 use fg_net::Url;
@@ -28,6 +28,7 @@ use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::Child,
     sync::broadcast,
+    task::JoinHandle,
 };
 use tracing::warn;
 use zip::{ZipArchive, ZipWriter, write::SimpleFileOptions};
@@ -109,7 +110,7 @@ impl LaunchPlan {
         instance: &Instance,
         resolved: &ResolvedVersion,
         java: &JavaRuntime,
-        account: &OfflineAccount,
+        account: &AuthSession,
         options: &LaunchOptions,
     ) -> Result<Self> {
         let context = options
@@ -190,8 +191,8 @@ impl LaunchPlan {
         placeholders.insert("auth_uuid", account.uuid_hex());
         placeholders.insert("auth_access_token", account.access_token());
         placeholders.insert("auth_session", account.session());
-        placeholders.insert("user_type", "legacy");
-        placeholders.insert("user_properties", "{}");
+        placeholders.insert("user_type", account.user_type().as_str());
+        placeholders.insert("user_properties", account.user_properties());
         placeholders.insert("clientid", "");
         placeholders.insert("auth_xuid", "");
         placeholders.insert("version_name", resolved.id.clone());
@@ -293,6 +294,8 @@ impl LaunchPlan {
         jvm_args.extend(default_jvm);
         jvm_args.extend(instance.jvm_args());
         jvm_args.extend(options.extra_jvm_args.iter().cloned());
+        // authlib-injector must install before Minecraft's authlib loads.
+        jvm_args.extend(account.jvm_args());
         jvm_args.extend(version_jvm);
 
         if cfg!(target_os = "macos") && !jvm_args.iter().any(|arg| arg == "-XstartOnFirstThread") {
@@ -971,13 +974,22 @@ pub struct GameExit {
     pub window_ready: bool,
 }
 
+/// How long the exit may take to observe once the game is gone or a stop is
+/// requested, shared by the exit status and the log drain.
+///
+/// The readers only see end-of-file once every process holding the inherited
+/// pipes exits, and a game may have handed its stdout/stderr to helpers that
+/// outlive it, so an unbounded drain would keep `stop` — and `wait` — pending
+/// for as long as those helpers live.
+const EXIT_LIMIT: Duration = Duration::from_secs(2);
+
 /// Running game process with log streaming.
 pub struct GameProcess {
     child: Child,
     pid: Option<u32>,
     events: broadcast::Sender<GameEvent>,
-    stdout_task: tokio::task::JoinHandle<()>,
-    stderr_task: tokio::task::JoinHandle<()>,
+    stdout_task: JoinHandle<()>,
+    stderr_task: JoinHandle<()>,
     started: Instant,
     log_file: PathBuf,
     window_ready: Arc<AtomicBool>,
@@ -1094,6 +1106,11 @@ impl GameProcess {
     /// the only place that emits [`GameEvent::Exited`]; polling only the log
     /// stream would miss a clean exit or a requested stop.
     ///
+    /// One deadline covers the whole exit: a stop request bounds the exit
+    /// status and the log drain together, and a clean exit bounds the drain
+    /// alone. A game that spawned helpers therefore cannot keep `stop` pending
+    /// by holding the inherited log pipes.
+    ///
     /// # Errors
     ///
     /// Returns [`ErrorKind::Io`] when waiting fails.
@@ -1102,21 +1119,31 @@ impl GameProcess {
         kill: impl std::future::Future<Output = ()>,
     ) -> Result<GameExit> {
         tokio::pin!(kill);
-        let status = tokio::select! {
-            status = self.child.wait() => status.map_err(|error| {
+        let exited = tokio::select! {
+            status = self.child.wait() => Some(status.map_err(|error| {
                 Error::with_detail(ErrorKind::Io, "error.launch.wait", error.to_string())
-            })?,
-            () = &mut kill => {
+            })?),
+            () = &mut kill => None,
+        };
+        let deadline = tokio::time::Instant::now() + EXIT_LIMIT;
+        let status = match exited {
+            Some(status) => Some(status),
+            None => {
                 let _ = self.child.start_kill();
-                self.child.wait().await.map_err(|error| {
-                    Error::with_detail(ErrorKind::Io, "error.launch.wait", error.to_string())
-                })?
+                match tokio::time::timeout_at(deadline, self.child.wait()).await {
+                    Ok(status) => Some(status.map_err(|error| {
+                        Error::with_detail(ErrorKind::Io, "error.launch.wait", error.to_string())
+                    })?),
+                    Err(_) => {
+                        warn!(pid = ?self.pid, "game process did not report its exit");
+                        None
+                    }
+                }
             }
         };
-        let _ = self.stdout_task.await;
-        let _ = self.stderr_task.await;
-        let code = status.code();
-        let success = status.success();
+        drain_logs(self.stdout_task, self.stderr_task, deadline).await;
+        let code = status.and_then(|status| status.code());
+        let success = status.is_some_and(|status| status.success());
         let _ = self.events.send(GameEvent::Exited { code, success });
         Ok(GameExit {
             code,
@@ -1136,6 +1163,28 @@ impl GameProcess {
         self.child.start_kill().map_err(|error| {
             Error::with_detail(ErrorKind::Io, "error.launch.kill", error.to_string())
         })
+    }
+}
+
+/// Flushes what the log readers still buffer, then drops them.
+///
+/// `read_stream` ends at end-of-file, which the kernel reports only after the
+/// last writer closes the pipe, so waiting without a deadline would stall
+/// every caller of [`GameProcess::wait_with_kill`]. Whatever arrived before
+/// `deadline` is already flushed to the log file line by line.
+async fn drain_logs(
+    mut stdout: JoinHandle<()>,
+    mut stderr: JoinHandle<()>,
+    deadline: tokio::time::Instant,
+) {
+    let drain = async {
+        let _ = std::pin::Pin::new(&mut stdout).await;
+        let _ = std::pin::Pin::new(&mut stderr).await;
+    };
+    if tokio::time::timeout_at(deadline, drain).await.is_err() {
+        stdout.abort();
+        stderr.abort();
+        warn!("dropped the log readers while a process still held the pipes");
     }
 }
 
@@ -1354,6 +1403,12 @@ pub fn read_file(path: &Path) -> Result<Vec<u8>> {
 mod tests {
     use std::collections::HashMap;
 
+    use fg_auth::{Account, AccountKind, AuthlibInjector, OfflineAccount};
+
+    fn offline_session() -> AuthSession {
+        AuthSession::offline(&OfflineAccount::new("Steve").expect("account"))
+    }
+
     use fg_core::DownloadSource;
     use fg_java::{JavaArch, JavaSource, JavaVersion};
     use fg_net::{Downloader, MirrorTable, Region};
@@ -1463,7 +1518,7 @@ mod tests {
         )
         .resolve_local("1.7.10")
         .expect("resolve");
-        let account = OfflineAccount::new("Steve").expect("account");
+        let account = offline_session();
         LaunchPlan::build(
             layout,
             instance,
@@ -1476,6 +1531,63 @@ mod tests {
             },
         )
         .expect("build")
+    }
+
+    #[test]
+    fn yggdrasil_sessions_add_the_injector_and_server_contract() {
+        let (_directory, layout) = layout();
+        let instance = Instance::create(&layout, "ygg", "1.7.10").expect("instance");
+        install_fixture_version(
+            &layout,
+            &instance,
+            "1.7.10",
+            include_str!("../tests/fixtures/versions/1.7.10.json"),
+        );
+        let resolved = crate::resolver::VersionResolver::new(
+            Arc::new(Downloader::new(layout.root()).expect("downloader")),
+            layout.clone(),
+            MirrorTable::embedded().clone(),
+            DownloadSource::Official,
+            Region::RestOfWorld,
+        )
+        .resolve_local("1.7.10")
+        .expect("resolve");
+
+        let mut account = Account::offline("Steve").expect("account");
+        account.kind = AccountKind::Yggdrasil;
+        account.server = Some("https://littleskin.cn/api/yggdrasil".to_string());
+        account.properties = r#"{"textures":[{"name":"textures","value":"abc"}]}"#.to_string();
+        account.set_tokens("access-token-1", "client-token-1");
+        let session = AuthSession::yggdrasil(
+            &account,
+            AuthlibInjector::new(
+                "/cache/authlib-injector-1.2.8.jar",
+                "https://littleskin.cn/api/yggdrasil",
+            ),
+        )
+        .expect("session");
+
+        let plan = LaunchPlan::build(
+            &layout,
+            &instance,
+            &resolved,
+            &fake_java_arch(JavaArch::X86_64),
+            &session,
+            &LaunchOptions {
+                rule_context: Some(context()),
+                ..LaunchOptions::default()
+            },
+        )
+        .expect("plan");
+        let joined = plan.args.join(" ");
+        assert!(joined.contains("--username Steve"));
+        assert!(joined.contains("--accessToken access-token-1"));
+        assert!(joined.contains("--userType mojang"));
+        assert!(joined.contains("--userProperties {\"textures\""));
+        assert!(joined.contains(
+            "-javaagent:/cache/authlib-injector-1.2.8.jar=https://littleskin.cn/api/yggdrasil"
+        ));
+        assert!(joined.contains("-Dauthlibinjector.side=client"));
     }
 
     #[test]
@@ -1585,7 +1697,7 @@ mod tests {
         )
         .resolve_local(id)
         .expect("resolve");
-        let account = OfflineAccount::new("Steve").expect("account");
+        let account = offline_session();
         LaunchPlan::build(
             layout,
             instance,
@@ -1714,7 +1826,7 @@ mod tests {
             &instance,
             &resolved,
             &fake_java_arch(JavaArch::X86_64),
-            &OfflineAccount::new("Steve").expect("account"),
+            &offline_session(),
             &LaunchOptions {
                 rule_context: Some(context()),
                 force_argfile: true,
@@ -1759,7 +1871,7 @@ mod tests {
             &instance,
             &resolved,
             &java,
-            &OfflineAccount::new("Steve").expect("account"),
+            &offline_session(),
             &LaunchOptions {
                 rule_context: Some(context()),
                 force_argfile: true,
@@ -1842,7 +1954,7 @@ mod tests {
             &instance,
             &resolved,
             &fake_java_arch(JavaArch::Arm64),
-            &OfflineAccount::new("Steve").expect("account"),
+            &offline_session(),
             &LaunchOptions {
                 rule_context: Some(context()),
                 ..LaunchOptions::default()
@@ -1895,6 +2007,68 @@ mod tests {
         .expect("wait");
         assert!(started.elapsed() < Duration::from_secs(5));
         assert!(!exit.success);
+    }
+
+    /// Plan that runs `script` through `/bin/sh` for an instance named `id`.
+    #[cfg(unix)]
+    fn shell_plan(layout: &Layout, id: &str, script: &str) -> LaunchPlan {
+        let instance = Instance::create(layout, id, "1.21.4").expect("instance");
+        LaunchPlan {
+            program: PathBuf::from("/bin/sh"),
+            args: vec!["-c".to_string(), script.to_string()],
+            cwd: instance.game_dir(layout),
+            env: BTreeMap::new(),
+            main_class: String::new(),
+            classpath: Vec::new(),
+            natives_dir: layout.natives(id),
+            game_dir: instance.game_dir(layout),
+            asset_index: None,
+            log_config: None,
+            argfile: None,
+            pathing_jar: None,
+            features: BTreeMap::new(),
+        }
+    }
+
+    /// A game may hand its stdout/stderr to helper processes. Those helpers
+    /// inherit the pipes and can outlive the game, so the readers only see EOF
+    /// long after the game is gone; the stop path must not wait for them.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stop_ignores_log_pipes_held_by_a_spawned_helper() {
+        let (_directory, layout) = layout();
+        let plan = shell_plan(&layout, "helpers", "sleep 10 & sleep 10");
+        let process = GameProcess::spawn(&plan).expect("spawn");
+        let started = Instant::now();
+        let exit = tokio::time::timeout(
+            Duration::from_secs(10),
+            process.wait_with_kill(async {
+                tokio::time::sleep(Duration::from_millis(150)).await;
+            }),
+        )
+        .await
+        .expect("a helper holding the log pipes must not wedge stop")
+        .expect("wait");
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert!(!exit.success);
+    }
+
+    /// The same pipe lifetime applies to a clean exit: the session watcher has
+    /// to report the code even when a helper keeps the log pipes open.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn wait_reports_a_clean_exit_while_a_helper_holds_the_log_pipes() {
+        let (_directory, layout) = layout();
+        let plan = shell_plan(&layout, "exit", "sleep 10 &");
+        let process = GameProcess::spawn(&plan).expect("spawn");
+        let started = Instant::now();
+        let exit = tokio::time::timeout(Duration::from_secs(10), process.wait())
+            .await
+            .expect("a helper holding the log pipes must not wedge wait")
+            .expect("wait");
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert_eq!(exit.code, Some(0));
+        assert!(exit.success);
     }
 
     #[cfg(unix)]

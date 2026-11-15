@@ -82,6 +82,7 @@ class AppModel internal constructor(
     internal val session = LaunchActions(this)
     internal val instanceSettings = InstanceSettingsActions(this)
     internal val java = JavaActions(this)
+    internal val account = AccountActions(this)
 
     private val refreshMutex = Mutex()
 
@@ -123,9 +124,6 @@ class AppModel internal constructor(
     internal fun setState(transform: (AppUiState) -> AppUiState) {
         _state.update(transform)
     }
-
-    internal val username: String
-        get() = state.value.gameConfig?.username ?: "Steve"
 
     internal fun nextId(): Long {
         idGenerator += 1
@@ -177,6 +175,10 @@ class AppModel internal constructor(
                         _state.update { it.copy(gameConfig = config) }
                     }
                 }
+
+            // Local file read; keeps the home avatar and the launch path on the
+            // same selected account after external CLI changes.
+            account.load()
 
             // Fast inventory read: Settings shows the auto-download policy and
             // the managed count without opening the network-bound catalog.
@@ -326,6 +328,7 @@ class AppModel internal constructor(
         val installSubPage = current.destination == AppDestination.DOWNLOADS &&
             current.download.stage != DownloadStage.BROWSER
         return current.alert != null ||
+            current.account.open ||
             current.globalSearchOpen ||
             current.previewInstanceId != null ||
             current.instanceSettingsId != null ||
@@ -339,6 +342,7 @@ class AppModel internal constructor(
         val current = state.value
         when {
             current.alert != null -> dismissAlert()
+            current.account.open -> account.back()
             current.globalSearchOpen -> closeGlobalSearch()
             current.previewInstanceId != null -> closePreview()
             current.instanceSettingsId != null -> closeInstanceSettings()
@@ -541,6 +545,39 @@ class AppModel internal constructor(
 
     fun copyInstanceDirectoryPath(instance: Instance) =
         instanceSettings.copyDirectoryPath(instance)
+
+    // ------------------------------------------------------------------
+    // Accounts (M7)
+    // ------------------------------------------------------------------
+
+    fun openAccounts() = account.open()
+
+    fun closeAccounts() = account.close()
+
+    fun showOfflineAccountForm() = account.showOfflineForm()
+
+    fun showYggdrasilAccountForm() = account.showYggdrasilForm()
+
+    fun refreshAccounts() = account.refresh()
+
+    fun clearAccountError() = account.clearError()
+
+    fun addOfflineAccount(name: String) = account.addOffline(name)
+
+    fun loginYggdrasil(server: String, username: String, password: String) =
+        account.loginYggdrasil(server, username, password)
+
+    fun selectYggdrasilProfile(profileId: String) = account.selectYggdrasilProfile(profileId)
+
+    fun selectAccount(id: String) = account.select(id)
+
+    fun removeAccount(id: String) = account.remove(id)
+
+    fun refreshAccount(id: String? = null) = account.refreshAccount(id)
+
+    /** Selected account id for `launch.start`, or null before the first load. */
+    val selectedAccountId: String?
+        get() = state.value.account.selectedId ?: state.value.account.selected?.id
 
     // ------------------------------------------------------------------
     // Java runtime management (M6)

@@ -47,6 +47,22 @@ class FakeCoreClient : CoreClient {
             """{"ok":true,"username":"Steve_Fog","memoryMb":6144,"java":null,"jvmArgs":"","resolution":[1920,1080],"fullscreen":false,"showLog":false,"autoCompleteResources":true}""",
         )
 
+        "accounts.list" -> json(
+            """{"ok":true,"selectedId":"offline-steve","accounts":[
+              {"id":"offline-steve","kind":"offline","name":"Steve_Fog","uuid":"5627dd98-e6be-3c21-b8a8-e92344183641","selected":true},
+              {"id":"ygg-littleskin","kind":"yggdrasil","name":"Fograin","uuid":"8f0c1d2e-3a4b-5c6d-7e8f-90a1b2c3d4e5","server":"https://littleskin.cn/api/yggdrasil","serverName":"LittleSkin"}
+            ]}""",
+        )
+
+        "accounts.yggdrasil.login" -> json(
+            """{"ok":true,"selectionRequired":true,"pendingId":"pending-1","serverName":"LittleSkin","profiles":[
+              {"id":"profile-1","name":"Fograin"},
+              {"id":"profile-2","name":"FograinAlt"}
+            ]}""",
+        )
+
+        "launch.start" -> json("""{"ok":true,"pid":4242}""")
+
         "tasks.list" -> json(
             """{"ok":true,"result":[
               {"id":"task-1","name":"install:1.21.5","state":"running","fraction":0.42,"speed":12300000.0}

@@ -61,7 +61,9 @@ import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.resources.Res
 import com.fograin.launcher.resources.action_ok
 import com.fograin.launcher.resources.global_search_open
+import com.fograin.launcher.ui.accounts.AccountSheet
 import com.fograin.launcher.ui.components.AnimatedSheetHost
+import com.fograin.launcher.ui.components.PageHeaderMetrics
 import com.fograin.launcher.ui.downloads.DownloadsScreen
 import com.fograin.launcher.ui.home.HomeScreen
 import com.fograin.launcher.ui.instances.InstanceSettingsSheet
@@ -79,10 +81,9 @@ const val NavBarTag: String = "nav-bar"
 const val NavRailTag: String = "nav-rail"
 const val GlobalSearchButtonTag: String = "global-search-button"
 
-/** Space reserved for the native macOS traffic lights over the rail/content. */
-private val MacTitleBarInset = 40.dp
-
 private data object GlobalSearchTarget
+
+private data object AccountTarget
 
 /**
  * Root shell: one screen per destination plus the model's notices, alerts and
@@ -104,9 +105,10 @@ fun FograinApp(
     val snackbarHostState = remember { SnackbarHostState() }
     val services = remember { platformServices() }
     val backDispatcher = remember { services.backDispatcher }
-    // On macOS the native traffic lights are drawn over full-window content;
-    // reserve a strip for them in both the rail and the page content.
-    val titleBarInset = if (services.platformName == "macos") MacTitleBarInset else 0.dp
+    // The page header starts at the window edge on every platform. On macOS
+    // that puts the title row on the same line as the native traffic lights;
+    // the header itself uses a shorter 48 dp row for that title-bar feel.
+    val headerHeight = PageHeaderMetrics.heightFor(services.platformName)
 
     LaunchedEffect(state.notice?.id) {
         val notice = state.notice ?: return@LaunchedEffect
@@ -124,6 +126,10 @@ fun FograinApp(
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val expanded = maxWidth >= ExpandedWidth
+        // Without the rail the title row starts at x = 0, where macOS draws
+        // the traffic lights. Keep the content right of them in that layout.
+        val contentStartInset =
+            if (!expanded && services.platformName == "macos") 76.dp else 0.dp
 
         Scaffold(
             modifier = Modifier.fillMaxSize(),
@@ -178,9 +184,11 @@ fun FograinApp(
                             verticalArrangement = Arrangement.SpaceBetween,
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                // Align the search button with the first
+                                // content card (the home hero image).
                                 Spacer(
                                     Modifier.height(
-                                        if (titleBarInset.value > 0f) titleBarInset else 12.dp,
+                                        headerHeight + PageHeaderMetrics.ContentGap,
                                     ),
                                 )
                                 RailSearchButton(onClick = model::openGlobalSearch)
@@ -235,7 +243,7 @@ fun FograinApp(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .padding(top = titleBarInset),
+                        .padding(start = contentStartInset),
                     transitionSpec = {
                         val forward = targetState.ordinal > initialState.ordinal
                         val enter = fadeIn(tween(220)) +
@@ -295,6 +303,13 @@ fun FograinApp(
         onDismissRequest = model::closeGlobalSearch,
     ) {
         GlobalSearchSheet(model = model, state = state)
+    }
+
+    AnimatedSheetHost(
+        value = if (state.account.open) AccountTarget else null,
+        onDismissRequest = model::closeAccounts,
+    ) {
+        AccountSheet(model = model, state = state)
     }
 }
 

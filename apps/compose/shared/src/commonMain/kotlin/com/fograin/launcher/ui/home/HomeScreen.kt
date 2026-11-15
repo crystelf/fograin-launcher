@@ -64,6 +64,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
@@ -95,6 +96,9 @@ import kotlinx.datetime.toLocalDateTime
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
+/** Test tag for the top-bar account entry. */
+const val AccountAvatarTag: String = "account-avatar"
+
 /**
  * Home tab: the current instance hero, the instance list, the task queue and
  * the runtime/news column. Matches the pen home layout and keeps every action on
@@ -103,22 +107,22 @@ import org.jetbrains.compose.resources.stringResource
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(model: AppModel, state: AppUiState) {
-    val account = SampleData.account
+    val account = state.account
     val nowMillis = remember { Clock.System.now().toEpochMilliseconds() }
-    val accountPending = stringResource(Res.string.home_account_pending)
 
     Column(modifier = Modifier.fillMaxSize()) {
         PageHeader(
             title = stringResource(
                 Res.string.home_greeting_format,
                 currentGreeting(),
-                account.name,
+                account.displayName,
             ),
             actions = {
                 AccountAvatarButton(
                     initial = account.initial,
-                    label = stringResource(Res.string.home_account_format, account.name),
-                    onClick = { model.showNotice(accountPending) },
+                    label = stringResource(Res.string.home_account_format, account.displayName),
+                    onClick = model::openAccounts,
+                    modifier = Modifier.testTag(AccountAvatarTag),
                 )
             },
         )

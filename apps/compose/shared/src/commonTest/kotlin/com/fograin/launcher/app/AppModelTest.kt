@@ -3,6 +3,7 @@ package com.fograin.launcher.app
 import com.fograin.launcher.model.GameLoaderKind
 import com.fograin.launcher.model.Instance
 import com.fograin.launcher.platform.CoreEvent
+import com.fograin.launcher.platform.stringOrNull
 import com.fograin.launcher.settings.ThemeMode
 import com.fograin.launcher.ui.AppDestination
 import kotlin.test.Test
@@ -397,4 +398,115 @@ class AppModelTest {
         assertTrue(core.rpcCalls.isEmpty(), "view state must not call the core")
         assertNotNull(instance)
     }
+    @Test
+    fun accountsLoadWithTheSelectedRow() = runTest {
+        val model = model(backgroundScope)
+        runCurrent()
+
+        val account = model.state.value.account
+        assertEquals(1, account.accounts.size)
+        assertEquals("Steve_Fog", account.selected?.name)
+        assertEquals("Steve_Fog", account.displayName)
+        assertEquals("offline-steve", model.selectedAccountId)
+    }
+
+    @Test
+    fun offlineAccountCreationSelectsTheNewRow() = runTest {
+        val core = FakeCore()
+        val model = model(backgroundScope, core)
+        runCurrent()
+
+        model.openAccounts()
+        model.showOfflineAccountForm()
+        model.addOfflineAccount("Alex")
+        runCurrent()
+
+        val state = model.state.value.account
+        assertEquals(AccountStage.LIST, state.stage)
+        assertEquals("Alex", state.selected?.name)
+        assertEquals("offline-Alex", model.selectedAccountId)
+        assertTrue(state.accounts.any { it.name == "Alex" })
+        assertTrue(core.rpcCalls.contains("accounts.addOffline"))
+    }
+
+    @Test
+    fun yggdrasilLoginCanRequireAProfileChoice() = runTest {
+        val core = FakeCore().apply { yggdrasilNeedsProfile = true }
+        val model = model(backgroundScope, core)
+        runCurrent()
+
+        model.openAccounts()
+        model.showYggdrasilAccountForm()
+        model.loginYggdrasil("https://littleskin.cn/api/yggdrasil", "user@example.com", "secret")
+        runCurrent()
+
+        val state = model.state.value.account
+        assertEquals(AccountStage.PROFILES, state.stage)
+        assertEquals("pending-1", state.pendingId)
+        assertEquals("LittleSkin", state.pendingServerName)
+        assertEquals(2, state.pendingProfiles.size)
+        assertEquals("user@example.com", core.accountLoginRequests.single().stringOrNull("username"))
+
+        model.selectYggdrasilProfile("profile-2")
+        runCurrent()
+
+        val after = model.state.value.account
+        assertEquals(AccountStage.LIST, after.stage)
+        assertEquals("FograinAlt", after.selected?.name)
+        assertEquals("yggdrasil-profile-2", model.selectedAccountId)
+    }
+
+    @Test
+    fun yggdrasilLoginWithoutAProfileChoiceSelectsTheAccount() = runTest {
+        val core = FakeCore()
+        val model = model(backgroundScope, core)
+        runCurrent()
+
+        model.openAccounts()
+        model.showYggdrasilAccountForm()
+        model.loginYggdrasil("https://littleskin.cn/api/yggdrasil", "user@example.com", "secret")
+        runCurrent()
+
+        val state = model.state.value.account
+        assertEquals(AccountStage.LIST, state.stage)
+        assertEquals("Fograin", state.selected?.name)
+        assertEquals("yggdrasil-profile-1", model.selectedAccountId)
+        assertEquals("LittleSkin", state.selected?.serverName)
+    }
+
+    @Test
+    fun launchSendsTheSelectedAccountId() = runTest {
+        val core = FakeCore()
+        val model = model(backgroundScope, core)
+        runCurrent()
+        val installed = model.state.value.instances.first { it.isInstalled }
+
+        model.startGame(installed)
+        runCurrent()
+
+        val request = core.launchRequests.single()
+        assertEquals("offline-steve", request.stringOrNull("accountId"))
+        assertEquals(null, request.stringOrNull("username"))
+        assertEquals(installed.id, request.stringOrNull("instanceId"))
+    }
+
+    @Test
+    fun accountBackStackReturnsToListBeforeClosing() = runTest {
+        val model = model(backgroundScope)
+        runCurrent()
+
+        model.openAccounts()
+        assertTrue(model.state.value.account.open)
+        model.showYggdrasilAccountForm()
+        assertTrue(model.canGoBack())
+
+        model.back()
+        assertEquals(AccountStage.LIST, model.state.value.account.stage)
+        assertTrue(model.state.value.account.open)
+
+        model.back()
+        assertFalse(model.state.value.account.open)
+        assertFalse(model.canGoBack())
+    }
+
 }
