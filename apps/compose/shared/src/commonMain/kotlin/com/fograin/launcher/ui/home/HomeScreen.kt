@@ -194,7 +194,7 @@ fun HomeScreen(model: AppModel, state: AppUiState) {
                     TaskQueueCard(state = state)
                 }
             }
-            item { RuntimeCard(state = state) }
+            item { RuntimeCard(model = model, state = state) }
             item { NewsCard(model = model) }
         }
     }
@@ -621,7 +621,7 @@ private fun TaskQueueCard(state: AppUiState) {
 }
 
 @Composable
-private fun RuntimeCard(state: AppUiState) {
+private fun RuntimeCard(model: AppModel, state: AppUiState) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
@@ -633,10 +633,19 @@ private fun RuntimeCard(state: AppUiState) {
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(
-                text = stringResource(Res.string.home_runtime),
-                style = MaterialTheme.typography.titleSmall,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = stringResource(Res.string.home_runtime),
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = model::openJavaSettings) {
+                    Text(stringResource(Res.string.settings_java_manage))
+                }
+            }
             KeyValueRow(
                 label = stringResource(Res.string.home_runtime_java),
                 value = state.javaSummary(),
@@ -656,7 +665,11 @@ private fun RuntimeCard(state: AppUiState) {
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Text(
-                text = stringResource(Res.string.home_runtime_java_pending),
+                text = if (state.java.managedCount > 0) {
+                    stringResource(Res.string.home_runtime_java_managed, state.java.managedCount)
+                } else {
+                    stringResource(Res.string.home_runtime_java_pending)
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

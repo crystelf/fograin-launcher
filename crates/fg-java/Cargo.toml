@@ -10,10 +10,15 @@ publish.workspace = true
 
 [dependencies]
 fg-core.workspace = true
+fg-net.workspace = true
+fg-task.workspace = true
 
 dirs.workspace = true
 serde.workspace = true
+serde_json.workspace = true
+sha1.workspace = true
 tokio.workspace = true
+tracing.workspace = true
 
 # `glob` only backs the macOS Homebrew and Windows Mojang-launcher scans, so it
 # is a target dependency: on Linux the crate would otherwise be unused.
@@ -22,3 +27,5 @@ glob.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+wiremock.workspace = true

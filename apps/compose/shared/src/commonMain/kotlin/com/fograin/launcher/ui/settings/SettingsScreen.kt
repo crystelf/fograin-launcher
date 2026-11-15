@@ -23,13 +23,16 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
+import com.fograin.launcher.app.SettingsStage
 import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.settings.ThemeMode
@@ -39,6 +42,8 @@ import com.fograin.launcher.ui.components.PageHeader
 import com.fograin.launcher.ui.javaSummary
 import com.fograin.launcher.ui.title
 import org.jetbrains.compose.resources.stringResource
+
+const val SettingsJavaManageTag: String = "settings-java-manage"
 
 /**
  * Settings: the shared appearance contract (§4.1.1) written through the Rust
@@ -53,6 +58,11 @@ fun SettingsScreen(
     dynamicColorEnabled: Boolean,
     onDynamicColorChange: (Boolean) -> Unit,
 ) {
+    if (state.settingsStage == SettingsStage.JAVA) {
+        JavaRuntimeScreen(model = model, state = state)
+        return
+    }
+
     val preferences = remember { platformServices().preferences }
     val supportsDynamicColor = preferences.supportsDynamicColor()
     val coreReady = model.isCoreAvailable
@@ -163,6 +173,63 @@ fun SettingsScreen(
                 }
             }
 
+            item { SettingsGroupTitle(stringResource(Res.string.settings_java_title)) }
+            item {
+                SettingsCard {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(Res.string.settings_java_installed),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                )
+                                Text(
+                                    text = stringResource(
+                                        Res.string.settings_java_discovered,
+                                        state.appSnapshot?.javaCount ?: state.java.runtimes.size,
+                                    ) + " · " + stringResource(
+                                        Res.string.settings_java_managed,
+                                        state.java.managedCount,
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            TextButton(
+                                onClick = model::openJavaSettings,
+                                modifier = Modifier.testTag(SettingsJavaManageTag),
+                            ) {
+                                Text(stringResource(Res.string.settings_java_manage))
+                            }
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(Res.string.settings_java_auto_download),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                )
+                                Text(
+                                    text = stringResource(Res.string.settings_java_auto_download_body),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Switch(
+                                checked = state.java.autoDownload,
+                                onCheckedChange = model::setJavaAutoDownload,
+                            )
+                        }
+                    }
+                }
+            }
+
             item { SettingsGroupTitle(stringResource(Res.string.settings_launch_network)) }
             item {
                 SettingsCard {
@@ -182,7 +249,7 @@ fun SettingsScreen(
                         MilestoneRow(
                             stringResource(Res.string.settings_max_memory),
                             stringResource(Res.string.settings_max_memory_value),
-                            stringResource(Res.string.settings_milestone_m6),
+                            stringResource(Res.string.settings_milestone_m10),
                         )
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         MilestoneRow(

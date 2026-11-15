@@ -21,6 +21,10 @@ val fograinPackageVersion = providers.gradleProperty("fograin.packageVersion").g
 compose.desktop {
     application {
         mainClass = "com.fograin.launcher.desktop.MainKt"
+        // macOS derives the title-bar appearance from this property; without
+        // it a dark launcher keeps a white Aqua title bar in `:desktop:run`
+        // and in the packaged app. Ignored on Windows/Linux.
+        jvmArgs += listOf("-Dapple.awt.application.appearance=system")
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)

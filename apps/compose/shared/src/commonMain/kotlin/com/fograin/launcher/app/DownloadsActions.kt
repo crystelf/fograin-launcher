@@ -529,6 +529,10 @@ internal class DownloadsActions(private val model: AppModel) {
 
     /** `task.finished` for any task; only ours drives the post-install jump. */
     fun onTaskFinished(event: CoreEvent.TaskFinished) {
+        // Java runtime downloads own their notices and reload path in
+        // JavaActions; letting both controllers announce one task would double
+        // every snackbar.
+        if (event.name.startsWith("java:")) return
         val title = InstanceFormat.taskTitle(event.name)
         val isOurDownload = event.taskId == pendingDownloadTaskId
         when (event.state) {

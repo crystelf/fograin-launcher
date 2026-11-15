@@ -611,6 +611,21 @@ pub struct ResolvedVersion {
 }
 
 impl ResolvedVersion {
+    /// Mojang runtime component declared by `javaVersion.component`
+    /// (`jre-legacy`, `java-runtime-gamma`, …).
+    ///
+    /// M6 uses this to download the exact JRE the official launcher would use,
+    /// which matters for 1.8–1.16 on Apple Silicon (x86_64 under Rosetta).
+    #[must_use]
+    pub fn java_component(&self) -> Option<&str> {
+        self.raw
+            .java_version
+            .as_ref()
+            .and_then(|java| java.component.as_deref())
+            .map(str::trim)
+            .filter(|component| !component.is_empty())
+    }
+
     /// Main class, required by every launchable version.
     ///
     /// # Errors
@@ -1151,17 +1166,18 @@ mod tests {
 
     #[test]
     fn resolves_java_major_from_the_fixture_metadata() {
-        for (name, expected) in [
-            ("1.0", 8),
-            ("1.7.10", 8),
-            ("1.16.5", 8),
-            ("1.20.1", 17),
-            ("1.21.4", 21),
-            ("26.4-snapshot-7", 25),
+        for (name, expected, component) in [
+            ("1.0", 8, "jre-legacy"),
+            ("1.7.10", 8, "jre-legacy"),
+            ("1.16.5", 8, "jre-legacy"),
+            ("1.20.1", 17, "java-runtime-gamma"),
+            ("1.21.4", 21, "java-runtime-delta"),
+            ("26.4-snapshot-7", 25, "java-runtime-epsilon"),
         ] {
             let chain = [fixture(name)];
             let resolved = resolve_chain(&chain).expect("resolve");
             assert_eq!(resolved.java_major, expected, "{name}");
+            assert_eq!(resolved.java_component(), Some(component), "{name}");
             assert_eq!(resolved.base_id, name);
         }
     }

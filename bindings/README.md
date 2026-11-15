@@ -38,7 +38,7 @@ owns the boundary between them.
   `game.line`, `game.exited`) as a JSON array.
 - `fg_string_free(value)` — releases strings returned by the core.
 
-### RPC methods implemented (M4/M5)
+### RPC methods implemented (M4/M5/M6)
 
 | Method | Params → Result |
 | --- | --- |
@@ -61,12 +61,25 @@ owns the boundary between them.
 | `launch.status` / `session.wait` / `session.stop` | session polling and stop |
 | `game.log.recent` | `{instanceId, limit}` → last buffered log lines |
 | `gameConfig.get` / `.set` | `[game]` read / merge-write |
+| `java.list` | `{}` → `{runtimes, autoDownload, supported, platform, hostArch}`; runtime rows include `id`, `vendor`, `version`, `major`, `arch`, `home`, `executable`, `source`, `managed`, `sizeBytes`, `installedAtMs`, `component`, `platform` |
+| `java.catalog` | `{}` → `{versions:[{runtimeId, major, component, version, arch, platform, fallback, installed, installedVersion?}], autoDownload, supported}` |
+| `java.install` | `{major, component?}` → `{taskId, runtimeId, existing, major, component, version, files, totalBytes}`; queues a `java:<major>` graph and pushes `task.*` events |
+| `java.remove` | `{id}` → `{ok, id}`; refused while the game runs or the same runtime is installing |
+| `java.policy.set` | `{autoDownload}` → `{autoDownload}`; persists `[java] auto_download` |
 
 Loader installs write `shared/versions/<versionId>/<versionId>.json` and record
 that id in `instance.toml [loader] version_id`; vanilla instances leave it empty
 and resolve `minecraft` directly. `instances.verify` and `launch.start` both use
 the effective id. The loader planning/execution contract is documented in
 [../docs/m5.md](../docs/m5.md).
+
+Managed Java runtimes live under `runtimes/<vendor>-<component>-<version>-<arch>/`
+and carry `fograin-runtime.json`; `java.list` merges them with every discovered
+system JDK. When `[java] auto_download` is on (the default) and no runtime is
+installed at all, `install.start` / `launch.start` download the matching Mojang
+runtime first and wait for the queued `java:<major>` task, so the UI sees normal
+`task.progress` / `task.finished` events. The catalog, platform fallback table
+and validation rules are documented in [../docs/m6.md](../docs/m6.md).
 
 Errors always keep the shape `{kind, messageKey, detail}` and camelCase keys
 throughout.

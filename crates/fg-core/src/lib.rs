@@ -13,8 +13,8 @@ pub mod paths;
 pub mod platform;
 
 pub use config::{
-    DownloadConfig, DownloadSource, GameConfig, LauncherConfig, NetworkConfig, ResolvedTheme,
-    ThemePreference,
+    DownloadConfig, DownloadSource, GameConfig, JavaConfig, LauncherConfig, NetworkConfig,
+    ResolvedTheme, ThemePreference,
 };
 pub use error::{Error, ErrorKind, Result};
 pub use platform::Platform;

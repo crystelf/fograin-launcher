@@ -132,7 +132,7 @@ impl LaunchPlan {
                 ErrorKind::Unsupported,
                 "error.launch.arm64_natives",
                 format!(
-                    "{} ships only x86_64 LWJGL natives; use an x86_64 Java 8 under Rosetta or wait for the M6 runtime manager",
+                    "{} ships only x86_64 LWJGL natives; enable [java] auto_download or use an x86_64 Java 8 under Rosetta",
                     resolved.base_id
                 ),
             ));

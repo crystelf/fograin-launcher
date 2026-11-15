@@ -26,7 +26,7 @@ use fg_game::{
     manager::{InheritableSetting, InstanceManager, SettingValue},
     rules::RuleContext,
 };
-use fg_java::JavaArch;
+use fg_java::{InstalledRuntime, JavaArch, JavaManager, JavaRuntime};
 use fg_loader::{LoaderKind, LoaderPaths, LoaderPlanner};
 use fg_net::{DownloadOptions, Downloader, MirrorTable, Region};
 use fg_task::{Control, NodeState, RunOptions, TaskGraph};
@@ -75,6 +75,21 @@ struct QueuedTask {
     name: String,
     control: Control,
     graph: Arc<TaskGraph>,
+    /// Set for `java:<major>` tasks so automatic provisioning can reuse a
+    /// runtime download that is already running.
+    runtime_id: Option<String>,
+    done: Arc<TaskDone>,
+}
+
+/// Completion slot for a queued graph.
+///
+/// `launch.start` / `install.start` wait on this when they had to download a
+/// runtime first; `Notify` wakes the waiter and the result slot makes the wait
+/// race-free.
+#[derive(Default)]
+struct TaskDone {
+    result: Mutex<Option<Result<()>>>,
+    notify: tokio::sync::Notify,
 }
 
 /// Row of `tasks.list`.
@@ -103,6 +118,71 @@ pub struct InstanceRow {
     pub size_bytes: u64,
     pub play_seconds: u64,
     pub last_played_ms: Option<i64>,
+}
+
+/// One discovered runtime as the Java page sees it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaRuntimeRow {
+    /// Marker id when this runtime was installed by the launcher.
+    pub id: Option<String>,
+    pub vendor: String,
+    pub version: String,
+    pub major: Option<u32>,
+    pub arch: String,
+    pub home: String,
+    pub executable: String,
+    pub source: String,
+    pub managed: bool,
+    pub size_bytes: u64,
+    pub installed_at_ms: Option<u64>,
+    pub component: Option<String>,
+    pub platform: Option<String>,
+}
+
+impl JavaRuntimeRow {
+    fn from_runtime(runtime: &JavaRuntime, managed: &[InstalledRuntime]) -> Self {
+        let marker = managed
+            .iter()
+            .find(|installed| installed.runtime.home == runtime.home)
+            .map(|installed| &installed.marker);
+        Self {
+            id: marker.map(|marker| marker.id.clone()),
+            vendor: marker
+                .map(|marker| marker.vendor.clone())
+                .or_else(|| runtime.vendor.clone())
+                .unwrap_or_else(|| runtime.source.label().to_string()),
+            version: runtime
+                .version
+                .as_ref()
+                .map_or_else(|| "?".to_string(), |version| version.full.clone()),
+            major: runtime.major(),
+            arch: runtime.arch.to_string(),
+            home: runtime.home.display().to_string(),
+            executable: runtime.executable.display().to_string(),
+            source: runtime.source.label().to_string(),
+            managed: marker.is_some(),
+            size_bytes: marker.map_or(0, |marker| marker.total_bytes),
+            installed_at_ms: marker.map(|marker| marker.installed_at_ms),
+            component: marker.map(|marker| marker.component.clone()),
+            platform: marker.map(|marker| marker.platform.clone()),
+        }
+    }
+}
+
+/// One downloadable runtime on the Java page.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaCatalogRow {
+    pub runtime_id: String,
+    pub major: u32,
+    pub component: String,
+    pub version: String,
+    pub arch: String,
+    pub platform: String,
+    pub fallback: bool,
+    pub installed: bool,
+    pub installed_version: Option<String>,
 }
 
 impl Service {
@@ -229,6 +309,36 @@ impl Service {
         ))
     }
 
+    fn java_manager(&self) -> Result<JavaManager> {
+        let config = self.config()?;
+        Ok(JavaManager::new(
+            self.layout.root().to_path_buf(),
+            self.downloader.clone(),
+            self.table.clone(),
+            config.download.source,
+            self.region,
+        ))
+    }
+
+    /// Every discovered runtime plus the managed markers that describe it.
+    fn java_rows(&self) -> Result<Vec<JavaRuntimeRow>> {
+        let managed = self.java_manager()?.installed();
+        let scanner = fg_java::JavaScanner::new().with_extra_root(self.layout.runtimes());
+        let mut rows: Vec<JavaRuntimeRow> = scanner
+            .scan()
+            .into_iter()
+            .map(|runtime| JavaRuntimeRow::from_runtime(&runtime, &managed))
+            .collect();
+        rows.sort_by(|left, right| {
+            right
+                .managed
+                .cmp(&left.managed)
+                .then_with(|| right.major.cmp(&left.major))
+                .then_with(|| left.home.cmp(&right.home))
+        });
+        Ok(rows)
+    }
+
     /// Dispatches one RPC method. Names and payloads match
     /// `bindings/README.md` so the native clients stay decoupled from Rust.
     pub async fn rpc(self: &Arc<Self>, method: &str, params: Value) -> Result<Value> {
@@ -265,6 +375,12 @@ impl Service {
             "gameConfig.get" => self.game_config_value(),
             "gameConfig.set" => self.game_config_set(&params).await,
 
+            "java.list" => self.java_list().await,
+            "java.catalog" => self.java_catalog().await,
+            "java.install" => self.java_install(&params).await,
+            "java.remove" => self.java_remove(&params).await,
+            "java.policy.set" => self.java_policy_set(&params).await,
+
             _ => Err(Error::with_detail(
                 ErrorKind::InvalidInput,
                 "error.rpc.unknown_method",
@@ -279,7 +395,7 @@ impl Service {
             "platform": fg_core::Platform::detect().id(),
             "appVersion": env!("CARGO_PKG_VERSION"),
             "dataRoot": self.root.display().to_string(),
-            "javaCount": java_count(),
+            "javaCount": java_count(&self.layout),
             "activeTasks": self.tasks_list_len(),
             "diskFreeBytes": disk_free_bytes(&self.root),
             "totalMemoryBytes": total_memory_bytes(),
@@ -646,9 +762,23 @@ impl Service {
         // problem in place instead of through a task failure.
         let resolved = self.resolver()?.resolve_remote(&request.version).await?;
         let java = if loader_kind.is_some_and(LoaderKind::requires_java) {
-            let runtimes = discover_java(&self.layout).await;
-            let selection = fg_java::select(&runtimes, resolved.java_major, JavaArch::host())?;
-            Some(selection.runtime.executable)
+            let configured = target_instance
+                .as_ref()
+                .and_then(|instance| instance.overrides.java.clone())
+                .or_else(|| self.config().ok().and_then(|config| config.game.java));
+            if let Some(path) = configured {
+                Some(explicit_java(&path)?.executable)
+            } else {
+                let selection = self
+                    .ensure_java(
+                        resolved.java_major,
+                        resolved.java_component(),
+                        JavaArch::host(),
+                        false,
+                    )
+                    .await?;
+                Some(selection.runtime.executable)
+            }
         } else {
             None
         };
@@ -707,7 +837,7 @@ impl Service {
 
         let task_name = format!("install:{}", request.version);
         let control = Control::new();
-        let queue_id = self.queue_task(&task_name, control.clone(), graph);
+        let queue_id = self.queue_task(&task_name, control.clone(), graph, None);
         self.runtime.spawn(
             self.clone()
                 .watch_task(queue_id.clone(), control, task_name),
@@ -745,11 +875,18 @@ impl Service {
         }
     }
 
-    fn queue_task(self: &Arc<Self>, name: &str, control: Control, graph: TaskGraph) -> String {
+    fn queue_task(
+        self: &Arc<Self>,
+        name: &str,
+        control: Control,
+        graph: TaskGraph,
+        runtime_id: Option<String>,
+    ) -> String {
         let id = format!(
             "task-{}",
             self.task_counter.fetch_add(1, Ordering::Relaxed) + 1
         );
+        let done = Arc::new(TaskDone::default());
         self.tasks
             .lock()
             .expect("task queue poisoned")
@@ -758,25 +895,22 @@ impl Service {
                 name: name.to_string(),
                 control,
                 graph: Arc::new(graph),
+                runtime_id,
+                done: done.clone(),
             });
-        self.runtime.spawn(self.clone().run_task(id.clone()));
+        self.runtime.spawn(self.clone().run_task(id.clone(), done));
         id
     }
 
-    /// Runs one graph to completion.
-    async fn run_task(self: Arc<Self>, task_id: String) {
-        let (control, graph, run_id) = {
+    /// Runs one graph to completion and wakes anyone waiting on it.
+    async fn run_task(self: Arc<Self>, task_id: String, done: Arc<TaskDone>) {
+        let (control, graph) = {
             let tasks = self.tasks.lock().expect("task queue poisoned");
             let Some(task) = tasks.iter().find(|task| task.id == task_id) else {
                 return;
             };
-            (
-                task.control.clone(),
-                task.graph.clone(),
-                task.graph.id().to_string(),
-            )
+            (task.control.clone(), task.graph.clone())
         };
-        let _ = run_id;
         let report = graph.run(&control, &RunOptions::default()).await;
         let state = if report.is_success() {
             "succeeded"
@@ -785,8 +919,77 @@ impl Service {
         } else {
             "failed"
         };
+        let outcome = if report.is_success() {
+            Ok(())
+        } else {
+            let detail = report
+                .failed
+                .first()
+                .map(|(node, error)| format!("{node}: {error}"))
+                .unwrap_or_else(|| {
+                    if report.interrupted.is_some() {
+                        "task cancelled".to_string()
+                    } else {
+                        "task failed".to_string()
+                    }
+                });
+            Err(Error::with_detail(
+                if report.interrupted.is_some() {
+                    ErrorKind::Cancelled
+                } else {
+                    ErrorKind::Internal
+                },
+                if report.interrupted.is_some() {
+                    "error.task.cancelled"
+                } else {
+                    "error.task.failed"
+                },
+                detail,
+            ))
+        };
+        *done.result.lock().expect("task result poisoned") = Some(outcome);
+        done.notify.notify_one();
         self.events
             .push_task_finished_ex(&task_id, graph.name(), state, &report);
+    }
+
+    /// Waits for one queued graph to finish.
+    async fn wait_task(&self, task_id: &str) -> Result<()> {
+        let done = {
+            let tasks = self.tasks.lock().expect("task queue poisoned");
+            let Some(task) = tasks.iter().find(|task| task.id == task_id) else {
+                return Err(Error::with_detail(
+                    ErrorKind::NotFound,
+                    "error.task.not_found",
+                    task_id.to_string(),
+                ));
+            };
+            task.done.clone()
+        };
+        let notified = done.notify.notified();
+        if let Some(result) = done.result.lock().expect("task result poisoned").clone() {
+            return result;
+        }
+        notified.await;
+        done.result
+            .lock()
+            .expect("task result poisoned")
+            .clone()
+            .unwrap_or_else(|| Err(Error::new(ErrorKind::Internal, "error.task.not_finished")))
+    }
+
+    /// Reuses a running `java:<major>` task, if any.
+    fn running_java_task(&self, name: &str) -> Option<(String, Option<String>)> {
+        let tasks = self.tasks.lock().expect("task queue poisoned");
+        tasks
+            .iter()
+            .rev()
+            .find(|task| {
+                task.name == name
+                    && !task.graph.progress().is_complete()
+                    && !task.control.is_stopped()
+            })
+            .map(|task| (task.id.clone(), task.runtime_id.clone()))
     }
 
     fn tasks_list_len(&self) -> usize {
@@ -837,7 +1040,237 @@ impl Service {
         Ok(json!(null))
     }
 
-    async fn launch_start(&self, params: &Value) -> Result<Value> {
+    async fn java_list(&self) -> Result<Value> {
+        let config = self.config()?;
+        let supported = !fg_java::host_platforms().is_empty();
+        Ok(json!({
+            "runtimes": self.java_rows()?,
+            "autoDownload": config.java.auto_download,
+            "supported": supported,
+            "platform": fg_core::Platform::detect().id(),
+            "hostArch": JavaArch::host().to_string(),
+        }))
+    }
+
+    async fn java_catalog(&self) -> Result<Value> {
+        let config = self.config()?;
+        let manager = self.java_manager()?;
+        let installed = manager.installed();
+        let candidates = manager.catalog().await?;
+        let rows: Vec<JavaCatalogRow> = candidates
+            .into_iter()
+            .map(|candidate| {
+                let hit = installed.iter().find(|runtime| {
+                    runtime.marker.major == candidate.major && runtime.marker.arch == candidate.arch
+                });
+                JavaCatalogRow {
+                    runtime_id: fg_java::sanitize_id(&candidate.runtime_id()),
+                    major: candidate.major,
+                    component: candidate.component,
+                    version: candidate.version,
+                    arch: candidate.arch.to_string(),
+                    platform: candidate.platform,
+                    fallback: candidate.fallback,
+                    installed: hit.is_some(),
+                    installed_version: hit.map(|runtime| runtime.marker.version.clone()),
+                }
+            })
+            .collect();
+        Ok(json!({
+            "versions": rows,
+            "autoDownload": config.java.auto_download,
+            "supported": !fg_java::host_platforms().is_empty(),
+            "platform": fg_core::Platform::detect().id(),
+            "hostArch": JavaArch::host().to_string(),
+        }))
+    }
+
+    async fn java_install(self: &Arc<Self>, params: &Value) -> Result<Value> {
+        let request: JavaInstallRequest = from_value(params)?;
+        if request.major == 0 {
+            return Err(Error::with_detail(
+                ErrorKind::InvalidInput,
+                "error.java.runtime_major",
+                "major must be positive",
+            ));
+        }
+        let name = format!("java:{}", request.major);
+        if let Some((task_id, runtime_id)) = self.running_java_task(&name) {
+            return Ok(json!({
+                "taskId": task_id,
+                "runtimeId": runtime_id,
+                "existing": true,
+            }));
+        }
+
+        let manager = Arc::new(self.java_manager()?);
+        let component = non_empty(request.component.as_deref());
+        let candidate = manager
+            .candidate(request.major, component.as_deref())
+            .await?;
+        let plan = manager.plan(&candidate).await?;
+        plan.save(&self.root)?;
+        let runtime_id = plan.id.clone();
+        let summary = json!({
+            "runtimeId": runtime_id,
+            "major": plan.major,
+            "component": plan.component,
+            "version": plan.version,
+            "files": plan.files.len(),
+            "totalBytes": plan.total_bytes,
+        });
+        let graph = manager.graph(plan);
+        let control = Control::new();
+        let task_id = self.queue_task(&name, control.clone(), graph, Some(runtime_id.clone()));
+        self.runtime
+            .spawn(self.clone().watch_task(task_id.clone(), control, name));
+        Ok(json!({
+            "taskId": task_id,
+            "runtimeId": runtime_id,
+            "existing": false,
+            "major": summary["major"],
+            "component": summary["component"],
+            "version": summary["version"],
+            "files": summary["files"],
+            "totalBytes": summary["totalBytes"],
+        }))
+    }
+
+    async fn java_remove(&self, params: &Value) -> Result<Value> {
+        let request: JavaRemoveRequest = from_value(params)?;
+        let id = request.id.trim();
+        if id.is_empty() {
+            return Err(Error::new(ErrorKind::InvalidInput, "error.java.runtime_id"));
+        }
+        let manager = self.java_manager()?;
+        if let Some(existing) = self.session.lock().expect("session poisoned").as_ref()
+            && existing
+                .finished
+                .lock()
+                .expect("exit slot poisoned")
+                .is_none()
+        {
+            return Err(Error::with_detail(
+                ErrorKind::Conflict,
+                "error.java.runtime_in_use",
+                format!("game {} is running", existing.instance_id),
+            ));
+        }
+        if self
+            .tasks
+            .lock()
+            .expect("task queue poisoned")
+            .iter()
+            .any(|task| {
+                task.runtime_id.as_deref() == Some(id)
+                    && !task.graph.progress().is_complete()
+                    && !task.control.is_stopped()
+            })
+        {
+            return Err(Error::with_detail(
+                ErrorKind::Conflict,
+                "error.java.runtime_in_use",
+                format!("{id} is still being installed"),
+            ));
+        }
+        let marker = manager.remove(id)?;
+        Ok(json!({ "ok": true, "id": marker.id }))
+    }
+
+    async fn java_policy_set(&self, params: &Value) -> Result<Value> {
+        let Some(auto_download) = params.get("autoDownload").and_then(Value::as_bool) else {
+            return Err(Error::new(ErrorKind::InvalidInput, "error.rpc.params"));
+        };
+        let mut config = self.config()?;
+        config.java.auto_download = auto_download;
+        config::write_config(&self.root, &config)?;
+        Ok(json!({ "autoDownload": auto_download }))
+    }
+
+    /// Returns a matching runtime, downloading the official one first when
+    /// `[java] auto_download` is on and nothing suitable is installed.
+    ///
+    /// `require_arch` is set for Apple Silicon legacy versions: those need an
+    /// x86_64 Java 8 under Rosetta, so an arm64 runtime must not satisfy the
+    /// check even when its major matches.
+    async fn ensure_java(
+        self: &Arc<Self>,
+        required: u32,
+        component: Option<&str>,
+        arch: JavaArch,
+        require_arch: bool,
+    ) -> Result<fg_java::JavaSelection> {
+        let runtimes = discover_java(&self.layout).await;
+        let selection = fg_java::select(&runtimes, required, arch);
+        if let Ok(selection) = &selection
+            && (!require_arch || (selection.exact && arch_matches(selection.runtime.arch, arch)))
+        {
+            return Ok(selection.clone());
+        }
+
+        if !self.config()?.java.auto_download {
+            return match selection {
+                Ok(selection)
+                    if require_arch
+                        && (!selection.exact || !arch_matches(selection.runtime.arch, arch)) =>
+                {
+                    Err(Error::with_detail(
+                        ErrorKind::Unsupported,
+                        "error.java.x86_64_required",
+                        format!("need an exact {arch} Java {required} for this version"),
+                    ))
+                }
+                other => other,
+            };
+        }
+
+        let manager = Arc::new(self.java_manager()?);
+        let name = format!("java:{required}");
+        if let Some((task_id, _)) = self.running_java_task(&name) {
+            self.wait_task(&task_id).await?;
+            // The running task may have installed a different architecture
+            // than a legacy launch needs (for example arm64 Java 17 from the
+            // management page while 1.18 needs x86_64). Re-check before
+            // trusting it.
+            let runtimes = discover_java(&self.layout).await;
+            if let Ok(selection) = fg_java::select(&runtimes, required, arch)
+                && (!require_arch
+                    || (selection.exact && arch_matches(selection.runtime.arch, arch)))
+            {
+                return Ok(selection);
+            }
+        }
+        let candidate = manager.candidate_for(required, component, arch).await?;
+        let plan = manager.plan(&candidate).await?;
+        plan.save(&self.root)?;
+        let runtime_id = plan.id.clone();
+        let graph = manager.graph(plan);
+        let control = Control::new();
+        let task_id = self.queue_task(&name, control.clone(), graph, Some(runtime_id));
+        self.runtime
+            .spawn(self.clone().watch_task(task_id.clone(), control, name));
+        self.wait_task(&task_id).await?;
+        let runtimes = discover_java(&self.layout).await;
+        let selection = fg_java::select(&runtimes, required, arch)?;
+        if require_arch && (!selection.exact || !arch_matches(selection.runtime.arch, arch)) {
+            return Err(Error::with_detail(
+                ErrorKind::Unsupported,
+                "error.java.x86_64_required",
+                format!(
+                    "downloaded Java {} is {}, but this version needs {arch}",
+                    selection
+                        .runtime
+                        .version
+                        .as_ref()
+                        .map_or("?", |value| value.full.as_str()),
+                    selection.runtime.arch
+                ),
+            ));
+        }
+        Ok(selection)
+    }
+
+    async fn launch_start(self: &Arc<Self>, params: &Value) -> Result<Value> {
         let request: LaunchStartRequest = from_value(params)?;
         if let Some(existing) = self.session.lock().expect("session poisoned").as_ref()
             && existing
@@ -978,7 +1411,7 @@ impl Service {
     }
 
     async fn build_launch_plan(
-        &self,
+        self: &Arc<Self>,
         instance_id: &str,
         username: Option<&str>,
     ) -> Result<LaunchPlan> {
@@ -1005,14 +1438,34 @@ impl Service {
                 }
             })?;
 
-        let runtimes = discover_java(self.layout()).await;
-        let selection = fg_java::select(&runtimes, resolved.java_major, JavaArch::host())?;
+        // An explicit instance/global Java path always wins; only the automatic
+        // path downloads a runtime. This is what makes the Java picker in the
+        // instance settings sheet effective.
+        let java = if let Some(path) = merged.java() {
+            explicit_java(path)?
+        } else {
+            let legacy_x64 = cfg!(target_os = "macos")
+                && JavaArch::host() == JavaArch::Arm64
+                && fg_game::launch::needs_x86_64_java(&resolved.base_id);
+            self.ensure_java(
+                resolved.java_major,
+                resolved.java_component(),
+                if legacy_x64 {
+                    JavaArch::X86_64
+                } else {
+                    JavaArch::host()
+                },
+                legacy_x64,
+            )
+            .await?
+            .runtime
+        };
         let account = fg_auth::offline::OfflineAccount::new(username.unwrap_or(&globals.username))?;
         LaunchPlan::build(
             &self.layout,
             &merged,
             &resolved,
-            &selection.runtime,
+            &java,
             &account,
             &LaunchOptions::default(),
         )
@@ -1116,8 +1569,40 @@ async fn discover_java(layout: &Layout) -> Vec<fg_java::JavaRuntime> {
     scanner.scan_probing(Duration::from_secs(2)).await
 }
 
-fn java_count() -> usize {
-    fg_java::JavaScanner::new().scan().len()
+fn arch_matches(actual: JavaArch, wanted: JavaArch) -> bool {
+    actual == wanted || actual == JavaArch::Unknown
+}
+
+/// Resolves an explicit Java home/executable from `[override] java`.
+fn explicit_java(path: &Path) -> Result<JavaRuntime> {
+    let home = if path.is_dir() {
+        fg_java::normalize_home(path)
+    } else {
+        path.parent()
+            .and_then(|bin| bin.parent())
+            .map(|home| fg_java::normalize_home(home).unwrap_or_else(|| home.to_path_buf()))
+    }
+    .ok_or_else(|| {
+        Error::with_detail(
+            ErrorKind::NotFound,
+            "error.java.not_found",
+            format!("{} does not contain bin/java", path.display()),
+        )
+    })?;
+    JavaRuntime::from_home(home, fg_java::JavaSource::ExtraRoot).ok_or_else(|| {
+        Error::with_detail(
+            ErrorKind::NotFound,
+            "error.java.not_found",
+            format!("{} does not contain bin/java", path.display()),
+        )
+    })
+}
+
+fn java_count(layout: &Layout) -> usize {
+    fg_java::JavaScanner::new()
+        .with_extra_root(layout.runtimes())
+        .scan()
+        .len()
 }
 
 fn non_empty(value: Option<&str>) -> Option<String> {
@@ -1378,6 +1863,20 @@ struct InstallStartRequest {
 #[serde(rename_all = "camelCase")]
 struct TaskCancelRequest {
     task_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JavaInstallRequest {
+    pub major: u32,
+    #[serde(default)]
+    pub component: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JavaRemoveRequest {
+    pub id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1722,6 +2221,136 @@ mod tests {
     }
 
     #[test]
+    fn java_list_merges_managed_markers_and_policy() {
+        let (_dir, service) = fixture();
+        let layout = service.layout().clone();
+        install_fake_managed_runtime(&layout, "mojang-java-runtime-delta-21.0.7-x86_64", 21);
+
+        service.block_on(async {
+            let listed = service
+                .rpc("java.list", json!({}))
+                .await
+                .expect("java.list");
+            let runtimes = listed["runtimes"].as_array().expect("runtimes");
+            let managed = runtimes
+                .iter()
+                .find(|row| row["id"] == json!("mojang-java-runtime-delta-21.0.7-x86_64"))
+                .expect("managed runtime");
+            assert_eq!(managed["managed"], json!(true));
+            assert_eq!(managed["major"], json!(21));
+            assert_eq!(managed["vendor"], json!("mojang"));
+            assert_eq!(managed["source"], json!("Fograin runtimes"));
+            assert_eq!(listed["autoDownload"], json!(true));
+
+            let snapshot = service
+                .rpc("app.snapshot", json!({}))
+                .await
+                .expect("snapshot");
+            assert!(
+                snapshot["javaCount"].as_u64().expect("count") >= 1,
+                "{snapshot}"
+            );
+
+            let updated = service
+                .rpc("java.policy.set", json!({ "autoDownload": false }))
+                .await
+                .expect("policy");
+            assert_eq!(updated["autoDownload"], json!(false));
+            let listed = service
+                .rpc("java.list", json!({}))
+                .await
+                .expect("java.list");
+            assert_eq!(listed["autoDownload"], json!(false));
+        });
+
+        let text =
+            std::fs::read_to_string(fg_core::config::config_path(layout.root())).expect("config");
+        assert!(text.contains("[java]"), "{text}");
+        assert!(text.contains("auto_download = false"), "{text}");
+
+        let removed = service
+            .block_on(service.rpc(
+                "java.remove",
+                json!({
+                    "id": "mojang-java-runtime-delta-21.0.7-x86_64"
+                }),
+            ))
+            .expect("remove");
+        assert_eq!(
+            removed["id"],
+            json!("mojang-java-runtime-delta-21.0.7-x86_64")
+        );
+        assert!(
+            !layout
+                .runtimes()
+                .join("mojang-java-runtime-delta-21.0.7-x86_64")
+                .exists()
+        );
+    }
+
+    #[test]
+    fn explicit_java_path_is_resolved_from_home_or_executable() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let home = directory.path().join("jdk-21");
+        std::fs::create_dir_all(home.join("bin")).expect("bin");
+        let executable = home
+            .join("bin")
+            .join(if cfg!(windows) { "java.exe" } else { "java" });
+        std::fs::write(&executable, b"java").expect("java");
+        std::fs::write(home.join("release"), "JAVA_VERSION=\"21.0.9\"\n").expect("release");
+
+        let from_home = explicit_java(&home).expect("home");
+        assert_eq!(from_home.major(), Some(21));
+        let from_binary = explicit_java(&executable).expect("binary");
+        assert_eq!(from_binary.home, home);
+
+        let error = explicit_java(&directory.path().join("missing")).expect_err("missing");
+        assert_eq!(error.message_key, "error.java.not_found");
+    }
+
+    #[test]
+    fn java_install_rejects_a_zero_major_without_network() {
+        let (_dir, service) = fixture();
+        let error = service
+            .block_on(service.rpc("java.install", json!({ "major": 0 })))
+            .expect_err("zero major");
+        assert_eq!(error.message_key, "error.java.runtime_major");
+    }
+
+    fn install_fake_managed_runtime(layout: &Layout, id: &str, major: u32) {
+        let directory = layout.runtimes().join(id);
+        std::fs::create_dir_all(directory.join("bin")).expect("runtime bin");
+        let executable =
+            directory
+                .join("bin")
+                .join(if cfg!(windows) { "java.exe" } else { "java" });
+        std::fs::write(&executable, b"fake java").expect("java");
+        std::fs::write(
+            directory.join("release"),
+            format!("JAVA_VERSION=\"{major}.0.7\"\nOS_ARCH=\"x86_64\"\n"),
+        )
+        .expect("release");
+        std::fs::write(
+            directory.join(fg_java::RUNTIME_MARKER),
+            serde_json::to_vec(&json!({
+                "schemaVersion": 1,
+                "id": id,
+                "vendor": "mojang",
+                "component": "java-runtime-delta",
+                "version": format!("{major}.0.7"),
+                "major": major,
+                "arch": "x86_64",
+                "platform": "linux",
+                "fileCount": 1,
+                "totalBytes": 9,
+                "installedAtMs": 1,
+            }))
+            .expect("marker"),
+        )
+        .expect("write marker");
+    }
+
+    #[test]
     fn unknown_method_is_invalid_input() {
         let (_dir, service) = fixture();
         service.block_on(async {
@@ -1888,6 +2517,8 @@ mod tests {
             name: "test".into(),
             control: control.clone(),
             graph: Arc::new(graph),
+            runtime_id: None,
+            done: Arc::new(TaskDone::default()),
         });
         let rows = service.block_on(service.tasks_list()).expect("rows");
         let list = rows.as_array().expect("array");

@@ -42,6 +42,10 @@ class ScreensRenderTest {
         model.loadDownloadVersions()
 
         val base = model.state.value
+        model.openJavaSettings()
+        val javaPage = model.state.value
+        assertTrue(javaPage.java.runtimes.isNotEmpty(), "java.list was not applied")
+        assertTrue(javaPage.java.catalog.isNotEmpty(), "java.catalog was not applied")
         assertEquals(3, base.instances.size, "instances.list was not applied")
         assertTrue(base.download.versions.isNotEmpty(), "versions.list was not applied")
 
@@ -65,11 +69,19 @@ class ScreensRenderTest {
             "library" to base.copy(destination = AppDestination.LIBRARY),
             "downloads" to base.copy(destination = AppDestination.DOWNLOADS),
             "settings" to base.copy(destination = AppDestination.SETTINGS),
+            "java-page" to javaPage.copy(
+                destination = AppDestination.SETTINGS,
+                settingsStage = com.fograin.launcher.app.SettingsStage.JAVA,
+            ),
             "preview-sheet" to base.copy(
                 destination = AppDestination.LIBRARY,
                 previewInstanceId = "fog-forest",
             ),
             "instance-settings-sheet" to base.copy(instanceSettingsId = "fog-forest"),
+            "global-search-sheet" to base.copy(
+                globalSearchOpen = true,
+                globalSearchQuery = "1.21",
+            ),
             "install-page" to installPage,
             "loader-versions-page" to installPage.copy(
                 download = installDownload.copy(stage = DownloadStage.LOADER_VERSIONS),
@@ -111,6 +123,10 @@ class ScreensRenderTest {
             "library" to base.copy(destination = AppDestination.LIBRARY),
             "downloads" to base.copy(destination = AppDestination.DOWNLOADS),
             "settings" to base.copy(destination = AppDestination.SETTINGS),
+            "java-page" to base.copy(
+                destination = AppDestination.SETTINGS,
+                settingsStage = com.fograin.launcher.app.SettingsStage.JAVA,
+            ),
             "instance-settings-sheet" to base.copy(instanceSettingsId = "fog-forest"),
             "install-page" to installPage,
         )

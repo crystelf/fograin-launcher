@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.model.Instance
 import com.fograin.launcher.platform.CoreInstanceSettings
+import com.fograin.launcher.platform.CoreJavaRuntime
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.components.DropdownField
 import com.fograin.launcher.ui.components.InstanceTile
@@ -71,6 +72,7 @@ fun InstanceSettingsSheet(
     var jvmArgs by remember(instance.id) { mutableStateOf("") }
     var fullscreen by remember(instance.id) { mutableStateOf(false) }
     var resolution by remember(instance.id) { mutableStateOf<List<Int>?>(null) }
+    var javaRuntimes by remember(instance.id) { mutableStateOf<List<CoreJavaRuntime>>(emptyList()) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(instance.id) {
@@ -87,6 +89,11 @@ fun InstanceSettingsSheet(
             loadError = model.errorMessage(error)
             model.showError("无法读取实例设置", error)
         }
+
+        // The Java picker must include launcher-managed runtimes; a failure here
+        // only hides the extra choices, it never blocks the rest of the sheet.
+        runCatching { model.loadJavaRuntimes() }
+            .onSuccess { javaRuntimes = it }
     }
 
     // Debounce JVM arguments: one RPC per character would be wasteful, so save
@@ -205,12 +212,41 @@ fun InstanceSettingsSheet(
                 )
             }
             SettingRow(label = stringResource(Res.string.instance_settings_java_runtime)) {
-                Text(
-                    text = loaded?.overrides?.java
-                        ?: stringResource(Res.string.instance_settings_java_auto),
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                val override = loaded?.overrides?.java
+                val autoLabel = stringResource(Res.string.instance_settings_java_auto)
+                val currentLabel = override
+                    ?.let { path -> javaRuntimes.firstOrNull { it.home == path }?.let { runtime ->
+                        "Java ${runtime.version} · ${runtime.arch}"
+                    } ?: path.substringAfterLast('/').ifBlank { path }}
+                    ?: autoLabel
+                DropdownField(
+                    value = currentLabel,
+                    options = buildList {
+                        add(autoLabel to {
+                            model.configureInstance(instance.id, "java", null)
+                            loaded?.let { current ->
+                                loaded = current.copy(
+                                    overrides = current.overrides.copy(java = null),
+                                )
+                            }
+                        })
+                        javaRuntimes.forEach { runtime ->
+                            add(
+                                "Java ${runtime.version} · ${runtime.arch}" to {
+                                    model.configureInstance(
+                                        instance.id,
+                                        "java",
+                                        JsonPrimitive(runtime.home),
+                                    )
+                                    loaded?.let { current ->
+                                        loaded = current.copy(
+                                            overrides = current.overrides.copy(java = runtime.home),
+                                        )
+                                    }
+                                },
+                            )
+                        }
+                    },
                 )
             }
             SettingRow(label = stringResource(Res.string.instance_settings_fullscreen)) {

@@ -6,8 +6,10 @@ import com.fograin.launcher.platform.decode
 import com.fograin.launcher.platform.createCoreClient
 import com.fograin.launcher.platform.resultRows
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlin.test.Test
@@ -37,6 +39,23 @@ class CoreClientSmokeTest {
         val instances = snapshot["instanceCount"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
         assertNotNull(instances, "instanceCount missing from app.snapshot")
         assertTrue(instances >= 0)
+    }
+
+    @Test
+    fun javaListRoundTripsThroughJni() = runBlocking {
+        AppRuntime.dataRoot = TestDataRoot.path
+        val core = createCoreClient()
+
+        val listed = core.rpc("java.list")
+        assertNotNull(
+            listed["autoDownload"]?.jsonPrimitive?.booleanOrNull,
+            "java.list must report [java] auto_download",
+        )
+        assertNotNull(
+            listed["runtimes"]?.jsonArray,
+            "java.list must return a runtimes array",
+        )
+        Unit
     }
 
     @Test

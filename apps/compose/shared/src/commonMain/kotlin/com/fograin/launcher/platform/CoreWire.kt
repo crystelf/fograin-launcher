@@ -76,9 +76,25 @@ data class CoreErrorPayload(
         get() = when (messageKey) {
             "error.launch.not_installed" -> "游戏资源尚未安装完成，请先在下载页补全资源。"
             "error.launch.incomplete" -> "游戏文件不完整，上次下载可能没有完成。请重新下载缺失文件。"
-            "error.launch.arm64_natives" -> "这个版本只有 x86_64 原生库，无法在当前设备上启动。"
-            "error.java.none_installed" -> "未发现 Java 运行时。M6 接入自动下载前，请先准备 Java。"
+            "error.launch.arm64_natives" -> "这个版本只有 x86_64 原生库。请开启 Java 自动下载，或改用 x86_64 Java 8（Rosetta）。"
+            "error.java.none_installed" -> "未发现 Java 运行时。请先在设置中下载，或开启自动下载。"
             "error.java.required_missing" -> "没有找到匹配的 Java 版本，请安装对应版本的 Java。"
+            "error.java.runtime_unsupported" -> "当前平台没有可自动下载的官方 Java。请手动安装系统 Java。"
+            "error.java.x86_64_required" -> "这个旧版本需要 x86_64 Java 8（Rosetta）。请开启自动下载或在 Java 运行时页手动下载。"
+            "error.java.runtime_install" -> "Java 运行时下载没有完成，请检查网络后重试。"
+            "error.java.runtime_manifest", "error.java.runtime_manifest_hash",
+            "error.java.runtime_manifest_empty", "error.java.runtime_index",
+            "error.java.runtime_index_empty", "error.java.runtime_incomplete",
+            "error.java.runtime_plan_version", "error.java.runtime_marker_missing" ->
+                "Java 运行时的官方清单无法读取或校验失败。"
+            "error.java.runtime_in_use" -> "这个 Java 运行时仍在使用，退出游戏或等待下载完成后再删除。"
+            "error.java.runtime_not_found" -> "这个 Java 运行时已经不存在了。"
+            "error.java.runtime_id", "error.java.runtime_path", "error.java.runtime_major",
+            "error.java.runtime_link", "error.java.runtime_permission" ->
+                "Java 运行时参数或本地文件不正确。"
+            "error.java.runtime_plan_serialize", "error.java.runtime_marker" ->
+                "Java 运行时状态无法保存。"
+            "error.java.runtime_remove" -> "删除 Java 运行时失败，请检查文件权限。"
             "error.java.too_new" -> "只找到更新的 Java，旧版本游戏可能会启动失败。"
             "error.java.too_old" -> "只找到较旧的 Java，新版本游戏可能会启动失败。"
             "error.instance.duplicate" -> "同名实例已经存在，请换一个实例名称。"
@@ -87,6 +103,8 @@ data class CoreErrorPayload(
             "error.launch.already_running" -> "已经有一个游戏在运行了。"
             "error.launch.exit_code" -> "游戏异常退出。请查看日志确认原因。"
             "error.task.cancelled" -> "任务已取消。"
+            "error.task.failed" -> "任务执行失败，请查看详情。"
+            "error.task.not_found" -> "找不到这个任务。"
             "error.task.already_running" -> "已有下载任务在进行，请等待完成或取消。"
             "error.network" -> "网络请求失败，请检查网络或代理设置。"
             "error.install.failed" -> "安装没有完成，请重试。"
@@ -108,7 +126,7 @@ data class CoreErrorPayload(
                 "Forge/NeoForge 安装处理器执行失败，请查看日志。"
             "error.loader.patcher_failed", "error.loader.patcher_spawn",
             "error.loader.client_jar" -> "OptiFine 补丁执行失败，请确认游戏文件完整。"
-            "error.loader.java_required" -> "安装这个加载器需要 Java。M6 接入自动下载前，请先准备 Java。"
+            "error.loader.java_required" -> "安装这个加载器需要 Java。请在设置中下载或开启自动下载。"
             "error.loader.output_hash" -> "加载器安装产物校验失败，请重试或更换镜像。"
             "error.loader.minecraft_mismatch" -> "加载器安装包与所选 Minecraft 版本不一致。"
             "error.loader.mappings_missing" -> "该版本缺少 Mojang 映射文件，无法安装 Forge/NeoForge。"
@@ -172,6 +190,58 @@ data class CoreAppSnapshot(
     val diskFreeBytes: Long = 0,
     val totalMemoryBytes: Long = 0,
     val instanceCount: Int = 0,
+)
+
+/** One row of `java.list`. */
+@Serializable
+data class CoreJavaRuntime(
+    val id: String? = null,
+    val vendor: String = "",
+    val version: String = "",
+    val major: Int? = null,
+    val arch: String = "",
+    val home: String = "",
+    val executable: String = "",
+    val source: String = "",
+    val managed: Boolean = false,
+    val sizeBytes: Long = 0,
+    val installedAtMs: Long? = null,
+    val component: String? = null,
+    val platform: String? = null,
+)
+
+/** `java.list` envelope. */
+@Serializable
+data class CoreJavaList(
+    val runtimes: List<CoreJavaRuntime> = emptyList(),
+    val autoDownload: Boolean = true,
+    val supported: Boolean = true,
+    val platform: String = "unknown",
+    val hostArch: String = "unknown",
+)
+
+/** One row of `java.catalog`. */
+@Serializable
+data class CoreJavaCatalogEntry(
+    val runtimeId: String,
+    val major: Int,
+    val component: String = "",
+    val version: String = "",
+    val arch: String = "",
+    val platform: String = "",
+    val fallback: Boolean = false,
+    val installed: Boolean = false,
+    val installedVersion: String? = null,
+)
+
+/** `java.catalog` envelope. */
+@Serializable
+data class CoreJavaCatalog(
+    val versions: List<CoreJavaCatalogEntry> = emptyList(),
+    val autoDownload: Boolean = true,
+    val supported: Boolean = true,
+    val platform: String = "unknown",
+    val hostArch: String = "unknown",
 )
 
 /** One row of `tasks.list`. */

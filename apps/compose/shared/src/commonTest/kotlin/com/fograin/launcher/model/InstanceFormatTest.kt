@@ -46,6 +46,7 @@ class InstanceFormatTest {
     @Test
     fun taskTitleReadsLikeTheQueue() {
         assertEquals("安装 1.21.4", InstanceFormat.taskTitle("install:1.21.4"))
+        assertEquals("Java 21", InstanceFormat.taskTitle("java:21"))
         assertEquals("install", InstanceFormat.taskTitle("install"))
     }
 

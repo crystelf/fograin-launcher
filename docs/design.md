@@ -38,6 +38,7 @@
 | M3 | 原版安装、Java 发现、离线启动（`fg-game`、`fg-java`、`fg-auth`、`fg-cli`） | 完成 |
 | M4 | 实例 CRUD、设置继承、安装/启动 UI 接线、任务队列、外部 `.minecraft` 导入 | 完成（core + 四端） |
 | M5 | Fabric/Quilt/Forge/NeoForge/OptiFine 安装器与启动接线 | 完成（2026-11-14） |
+| M6 | Java 运行时自动下载、自动补全与管理页 | 完成（2026-11-15） |
 
 ### 1.2 为什么重构
 
@@ -226,13 +227,15 @@ commonTest
 ### 3.4 桌面外壳（v1，R4 已实现）
 
 - 窗口：默认 1120×780；位置/大小/最大化写入 `java.util.prefs`（`window.*`），下次启动恢复。
-- 菜单：文件（新建实例、前往实例库、退出）、编辑（搜索实例、切换主题）、前往（四个目的地）。
+- 菜单：文件（新建实例、前往实例库、退出）、编辑（全局搜索、切换主题）、前往（四个目的地）。
 - 快捷键：`Cmd/Ctrl+N`、`Cmd/Ctrl+I`、`Cmd/Ctrl+F`、`Cmd/Ctrl+Shift+T`、`Cmd/Ctrl+1..4`、`Cmd/Ctrl+Q`、`Esc`。
 - `Esc` 走共享的 `BackDispatcher`：先关 sheet/对话框，再回主页；Android 的返回手势是同一实现。
-- 宽度 ≥ 840 dp 用 `NavigationRail`，否则用底栏；两档离屏截图作为验收（`AdaptiveLayoutRenderTest`）。
+- 宽度 ≥ 840 dp 用 `NavigationRail`，否则用底栏；两档离屏截图作为验收（`AdaptiveLayoutRenderTest`）。宽屏导航栏顶部是全局搜索按钮，设置固定在最下方；macOS 原生红绿灯通过全窗内容叠在导航栏顶部。
 - 四个一级页面共用 `PageHeader`：标题、搜索框与页面操作在同一行，标题不再占用第二行；紧凑窗口的搜索框折叠成图标，展开时在同一行替换标题。
 - 页面切换使用淡入与短距离滑动；列表项、任务进度、搜索展开、弹层进出场都有过渡，避免硬切。
-- macOS 透明标题栏、Windows DWM 深色标题栏、托盘、任务栏进度、单实例锁、通知：v2，见 `docs/backlog.md`。
+- 桌面目录选择优先调用系统原生对话框（macOS `osascript choose folder`、Windows PowerShell `FolderBrowserDialog`、Linux `zenity`/`kdialog`），Swing `JFileChooser` 仅作无原生工具时的回退，并使用系统 L&F。
+- `:desktop:run` 的 Dock/任务栏图标从 `design/app-icon.png` 运行时加载；macOS 通过 `apple.awt.application.appearance=system` 让标题栏跟随系统明暗。
+- macOS 全窗内容 + 透明标题栏已启用，红绿灯叠在左侧导航顶部；Windows DWM 深色标题栏、托盘、任务栏进度、单实例锁、通知：v2，见 `docs/backlog.md`。
 
 ### 3.5 已知差异与优化项
 
@@ -267,7 +270,7 @@ commonTest
 │  ├─ instance.toml
 │  ├─ .minecraft/             # mods / resourcepacks / shaderpacks / saves / logs / crash-reports …
 │  └─ icon.png
-├─ runtimes/<vendor>-<version>-<arch>/
+├─ runtimes/<vendor>-<component>-<version>-<arch>/
 ├─ cache/
 │  ├─ sha1/<aa>/<sha1>        # 内容寻址缓存
 │  ├─ http/                   # ETag / Last-Modified
@@ -360,13 +363,18 @@ M5 已实现（细节与验收见 [m5.md](m5.md)）：
 - Forge/NeoForge 运行 client processor，完成 `data` 变量替换、`{SIDE}` 等内置变量、`DOWNLOAD_MOJMAPS` 自处理、outputs 哈希校验；installer 内嵌 Maven 直接解包；
 - Forge 1.7–1.12 使用 `versionInfo` / `version.json` 与内嵌 universal jar；
 - OptiFine 直接调用 `optifine.Patcher` 补丁原版 jar，选择 installer 内或 Maven 的 launchwrapper，版本参数追加 `--tweakClass optifine.OptiFineTweaker`；
-- Forge/NeoForge/OptiFine 安装当前要求本机 Java；M6 接入运行时下载后复用同一选择逻辑。
+- Forge/NeoForge/OptiFine 安装需要 Java；M6 起安装入口复用同一套选择逻辑，缺失时按 `[java] auto_download` 下载。
 
 ### 5.5 Java 运行时（`fg-java`）
 
-- 发现：`PATH`、`JAVA_HOME`；Windows 注册表与常见目录；macOS `/usr/libexec/java_home` 与 Homebrew；Linux `/usr/lib/jvm`、SDKMAN；HMCL/PCL/Prism 的 runtime（只读）；启动器 `runtimes/`。
+M6 已实现托管运行时下载与管理（细节与验收见 [m6.md](m6.md)）。
+
+- 发现：`PATH`、`JAVA_HOME`；Windows 注册表与常见目录；macOS `/usr/libexec/java_home` 与 Homebrew；Linux `/usr/lib/jvm`、SDKMAN；HMCL/PCL/Prism 的 runtime（只读）；启动器 `runtimes/`。macOS 的 `jre.bundle/Contents/Home` 也会被扫描。
 - 解析：优先 `<home>/release`；缺失时 `java -XshowSettings:properties -version`（5s 超时）；Windows 读 PE 头、macOS 读 Mach-O 头判断架构。
-- 匹配：优先 version json 的 `javaVersion.majorVersion`；缺失时按版本推断（≤1.16.5→8，1.17→16，1.18–1.20.4→17，1.20.5+→21）。精确优先，其次最近的高/低 major；不强制，先尝试运行，缺 Java 时才报 `error.java.none_installed` 并引导下载（M6）。
+- 匹配：优先 version json 的 `javaVersion.majorVersion`；缺失时按版本推断（≤1.16.5→8，1.17→16，1.18–1.20.4→17，1.20.5+→21）。精确优先，其次最近的高/低 major；不强制，先尝试运行。
+- 下载：Mojang `java-runtime/all.json` 官方目录，`javaVersion.component` 优先于 major；平台回退顺序见 m6。安装清单保留 macOS bundle 结构，逐文件 SHA-1 校验，写 `runtimes/<vendor>-<component>-<version>-<arch>/fograin-runtime.json`。
+- 自动补全：`[java] auto_download = true`（默认）且一个运行时都没有时，`install.start` / `launch.start` 先排队 `java:<major>` 任务并等待；已有不匹配 major 时仍走降级+警告。Linux arm64 / Android 无官方包，返回 `error.java.runtime_unsupported`。
+- 管理：设置 → Java 运行时页列出系统与托管运行时、可下载 major、进度和删除；实例设置可选择具体 runtime home。
 - 内存：自动策略按总内存/可用内存/模组数给建议；上限为物理内存减 2 GB（Android 另算）；预设 G1GC、ZGC Generational、Aikar flags。
 
 ### 5.6 启动流程（`fg-game::launch`）
@@ -457,7 +465,7 @@ Android 上跑 Java 版需要：内置交叉编译的 OpenJDK（Pojav/Amethyst �
 
 ### 7.1 已完成
 
-M0–M5 见 §1.1。M4 的实例管理、安装、启动链路已经在 macOS / Windows（代码级）/ Linux / Android 上验证或接线；M5 在 Rust 核心与共享 UI 内完成加载器安装，不改变四端外壳契约。
+M0–M6 见 §1.1。M4 的实例管理、安装、启动链路已经在 macOS / Windows（代码级）/ Linux / Android 上验证或接线；M5 在 Rust 核心与共享 UI 内完成加载器安装，M6 完成 Java 运行时下载与管理，均不改变四端外壳契约。
 
 ### 7.2 重构阶段（R0–R6）
 
@@ -480,7 +488,7 @@ M0–M5 见 §1.1。M4 的实例管理、安装、启动链路已经在 macOS / 
 | 里程碑 | 内容 | 约工期 |
 | --- | --- | --- |
 | M5 ✅ | Fabric/Quilt/NeoForge/Forge/OptiFine 安装器 | 完成 2026-11-14 |
-| M6 | Java 运行时自动下载与管理页 | 1 周 |
+| M6 ✅ | Java 运行时自动下载与管理页 | 完成 2026-11-15 |
 | M7 | Yggdrasil / authlib-injector、账户页、皮肤 | 1 周 |
 | M8 | 模组、资源包、光影、世界、原理图、下载页六类资源 | 3 周 |
 | M9 | 整合包、服务器、崩溃分析 | 2 周 |
@@ -543,7 +551,7 @@ M6+ 只改 Rust 核心与共享 UI，不再有"每端各接一次"的工作。
 | 实例设置 | `instances.settings.get/set`、`instances.verify`、`instances.dir` | fg-core、fg-java |
 | 下载 / 安装 | `versions.list`、`loaders.versions`、`version.plan`、`install.start`、`tasks.cancel`、`task.progress` | fg-net、fg-task、fg-game、fg-loader |
 | 游戏会话 | `launch.start`、`launch.status`、`session.wait/stop`、`game.line` | fg-game |
-| 设置 | `gameConfig.get/set`、`app.snapshot` | fg-core |
+| 设置 / Java | `gameConfig.get/set`、`java.list/catalog/install/remove/policy.set`、`tasks.*`、`app.snapshot` | fg-core、fg-java |
 | 服务器（M9） | `servers_list`、`server_ping`、`lan_discover` | fg-world |
 | 账户（M7） | `account_*`、`yggdrasil_discover`、`skin_upload` | fg-auth |
 | 内容（M8） | `content_search`、`content_versions`、`content_install` | fg-content |

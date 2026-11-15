@@ -525,10 +525,16 @@ version = "0.1.0"
 dependencies = [
  "dirs",
  "fg-core",
+ "fg-net",
+ "fg-task",
  "glob",
  "serde",
+ "serde_json",
+ "sha1",
  "tempfile",
  "tokio",
+ "tracing",
+ "wiremock",
 ]
 
 [[package]]

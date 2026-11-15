@@ -4,7 +4,11 @@ One Compose Multiplatform UI for Android, Windows, macOS and Linux. The Rust
 core and the JSON RPC contract are unchanged; this project owns the UI and the
 platform shells. R1/R2 moved the complete M4 surface (home, library, downloads,
 settings, instance settings, the two-page game install flow and the two
-inspector sheets) into `shared/src/commonMain`.
+inspector sheets) into `shared/src/commonMain`. M6 adds the Java runtime
+management page under Settings (inventory, catalog downloads, progress and
+deletion) without adding a fifth navigation destination. The rail also carries
+the global search entry; macOS uses full-window content so the native traffic
+lights sit inside the rail instead of a separate title bar.
 
 ## Layout
 

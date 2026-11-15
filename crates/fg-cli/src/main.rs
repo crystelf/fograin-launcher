@@ -39,7 +39,8 @@ use fg_game::layout::{Layout, validate_id};
 use fg_game::resolver::VersionResolver;
 use fg_game::rules::RuleContext;
 use fg_java::{
-    JavaArch, JavaRuntime, JavaScanner, JavaSource, JavaWarning, normalize_home, select,
+    JavaArch, JavaManager, JavaRuntime, JavaScanner, JavaSource, JavaWarning, normalize_home,
+    select,
 };
 use fg_loader::{LoaderKind, LoaderPaths, LoaderPlanner, VersionListQuery};
 use fg_net::{
@@ -79,6 +80,10 @@ struct Cli {
     /// Bandwidth cap in KiB/s (0 = unlimited).
     #[arg(long, global = true, default_value_t = 0)]
     rate_limit_kib: u64,
+
+    /// Never download a missing Java runtime for this command.
+    #[arg(long, global = true)]
+    no_auto_java: bool,
 
     #[command(subcommand)]
     command: Command,
@@ -136,7 +141,7 @@ enum Command {
     Install(InstallArgs),
     /// Launch an installed instance with an offline account.
     Launch(LaunchArgs),
-    /// Discover installed Java runtimes.
+    /// Discover, download and remove Java runtimes.
     Java(JavaArgs),
     /// Inspect installed instances.
     Instance(InstanceArgs),
@@ -277,6 +282,10 @@ struct InstallArgs {
     /// Loader version; defaults to the newest stable build.
     #[arg(long)]
     loader_version: Option<String>,
+
+    /// Filled from the global `--no-auto-java` switch; not a CLI argument.
+    #[arg(skip)]
+    auto_java: bool,
 }
 
 #[derive(Debug, Args)]
@@ -320,6 +329,10 @@ struct LaunchArgs {
     /// Extra JVM argument; may be repeated.
     #[arg(long = "jvm-arg")]
     jvm_args: Vec<String>,
+
+    /// Filled from the global `--no-auto-java` switch; not a CLI argument.
+    #[arg(skip)]
+    auto_java: bool,
 }
 
 #[derive(Debug, Args)]
@@ -334,6 +347,12 @@ enum JavaCommand {
     List(JavaListArgs),
     /// Show the runtime selected for a version.
     Match(JavaMatchArgs),
+    /// List downloadable official runtimes for this platform.
+    Catalog(JavaCatalogArgs),
+    /// Download and install a runtime by Java major.
+    Install(JavaInstallArgs),
+    /// Remove a launcher-managed runtime.
+    Remove(JavaRemoveArgs),
 }
 
 #[derive(Debug, Args)]
@@ -353,6 +372,35 @@ struct JavaMatchArgs {
 
     #[arg(long)]
     json: bool,
+}
+
+#[derive(Debug, Args)]
+struct JavaCatalogArgs {
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct JavaInstallArgs {
+    /// Java feature release, e.g. 8, 17 or 21.
+    major: u32,
+
+    /// Mojang runtime component; defaults to the one for this major.
+    #[arg(long)]
+    component: Option<String>,
+
+    /// Print the download plan without installing.
+    #[arg(long)]
+    dry_run: bool,
+
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct JavaRemoveArgs {
+    /// Runtime directory id from `fg-cli java list`.
+    id: String,
 }
 
 #[derive(Debug, Args)]
@@ -462,6 +510,8 @@ async fn main() -> Result<()> {
     let source: DownloadSource = cli.source.into();
     let region = cli.region.map_or_else(Region::detect, Region::from);
     let table = MirrorTable::load(&root);
+    let auto_java = !cli.no_auto_java
+        && config::read_config(&root).map_or(true, |config| config.java.auto_download);
 
     match cli.command {
         Command::Info => command_info(&root),
@@ -515,7 +565,8 @@ async fn main() -> Result<()> {
             )
             .await
         }
-        Command::Install(args) => {
+        Command::Install(mut args) => {
+            args.auto_java = auto_java;
             command_install(
                 &root,
                 &table,
@@ -527,7 +578,8 @@ async fn main() -> Result<()> {
             )
             .await
         }
-        Command::Launch(args) => {
+        Command::Launch(mut args) => {
+            args.auto_java = auto_java;
             command_launch(
                 &root,
                 &table,
@@ -1186,13 +1238,26 @@ async fn command_install(
         None
     };
     let base = resolver.resolve_remote(&args.version).await?;
-    let java = if loader_kind.is_some_and(LoaderKind::requires_java) {
-        let runtimes = scan_java(&layout, true).await;
-        Some(
-            select(&runtimes, base.java_major, JavaArch::host())?
+    let java = if loader_kind.is_some_and(LoaderKind::requires_java) && !args.dry_run {
+        if let Some(path) = config::read_config(root)?.game.java {
+            Some(explicit_runtime(&path)?.executable)
+        } else {
+            let manager = java_manager(&layout, &downloader, table, source, region);
+            Some(
+                ensure_java_for_cli(
+                    &manager,
+                    &layout,
+                    base.java_major,
+                    base.java_component(),
+                    JavaArch::host(),
+                    false,
+                    args.auto_java,
+                )
+                .await?
                 .runtime
                 .executable,
-        )
+            )
+        }
     } else {
         None
     };
@@ -1332,7 +1397,7 @@ async fn command_launch(
     rate_limit_kib: u64,
     args: LaunchArgs,
 ) -> Result<()> {
-    let (layout, _downloader, resolver) =
+    let (layout, downloader, resolver) =
         build_shared(root, table, source, region, concurrency, rate_limit_kib)?;
     let mut instance = Instance::load(&layout, &args.instance)?;
     {
@@ -1357,7 +1422,31 @@ async fn command_launch(
         }
     })?;
 
-    let runtimes = scan_java(&layout, true).await;
+    let mut runtimes = scan_java(&layout, true).await;
+    let explicit_java = args.java.is_some() || instance.java().is_some();
+    let legacy_x64 = cfg!(target_os = "macos")
+        && JavaArch::host() == JavaArch::Arm64
+        && needs_x86_64_java(&resolved.base_id);
+    if !explicit_java
+        && (legacy_x64 || select(&runtimes, resolved.java_major, JavaArch::host()).is_err())
+    {
+        let manager = java_manager(&layout, &downloader, table, source, region);
+        ensure_java_for_cli(
+            &manager,
+            &layout,
+            resolved.java_major,
+            resolved.java_component(),
+            if legacy_x64 {
+                JavaArch::X86_64
+            } else {
+                JavaArch::host()
+            },
+            legacy_x64,
+            args.auto_java,
+        )
+        .await?;
+        runtimes = scan_java(&layout, true).await;
+    }
     let java = pick_java(&instance, &resolved, &args, &runtimes)?;
     let account = OfflineAccount::new(&args.username)?;
 
@@ -1497,6 +1586,30 @@ async fn command_launch(
     Ok(())
 }
 
+fn explicit_runtime(path: &std::path::Path) -> Result<JavaRuntime> {
+    let home = if path.is_dir() {
+        normalize_home(path)
+    } else {
+        path.parent()
+            .and_then(|bin| bin.parent())
+            .map(|home| normalize_home(home).unwrap_or_else(|| home.to_path_buf()))
+    }
+    .ok_or_else(|| {
+        Error::with_detail(
+            ErrorKind::NotFound,
+            "error.java.not_found",
+            format!("{} does not contain bin/java", path.display()),
+        )
+    })?;
+    JavaRuntime::from_home(home.clone(), JavaSource::ExtraRoot).ok_or_else(|| {
+        Error::with_detail(
+            ErrorKind::NotFound,
+            "error.java.not_found",
+            format!("{} does not contain bin/java", home.display()),
+        )
+    })
+}
+
 fn pick_java(
     instance: &Instance,
     resolved: &fg_game::version::ResolvedVersion,
@@ -1508,28 +1621,7 @@ fn pick_java(
         .clone()
         .or_else(|| instance.java().map(std::path::Path::to_path_buf));
     if let Some(path) = explicit {
-        let home = if path.is_dir() {
-            normalize_home(&path)
-        } else {
-            path.parent()
-                .and_then(|bin| bin.parent())
-                .map(|home| normalize_home(home).unwrap_or_else(|| home.to_path_buf()))
-        }
-        .ok_or_else(|| {
-            Error::with_detail(
-                ErrorKind::NotFound,
-                "error.java.not_found",
-                format!("{} does not contain bin/java", path.display()),
-            )
-        })?;
-        let runtime =
-            JavaRuntime::from_home(home.clone(), JavaSource::ExtraRoot).ok_or_else(|| {
-                Error::with_detail(
-                    ErrorKind::NotFound,
-                    "error.java.not_found",
-                    format!("{} does not contain bin/java", home.display()),
-                )
-            })?;
+        let runtime = explicit_runtime(&path)?;
         if runtime
             .major()
             .is_some_and(|major| major < resolved.java_major)
@@ -1577,6 +1669,10 @@ fn pick_java(
     Ok(selected.runtime)
 }
 
+fn arch_matches(actual: JavaArch, wanted: JavaArch) -> bool {
+    actual == wanted || actual == JavaArch::Unknown
+}
+
 fn java_warning(warning: &JavaWarning) -> String {
     match warning {
         JavaWarning::TooNew { found, required } => {
@@ -1604,6 +1700,110 @@ async fn scan_java(layout: &Layout, probe: bool) -> Vec<JavaRuntime> {
     }
 }
 
+fn java_manager(
+    layout: &Layout,
+    downloader: &Arc<Downloader>,
+    table: &MirrorTable,
+    source: DownloadSource,
+    region: Region,
+) -> JavaManager {
+    JavaManager::new(
+        layout.root().to_path_buf(),
+        downloader.clone(),
+        table.clone(),
+        source,
+        region,
+    )
+}
+
+/// Ensures a runtime exists for `required`, downloading the official Mojang
+/// build when `allow_download` is on and nothing matches.
+async fn ensure_java_for_cli(
+    manager: &JavaManager,
+    layout: &Layout,
+    required: u32,
+    component: Option<&str>,
+    arch: JavaArch,
+    require_arch: bool,
+    allow_download: bool,
+) -> Result<fg_java::JavaSelection> {
+    let runtimes = scan_java(layout, true).await;
+    let selection = select(&runtimes, required, arch);
+    if let Ok(selection) = &selection
+        && (!require_arch || (selection.exact && arch_matches(selection.runtime.arch, arch)))
+    {
+        return Ok(selection.clone());
+    }
+    if !allow_download {
+        return match selection {
+            Ok(selection)
+                if require_arch
+                    && (!selection.exact || !arch_matches(selection.runtime.arch, arch)) =>
+            {
+                Err(Error::with_detail(
+                    ErrorKind::Unsupported,
+                    "error.java.x86_64_required",
+                    format!("need an exact {arch} Java {required} for this version"),
+                ))
+            }
+            other => other,
+        };
+    }
+
+    let candidate = manager.candidate_for(required, component, arch).await?;
+    let plan = manager.plan(&candidate).await?;
+    plan.save(layout.root())?;
+    eprintln!(
+        "downloading Java {} ({}, {}) — {} files, {}",
+        plan.major,
+        plan.component,
+        plan.arch,
+        plan.files.len(),
+        human_bytes(plan.total_bytes)
+    );
+    let manager = Arc::new(manager.clone());
+    let graph = Arc::new(manager.graph(plan.clone()));
+    let reporter = spawn_graph_reporter(graph.clone());
+    let report = run_graph_interruptible(graph).await?;
+    reporter.abort();
+    eprintln!();
+    if !report.is_success() {
+        let detail = report
+            .failed
+            .first()
+            .map(|(node, error)| format!("{node}: {error}"))
+            .unwrap_or_else(|| "Java download did not finish".to_string());
+        return Err(Error::with_detail(
+            ErrorKind::Internal,
+            "error.java.runtime_install",
+            detail,
+        ));
+    }
+    println!(
+        "installed Java {} at {}",
+        plan.major,
+        plan.runtime_dir(layout.root()).display()
+    );
+    let runtimes = scan_java(layout, true).await;
+    let selection = select(&runtimes, required, arch)?;
+    if require_arch && (!selection.exact || !arch_matches(selection.runtime.arch, arch)) {
+        return Err(Error::with_detail(
+            ErrorKind::Unsupported,
+            "error.java.x86_64_required",
+            format!(
+                "downloaded Java {} is {}, but this version needs {arch}",
+                selection
+                    .runtime
+                    .version
+                    .as_ref()
+                    .map_or("?", |value| value.full.as_str()),
+                selection.runtime.arch
+            ),
+        ));
+    }
+    Ok(selection)
+}
+
 async fn command_java(
     root: &std::path::Path,
     table: &MirrorTable,
@@ -1613,15 +1813,20 @@ async fn command_java(
     rate_limit_kib: u64,
     args: JavaArgs,
 ) -> Result<()> {
-    let (layout, _downloader, resolver) =
+    let (layout, downloader, resolver) =
         build_shared(root, table, source, region, concurrency, rate_limit_kib)?;
     match args.command {
         JavaCommand::List(args) => {
             let runtimes = scan_java(&layout, !args.no_probe).await;
+            let managed = java_manager(&layout, &downloader, table, source, region).installed();
             if args.json {
+                let payload = serde_json::json!({
+                    "runtimes": runtimes,
+                    "managed": managed.iter().map(|runtime| &runtime.marker).collect::<Vec<_>>(),
+                });
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&runtimes).map_err(json_error)?
+                    serde_json::to_string_pretty(&payload).map_err(json_error)?
                 );
                 return Ok(());
             }
@@ -1630,12 +1835,17 @@ async fn command_java(
                 return Ok(());
             }
             println!(
-                "{:<8} {:<8} {:<10} {:<20} home",
-                "version", "arch", "source", "vendor"
+                "{:<8} {:<8} {:<10} {:<20} {:<7} home",
+                "version", "arch", "source", "vendor", "managed"
             );
             for runtime in runtimes {
+                let installed = managed
+                    .iter()
+                    .find(|installed| installed.runtime.home == runtime.home)
+                    .map(|installed| installed.marker.id.as_str())
+                    .unwrap_or("-");
                 println!(
-                    "{:<8} {:<8} {:<10} {:<20} {}",
+                    "{:<8} {:<8} {:<10} {:<20} {:<7} {}",
                     runtime
                         .version
                         .as_ref()
@@ -1643,6 +1853,7 @@ async fn command_java(
                     runtime.arch,
                     runtime.source.label(),
                     runtime.vendor.as_deref().unwrap_or("-"),
+                    installed,
                     runtime.home.display()
                 );
             }
@@ -1654,6 +1865,7 @@ async fn command_java(
             if args.json {
                 let payload = serde_json::json!({
                     "required": resolved.java_major,
+                    "component": resolved.java_component(),
                     "exact": selected.exact,
                     "runtime": selected.runtime,
                     "warnings": selected.warnings.iter().map(java_warning).collect::<Vec<_>>(),
@@ -1665,9 +1877,10 @@ async fn command_java(
                 return Ok(());
             }
             println!(
-                "{} requires Java {}; selected {} ({} {})",
+                "{} requires Java {} ({}); selected {} ({} {})",
                 args.version,
                 resolved.java_major,
+                resolved.java_component().unwrap_or("no component"),
                 selected.runtime.home.display(),
                 selected
                     .runtime
@@ -1679,6 +1892,134 @@ async fn command_java(
             for warning in &selected.warnings {
                 println!("warning: {}", java_warning(warning));
             }
+        }
+        JavaCommand::Catalog(args) => {
+            let manager = java_manager(&layout, &downloader, table, source, region);
+            let installed = manager.installed();
+            let catalog = manager.catalog().await?;
+            if args.json {
+                let rows: Vec<serde_json::Value> = catalog
+                    .iter()
+                    .map(|candidate| {
+                        let hit = installed.iter().find(|runtime| {
+                            runtime.marker.major == candidate.major
+                                && runtime.marker.arch == candidate.arch
+                        });
+                        serde_json::json!({
+                            "runtimeId": fg_java::sanitize_id(&candidate.runtime_id()),
+                            "major": candidate.major,
+                            "component": candidate.component,
+                            "version": candidate.version,
+                            "arch": candidate.arch,
+                            "platform": candidate.platform,
+                            "fallback": candidate.fallback,
+                            "installed": hit.is_some(),
+                            "installedVersion": hit.map(|runtime| runtime.marker.version.clone()),
+                        })
+                    })
+                    .collect();
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&rows).map_err(json_error)?
+                );
+                return Ok(());
+            }
+            if catalog.is_empty() {
+                println!("no official Java runtime is available for this platform");
+                return Ok(());
+            }
+            println!(
+                "{:<6} {:<24} {:<12} {:<16} installed",
+                "java", "component", "version", "arch"
+            );
+            for candidate in catalog {
+                let hit = installed.iter().find(|runtime| {
+                    runtime.marker.major == candidate.major && runtime.marker.arch == candidate.arch
+                });
+                println!(
+                    "{:<6} {:<24} {:<12} {:<16} {}",
+                    candidate.major,
+                    candidate.component,
+                    candidate.version,
+                    candidate.arch,
+                    hit.map_or_else(
+                        || if candidate.fallback {
+                            "no (compat)"
+                        } else {
+                            "no"
+                        }
+                        .to_string(),
+                        |runtime| format!("yes ({})", runtime.marker.version)
+                    )
+                );
+            }
+        }
+        JavaCommand::Install(args) => {
+            let manager = java_manager(&layout, &downloader, table, source, region);
+            let candidate = manager
+                .candidate(args.major, args.component.as_deref())
+                .await?;
+            let plan = manager.plan(&candidate).await?;
+            plan.save(layout.root())?;
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&plan).map_err(json_error)?
+                );
+            } else {
+                println!(
+                    "Java {} · {} {} · {} · {} files · {}",
+                    plan.major,
+                    plan.component,
+                    plan.version,
+                    plan.arch,
+                    plan.files.len(),
+                    human_bytes(plan.total_bytes)
+                );
+                println!("  runtime {}", plan.runtime_dir(layout.root()).display());
+            }
+            if args.dry_run {
+                for file in plan.files.iter().take(20) {
+                    println!("  {}{}", file.path, if file.executable { " *" } else { "" });
+                }
+                if plan.files.len() > 20 {
+                    println!("  … {} more", plan.files.len() - 20);
+                }
+                return Ok(());
+            }
+            let manager = Arc::new(manager);
+            let graph = Arc::new(manager.graph(plan.clone()));
+            let reporter = spawn_graph_reporter(graph.clone());
+            let report = run_graph_interruptible(graph).await?;
+            reporter.abort();
+            eprintln!();
+            if !report.is_success() {
+                let detail = report
+                    .failed
+                    .first()
+                    .map(|(node, error)| format!("{node}: {error}"))
+                    .unwrap_or_else(|| "Java download did not finish".to_string());
+                return Err(Error::with_detail(
+                    ErrorKind::Internal,
+                    "error.java.runtime_install",
+                    detail,
+                ));
+            }
+            println!(
+                "installed Java {} at {}",
+                plan.major,
+                plan.runtime_dir(layout.root()).display()
+            );
+        }
+        JavaCommand::Remove(args) => {
+            let manager = java_manager(&layout, &downloader, table, source, region);
+            let marker = manager.remove(&args.id)?;
+            println!(
+                "removed Java {} ({}) from {}",
+                marker.major,
+                marker.version,
+                layout.runtimes().join(&args.id).display()
+            );
         }
     }
     Ok(())

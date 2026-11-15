@@ -72,6 +72,9 @@ object InstanceFormat {
         if (graphName.startsWith("install:")) {
             return "安装 ${graphName.removePrefix("install:")}"
         }
+        if (graphName.startsWith("java:")) {
+            return "Java ${graphName.removePrefix("java:")}"
+        }
         return graphName
     }
 

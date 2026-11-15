@@ -15,6 +15,8 @@ import com.fograin.launcher.platform.CoreException
 import com.fograin.launcher.platform.CoreGameConfig
 import com.fograin.launcher.platform.CoreInstanceRow
 import com.fograin.launcher.platform.CoreInstanceSettings
+import com.fograin.launcher.platform.CoreJavaList
+import com.fograin.launcher.platform.CoreJavaRuntime
 import com.fograin.launcher.platform.CoreLoaderVersion
 import com.fograin.launcher.platform.CoreTaskRow
 import com.fograin.launcher.platform.DirectoryPick
@@ -79,6 +81,7 @@ class AppModel internal constructor(
     internal val downloads = DownloadsActions(this)
     internal val session = LaunchActions(this)
     internal val instanceSettings = InstanceSettingsActions(this)
+    internal val java = JavaActions(this)
 
     private val refreshMutex = Mutex()
 
@@ -172,6 +175,25 @@ class AppModel internal constructor(
                     val config = runCatching { payload.decode<CoreGameConfig>() }.getOrNull()
                     if (config != null) {
                         _state.update { it.copy(gameConfig = config) }
+                    }
+                }
+
+            // Fast inventory read: Settings shows the auto-download policy and
+            // the managed count without opening the network-bound catalog.
+            runCatching { core.rpc("java.list") }
+                .onSuccess { payload ->
+                    val listed = runCatching { payload.decode<CoreJavaList>() }.getOrNull()
+                    if (listed != null) {
+                        _state.update {
+                            it.copy(
+                                java = it.java.copy(
+                                    runtimes = listed.runtimes,
+                                    autoDownload = listed.autoDownload,
+                                    supported = listed.supported,
+                                    hostArch = listed.hostArch,
+                                ),
+                            )
+                        }
                     }
                 }
 
@@ -280,7 +302,18 @@ class AppModel internal constructor(
     // ------------------------------------------------------------------
 
     fun navigate(destination: AppDestination) {
-        _state.update { it.copy(destination = destination) }
+        _state.update {
+            it.copy(
+                destination = destination,
+                // Entering Settings from the rail/menu always lands on the
+                // main page; the Java management page has its own entry point.
+                settingsStage = if (destination == AppDestination.SETTINGS) {
+                    SettingsStage.MAIN
+                } else {
+                    it.settingsStage
+                },
+            )
+        }
     }
 
     /**
@@ -293,8 +326,10 @@ class AppModel internal constructor(
         val installSubPage = current.destination == AppDestination.DOWNLOADS &&
             current.download.stage != DownloadStage.BROWSER
         return current.alert != null ||
+            current.globalSearchOpen ||
             current.previewInstanceId != null ||
             current.instanceSettingsId != null ||
+            current.settingsStage != SettingsStage.MAIN ||
             installSubPage ||
             current.destination != AppDestination.HOME
     }
@@ -304,8 +339,10 @@ class AppModel internal constructor(
         val current = state.value
         when {
             current.alert != null -> dismissAlert()
+            current.globalSearchOpen -> closeGlobalSearch()
             current.previewInstanceId != null -> closePreview()
             current.instanceSettingsId != null -> closeInstanceSettings()
+            current.settingsStage != SettingsStage.MAIN -> closeJavaSettings()
             current.destination == AppDestination.DOWNLOADS &&
                 current.download.stage == DownloadStage.LOADER_VERSIONS ->
                 closeLoaderVersionPicker()
@@ -352,6 +389,18 @@ class AppModel internal constructor(
 
     fun closeInstanceSettings() {
         _state.update { it.copy(instanceSettingsId = null) }
+    }
+
+    fun openGlobalSearch() {
+        _state.update { it.copy(globalSearchOpen = true, globalSearchQuery = "") }
+    }
+
+    fun closeGlobalSearch() {
+        _state.update { it.copy(globalSearchOpen = false) }
+    }
+
+    fun setGlobalSearchQuery(query: String) {
+        _state.update { it.copy(globalSearchQuery = query) }
     }
 
     /** Menu/shortcut entry point: open the library page with the search field focused. */
@@ -494,6 +543,24 @@ class AppModel internal constructor(
         instanceSettings.copyDirectoryPath(instance)
 
     // ------------------------------------------------------------------
+    // Java runtime management (M6)
+    // ------------------------------------------------------------------
+
+    fun openJavaSettings() = java.open()
+
+    fun closeJavaSettings() = java.close()
+
+    fun refreshJavaSettings() = java.refresh()
+
+    fun setJavaAutoDownload(enabled: Boolean) = java.setAutoDownload(enabled)
+
+    fun installJavaRuntime(major: Int) = java.install(major)
+
+    fun removeJavaRuntime(id: String) = java.remove(id)
+
+    suspend fun loadJavaRuntimes(): List<CoreJavaRuntime> = java.runtimes()
+
+    // ------------------------------------------------------------------
     // Core event pump.
     // ------------------------------------------------------------------
 
@@ -512,7 +579,11 @@ class AppModel internal constructor(
 
     internal fun handleEvent(event: CoreEvent) {
         when (event) {
-            is CoreEvent.TaskFinished -> downloads.onTaskFinished(event)
+            is CoreEvent.TaskFinished -> {
+                downloads.onTaskFinished(event)
+                java.onTaskFinished(event)
+            }
+
             is CoreEvent.TaskProgress -> Unit
             else -> session.onEvent(event)
         }

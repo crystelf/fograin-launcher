@@ -1,8 +1,19 @@
 package com.fograin.launcher.desktop
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.window.WindowDraggableArea
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyShortcut
 import androidx.compose.ui.unit.DpSize
@@ -20,18 +31,56 @@ import com.fograin.launcher.platform.WindowFrame
 import com.fograin.launcher.platform.createCoreClient
 import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.ui.AppDestination
+import java.awt.GraphicsEnvironment
+import java.io.ByteArrayInputStream
 import java.time.Duration
 import java.time.Instant
+import javax.imageio.ImageIO
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import org.jetbrains.skia.Image as SkiaImage
 
 private val isMac = System.getProperty("os.name").orEmpty().contains("mac", ignoreCase = true)
 
 private fun shortcut(key: Key, shift: Boolean = false): KeyShortcut =
     if (isMac) KeyShortcut(key, meta = true, shift = shift) else KeyShortcut(key, ctrl = true, shift = shift)
 
+/** 512 px PNG packaged next to the launcher classes. */
+private val appIconBytes: ByteArray? by lazy {
+    object {}.javaClass.getResourceAsStream("/icon.png")?.use { it.readBytes() }
+}
+
+private fun appIconPainter(): Painter? = appIconBytes?.let { bytes ->
+    runCatching {
+        BitmapPainter(SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap())
+    }.getOrNull()
+}
+
+/**
+ * The Java launcher's default icon is the JDK's coffee cup in `:desktop:run`.
+ * R5 still owns the .icns/.ico for packaged distributions; this keeps the
+ * development shell from showing the JDK icon.
+ */
+private fun installTaskbarIcon() {
+    if (GraphicsEnvironment.isHeadless()) return
+    val bytes = appIconBytes ?: return
+    val image = ImageIO.read(ByteArrayInputStream(bytes)) ?: return
+    if (!java.awt.Taskbar.isTaskbarSupported()) return
+    val taskbar = java.awt.Taskbar.getTaskbar()
+    if (taskbar.isSupported(java.awt.Taskbar.Feature.ICON_IMAGE)) {
+        runCatching { taskbar.setIconImage(image) }
+    }
+}
+
 fun main() {
+    // Must run before AWT initializes: otherwise macOS paints the window title
+    // bar with the light Aqua appearance even when the system is dark.
+    if (isMac) {
+        System.setProperty("apple.awt.application.appearance", "system")
+        System.setProperty("apple.awt.application.name", "雾雨启动器")
+    }
+
     val processStart = ProcessHandle.current().info().startInstant().orElse(null)
     val platform = platformServices()
 
@@ -57,12 +106,14 @@ fun main() {
             },
         )
 
+        val windowIcon = remember { appIconPainter() }
         Window(
             onCloseRequest = {
                 platform.preferences.windowFrame = windowFrame(windowState)
                 exitApplication()
             },
             title = "雾雨启动器",
+            icon = windowIcon,
             state = windowState,
         ) {
             WindowMenuBar(
@@ -74,6 +125,15 @@ fun main() {
             )
 
             LaunchedEffect(Unit) {
+                // Full-window content + a transparent title bar put the native
+                // traffic lights inside the rail; the window title text is
+                // hidden so no separate top bar remains.
+                if (isMac) {
+                    window.rootPane.putClientProperty("apple.awt.fullWindowContent", true)
+                    window.rootPane.putClientProperty("apple.awt.transparentTitleBar", true)
+                    window.rootPane.putClientProperty("apple.awt.windowTitleVisible", false)
+                }
+                installTaskbarIcon()
                 if (System.getenv("FOGRAIN_STARTUP_LOG") != null) {
                     val elapsed = processStart
                         ?.let { Duration.between(it, Instant.now()).toMillis() }
@@ -81,7 +141,26 @@ fun main() {
                     println("FOGRAIN_STARTUP_MS=$elapsed")
                 }
             }
-            App(model)
+
+            Box(Modifier.fillMaxSize()) {
+                App(model)
+                if (isMac) {
+                    // Full-window content hides the native drag area. Keep the
+                    // top strip (right of the traffic lights) draggable so the
+                    // borderless window can still be moved.
+                    Box(
+                        Modifier
+                            .align(Alignment.TopStart)
+                            .fillMaxWidth()
+                            .height(40.dp)
+                            .padding(start = 76.dp),
+                    ) {
+                        WindowDraggableArea(Modifier.fillMaxSize()) {
+                            Box(Modifier.fillMaxSize())
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -106,9 +185,9 @@ private fun FrameWindowScope.WindowMenuBar(model: AppModel, onExit: () -> Unit) 
         }
         Menu("编辑", mnemonic = 'E') {
             Item(
-                "搜索实例",
+                "全局搜索",
                 shortcut = shortcut(Key.F),
-                onClick = { model.requestLibrarySearch() },
+                onClick = { model.openGlobalSearch() },
             )
             Item(
                 "切换主题",

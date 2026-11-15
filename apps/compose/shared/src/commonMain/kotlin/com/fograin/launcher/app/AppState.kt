@@ -8,6 +8,8 @@ import com.fograin.launcher.model.LibraryScope
 import com.fograin.launcher.model.LibrarySort
 import com.fograin.launcher.platform.CoreAppSnapshot
 import com.fograin.launcher.platform.CoreGameConfig
+import com.fograin.launcher.platform.CoreJavaCatalogEntry
+import com.fograin.launcher.platform.CoreJavaRuntime
 import com.fograin.launcher.platform.CoreLoaderVersion
 import com.fograin.launcher.platform.CorePlanPreview
 import com.fograin.launcher.platform.CoreSettings
@@ -47,6 +49,35 @@ data class DownloadRow(
     val speed: Double,
     val state: String,
 )
+
+/** Sub-pages of the settings destination. */
+enum class SettingsStage {
+    MAIN,
+    JAVA,
+}
+
+/** Java runtime inventory and download state owned by [AppModel]. */
+data class JavaUiState(
+    val runtimes: List<CoreJavaRuntime> = emptyList(),
+    val catalog: List<CoreJavaCatalogEntry> = emptyList(),
+    val autoDownload: Boolean = true,
+    val supported: Boolean = true,
+    val hostArch: String = "",
+    val isLoading: Boolean = false,
+    val error: String? = null,
+    val catalogError: String? = null,
+    val installTaskId: String? = null,
+    val installingMajor: Int? = null,
+) {
+    val managedCount: Int
+        get() = runtimes.count { it.managed }
+
+    /** Progress for the runtime download currently owned by this page. */
+    fun installFraction(downloads: List<DownloadRow>): Double? {
+        val taskId = installTaskId ?: return null
+        return downloads.firstOrNull { it.id == taskId }?.fraction
+    }
+}
 
 /** Scope of the home instance list, matching the pen's recent filter. */
 enum class HomeFilter {
@@ -114,6 +145,7 @@ data class AppUiState(
     val settings: CoreSettings,
     val theme: ThemeMode,
     val destination: AppDestination = AppDestination.HOME,
+    val settingsStage: SettingsStage = SettingsStage.MAIN,
     val instances: List<Instance> = emptyList(),
     val downloads: List<DownloadRow> = emptyList(),
     val appSnapshot: CoreAppSnapshot? = null,
@@ -122,6 +154,9 @@ data class AppUiState(
     val libraryQuery: String = "",
     /** Incremented by the desktop menu to open and focus the library search field. */
     val librarySearchRequest: Long = 0,
+    /** Global palette-style search opened from the rail or Cmd/Ctrl+F. */
+    val globalSearchOpen: Boolean = false,
+    val globalSearchQuery: String = "",
     val librarySelection: String? = null,
     val libraryScope: LibraryScope = LibraryScope.ALL,
     val librarySort: LibrarySort = LibrarySort.RECENT,
@@ -132,6 +167,7 @@ data class AppUiState(
     val notice: Notice? = null,
     val alert: AppAlert? = null,
     val download: DownloadUiState = DownloadUiState(),
+    val java: JavaUiState = JavaUiState(),
     /** Non-null when the instance settings sheet is open. */
     val instanceSettingsId: String? = null,
     /** Instance shown by the library preview sheet. */

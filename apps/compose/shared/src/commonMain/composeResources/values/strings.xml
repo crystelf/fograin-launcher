@@ -25,6 +25,20 @@
     <string name="action_add_instance">添加实例</string>
     <string name="action_copy_instance_dir">复制实例目录路径</string>
 
+    <!-- Global search -->
+    <string name="global_search_title">全局搜索</string>
+    <string name="global_search_placeholder">搜索实例、版本或页面…</string>
+    <string name="global_search_hint">输入实例名称、Minecraft 版本、加载器或页面名称</string>
+    <string name="global_search_recent">最近实例</string>
+    <string name="global_search_actions">页面与操作</string>
+    <string name="global_search_instances">实例</string>
+    <string name="global_search_empty">没有匹配的结果</string>
+    <string name="global_search_open">全局搜索</string>
+    <string name="global_search_java">Java 运行时</string>
+    <string name="global_search_java_body">管理系统与启动器托管的 Java</string>
+    <string name="global_search_add_instance">添加实例</string>
+    <string name="global_search_add_instance_body">选择 Minecraft 版本与加载器</string>
+
     <!-- Home -->
     <string name="home_greeting_format">%1$s，%2$s</string>
     <string name="greeting_morning">早上好</string>
@@ -56,7 +70,8 @@
     <string name="home_runtime_java">Java</string>
     <string name="home_runtime_memory">内存分配</string>
     <string name="home_runtime_device">设备</string>
-    <string name="home_runtime_java_pending">Java 运行时自动下载将在 M6 接入；当前优先使用系统中已发现的运行时。</string>
+    <string name="home_runtime_java_pending">缺失的 Java 会按版本自动下载；也可以在设置里管理运行时。</string>
+    <string name="home_runtime_java_managed">已管理 %1$d 个下载运行时</string>
     <string name="home_news">版本动态</string>
     <string name="home_account_pending">账户页将在 M7 接入</string>
     <string name="home_speed_idle">空闲</string>
@@ -195,7 +210,7 @@
     <string name="install_loader_versions">%1$s 版本</string>
     <string name="install_loader_choose">选择加载器版本</string>
     <string name="install_loader_loading">正在读取加载器版本…</string>
-    <string name="install_loader_java_note">该加载器需要 Java 执行安装处理器；未找到 Java 时会给出提示。</string>
+    <string name="install_loader_java_note">该加载器需要 Java 执行安装处理器；缺少时会自动下载官方运行时（可在设置中关闭）。</string>
     <string name="install_loader_count">%1$d 个版本</string>
     <string name="install_loader_stable">稳定版</string>
     <string name="install_loader_preview">预览版</string>
@@ -223,6 +238,14 @@
     <string name="settings_dynamic_color">动态取色</string>
     <string name="settings_dynamic_color_supported">使用壁纸生成的 Material You 配色（Android 12+）</string>
     <string name="settings_dynamic_color_unsupported">需要 Android 12 或更高版本</string>
+    <string name="settings_java_title">Java 运行时</string>
+    <string name="settings_java_body">官方运行时由启动器下载到数据目录，可用于所有实例。</string>
+    <string name="settings_java_installed">已安装的运行时</string>
+    <string name="settings_java_discovered">已发现 %1$d 个运行时</string>
+    <string name="settings_java_managed">其中 %1$d 个由启动器管理</string>
+    <string name="settings_java_auto_download">缺失时自动下载</string>
+    <string name="settings_java_auto_download_body">安装加载器或启动游戏需要 Java 时，自动下载对应版本</string>
+    <string name="settings_java_manage">管理运行时</string>
     <string name="settings_launch_network">启动与网络</string>
     <string name="settings_language">语言</string>
     <string name="settings_language_value">简体中文</string>
@@ -245,6 +268,36 @@
     <string name="settings_ffi_missing">JNI 未加载</string>
     <string name="settings_platform">平台</string>
     <string name="settings_java">Java</string>
+    <string name="java_title">Java 运行时</string>
+    <string name="java_back">返回设置</string>
+    <string name="java_unsupported">当前平台没有可直接下载的官方 Java 运行时。请安装系统 JDK；Android 的游戏运行时由后续版本提供。</string>
+    <string name="java_auto_download">缺失时自动下载</string>
+    <string name="java_auto_download_body">安装加载器或启动游戏时自动补全对应 Java；关闭后只使用已发现的运行时。</string>
+    <string name="java_installed_title">已安装</string>
+    <string name="java_installed_count">%1$d 个运行时</string>
+    <string name="java_available_title">可下载</string>
+    <string name="java_runtime_managed">已管理</string>
+    <string name="java_runtime_system">系统</string>
+    <string name="java_source_managed">启动器托管</string>
+    <string name="java_runtime_meta">%1$s · %2$s</string>
+    <string name="java_runtime_version">Java %1$s · %2$s</string>
+    <string name="java_runtime_home">目录 %1$s</string>
+    <string name="java_runtime_delete">删除 Java %1$s</string>
+    <string name="java_empty">还没有发现 Java 运行时。下载一个官方运行时，或安装系统 JDK 后重新扫描。</string>
+    <string name="java_empty_catalog">没有可下载的运行时。</string>
+    <string name="java_loading">正在读取 Java 运行时…</string>
+    <string name="java_load_error">无法读取 Java 列表：%1$s</string>
+    <string name="java_catalog_error">无法读取可下载列表：%1$s</string>
+    <string name="java_retry">重新加载</string>
+    <string name="java_install">下载</string>
+    <string name="java_installing">下载中… %1$d%%</string>
+    <string name="java_installing_unknown">下载中…</string>
+    <string name="java_installed_version">已安装 %1$s</string>
+    <string name="java_compat">兼容模式</string>
+    <string name="java_delete_title">删除 Java 运行时？</string>
+    <string name="java_delete_body">将删除 %1$s（%2$s）。使用这个目录的实例需要改选其他 Java。</string>
+    <string name="java_size">占用 %1$s</string>
+    <string name="java_install_notice">正在下载 Java %1$d</string>
     <string name="settings_about">关于</string>
     <string name="settings_about_title">雾雨启动器</string>
     <string name="settings_about_body">Minecraft Java 版启动器。Rust 核心 + 一套 Compose Multiplatform UI；Android 与桌面共用全部页面。</string>
@@ -253,7 +306,6 @@
     <string name="settings_trademark">Minecraft 是 Mojang Studios 的商标。雾雨启动器与 Mojang、Microsoft 无关联。</string>
     <string name="settings_milestone_m10">M10</string>
     <string name="settings_milestone_m2">M2</string>
-    <string name="settings_milestone_m6">M6</string>
 
     <!-- Instance settings sheet -->
     <string name="instance_settings_load_failed">读取设置失败：%1$s</string>

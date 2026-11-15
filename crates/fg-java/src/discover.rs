@@ -178,11 +178,16 @@ pub fn normalize_home(candidate: &Path) -> Option<PathBuf> {
 /// Walks at most `depth` levels under `root` looking for Java homes.
 fn walk_for_homes(root: &Path, depth: usize) -> Vec<PathBuf> {
     let mut found = Vec::new();
-    if depth == 0 || !root.is_dir() {
+    if !root.is_dir() {
         return found;
     }
+    // Check before the depth guard: a macOS runtime lives at
+    // `.../jre.bundle/Contents/Home`, so `Contents` is reached at depth 0.
     if normalize_home(root).is_some() {
         found.push(root.to_path_buf());
+    }
+    if depth == 0 {
+        return found;
     }
     let Ok(entries) = std::fs::read_dir(root) else {
         return found;

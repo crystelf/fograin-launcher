@@ -61,6 +61,7 @@ pub struct LauncherConfig {
     pub schema_version: u32,
     pub appearance: AppearanceConfig,
     pub game: GameConfig,
+    pub java: JavaConfig,
     pub download: DownloadConfig,
     pub network: NetworkConfig,
 }
@@ -78,6 +79,7 @@ impl LauncherConfig {
             schema_version: SCHEMA_VERSION,
             appearance: AppearanceConfig::default(),
             game: GameConfig::default(),
+            java: JavaConfig::default(),
             download: DownloadConfig::default(),
             network: NetworkConfig::default(),
         }
@@ -138,6 +140,27 @@ impl Default for GameConfig {
             fullscreen: false,
             show_log: false,
             auto_complete_resources: true,
+        }
+    }
+}
+
+/// `[java]` — managed runtime policy (§5.5, M6).
+///
+/// A missing exact major is repaired by downloading the vendor runtime that
+/// matches the version's `javaVersion` when [`JavaConfig::auto_download`] is
+/// on. The download is a normal task graph, so the UI can show progress and
+/// the user can cancel it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct JavaConfig {
+    /// Download the required runtime automatically during install and launch.
+    pub auto_download: bool,
+}
+
+impl Default for JavaConfig {
+    fn default() -> Self {
+        Self {
+            auto_download: true,
         }
     }
 }
@@ -430,6 +453,36 @@ mod tests {
     }
 
     #[test]
+    fn missing_java_section_defaults_to_auto_download() {
+        let root = temp_root();
+        fs::create_dir_all(&root).expect("create root");
+        fs::write(config_path(&root), "[game]\nusername = \"Alex\"\n").expect("write config");
+
+        let loaded = read_config(&root).expect("read config");
+        assert!(loaded.java.auto_download);
+        assert_eq!(loaded.game.username, "Alex");
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn java_policy_round_trips_through_toml() {
+        let root = temp_root();
+        let mut config = LauncherConfig::new();
+        config.java.auto_download = false;
+
+        write_config(&root, &config).expect("write config");
+        let loaded = read_config(&root).expect("read config");
+        assert!(!loaded.java.auto_download);
+
+        let text = fs::read_to_string(config_path(&root)).expect("read toml");
+        assert!(text.contains("[java]"), "{text}");
+        assert!(text.contains("auto_download = false"), "{text}");
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
     fn download_and_network_sections_use_documented_defaults() {
         let config = LauncherConfig::new();
 
@@ -438,6 +491,7 @@ mod tests {
         assert_eq!(config.game.resolution, None);
         assert!(!config.game.fullscreen);
         assert!(config.game.auto_complete_resources);
+        assert!(config.java.auto_download);
 
         assert_eq!(config.download.source, DownloadSource::Auto);
         assert_eq!(config.download.version_source, DownloadSource::Auto);

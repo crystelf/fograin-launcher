@@ -289,6 +289,88 @@ class AppModelTest {
     }
 
     @Test
+    fun javaSettingsLoadPolicyCatalogAndInstallTask() = runTest {
+        val core = FakeCore()
+        val model = model(backgroundScope, core)
+        runCurrent()
+
+        model.openJavaSettings()
+        runCurrent()
+
+        var state = model.state.value
+        assertEquals(AppDestination.SETTINGS, state.destination)
+        assertEquals(SettingsStage.JAVA, state.settingsStage)
+        assertTrue(model.canGoBack())
+        assertEquals(2, state.java.runtimes.size)
+        assertEquals(1, state.java.managedCount)
+        assertTrue(state.java.autoDownload)
+        assertEquals(listOf(8, 17, 21), state.java.catalog.map { it.major })
+        assertTrue(state.java.catalog.last().installed)
+        assertTrue(core.rpcCalls.contains("java.catalog"))
+
+        model.setJavaAutoDownload(false)
+        runCurrent()
+        assertFalse(model.state.value.java.autoDownload)
+        assertFalse(core.javaAutoDownload)
+
+        model.installJavaRuntime(21)
+        runCurrent()
+        state = model.state.value
+        assertEquals("java-task-1", state.java.installTaskId)
+        assertEquals(21, state.java.installingMajor)
+        assertEquals("21", (core.javaInstallRequests.single()["major"] as JsonPrimitive).content)
+
+        model.handleEvent(
+            CoreEvent.TaskFinished(
+                taskId = "java-task-1",
+                name = "java:21",
+                state = "succeeded",
+                detail = emptyList(),
+            ),
+        )
+        runCurrent()
+        assertNull(model.state.value.java.installTaskId)
+        assertNull(model.state.value.java.installingMajor)
+        assertEquals("Java 运行时安装完成", model.state.value.notice?.message)
+
+        model.back()
+        assertEquals(SettingsStage.MAIN, model.state.value.settingsStage)
+        assertTrue(model.canGoBack(), "still on Settings, so back now leaves the tab")
+    }
+
+    @Test
+    fun javaRemovalUsesTheManagedId() = runTest {
+        val core = FakeCore()
+        val model = model(backgroundScope, core)
+        runCurrent()
+
+        model.removeJavaRuntime("mojang-java-runtime-delta-21.0.7-arm64")
+        runCurrent()
+
+        assertEquals(
+            listOf("mojang-java-runtime-delta-21.0.7-arm64"),
+            core.javaRemovedIds,
+        )
+    }
+
+    @Test
+    fun globalSearchOpensFiltersAndClosesOnBack() = runTest {
+        val model = model(backgroundScope)
+        runCurrent()
+
+        model.openGlobalSearch()
+        assertTrue(model.state.value.globalSearchOpen)
+        assertTrue(model.canGoBack())
+
+        model.setGlobalSearchQuery("1.21")
+        assertEquals("1.21", model.state.value.globalSearchQuery)
+
+        model.back()
+        assertFalse(model.state.value.globalSearchOpen)
+        assertFalse(model.canGoBack())
+    }
+
+    @Test
     fun searchRequestOpensLibrary() = runTest {
         val model = model(backgroundScope)
         runCurrent()

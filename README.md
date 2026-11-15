@@ -14,6 +14,7 @@ Minecraft Java 版启动器：一套 Rust 核心 + 一套 Compose Multiplatform 
 | M3 | 原版安装与启动（`fg-game`、`fg-java`、`fg-auth`、`fg-cli`） | 完成（核心与 CLI） |
 | M4 | 实例管理、安装/启动 UI 接线、任务队列、外部导入 | 完成 |
 | M5 | Fabric/Quilt/Forge/NeoForge/OptiFine 安装器与启动接线 | 完成（2026-11-14） |
+| M6 | Java 运行时自动下载、安装/启动自动补全与管理页 | 完成（2026-11-15） |
 | R0 | Compose Multiplatform 重构：技术验证 | 完成（2026-11-12） |
 | R1 | 共享层：kotlinx.serialization、平台接口、`AppModel` 去 Android 化、commonTest | 完成（2026-11-13） |
 | R2 | UI 迁移：四页 + 3 个 sheet、字符串与图片资源化、Material 3 差异 | 完成（2026-11-13） |
@@ -102,7 +103,7 @@ cargo run -p fg-cli -- java match 1.21.4
 
 数据目录沿用设计 §4.1：共享的 `shared/versions`、`shared/libraries`、`shared/assets`，实例在 `instances/<id>/`；下载缓存在 `cache/`。实例的 `instance.toml` 已按 `[loader]` / `[override]` / `[meta]` 预留，M4 的下载/实例设置流程不需要迁移。
 
-Java 版本按 `version_json.javaVersion.majorVersion` 选择；缺失时按 §5.5 推断。1.8.9 / 1.12.2 / 1.16.5 需要 Java 8，本机没有时用 `--java <home>` 指定；M6 会补自动下载。Apple Silicon 上这些老版本只有 x86_64 natives，需要用 x86_64 Java 8（Rosetta）；启动前会检查并给出提示。
+Java 版本按 `version_json.javaVersion.majorVersion` 选择；缺失时按 §5.5 推断。1.8.9 / 1.12.2 / 1.16.5 需要 Java 8，本机没有时可用 `--java <home>` 指定；M6 起也会按需下载官方运行时（见下）。Apple Silicon 上这些老版本只有 x86_64 natives，启动器会优先下载 x86_64 Java 8 并用 Rosetta 运行。
 
 ## 下载引擎手测（M2）
 
@@ -136,7 +137,7 @@ cargo run -p fg-cli -- instance delete my-instance
 cargo run -p fg-cli -- instance import ~/path/to/.minecraft --name 外部存档
 ```
 
-UI 侧：主页/实例库读 `instances.list` / `instances.summary`；「添加实例」进入下载页，先选游戏 / 整合包 / 模组，再在游戏页选版本与加载器（原版与 Fabric/Quilt/Forge/NeoForge/OptiFine 均可用，加载器版本由 `loaders.versions` 实时读取），下载完成自动打开该实例的「游戏设置」，内存/JVM/分辨率等全部在设置页调整；下载队列、底栏角标消费 `fg_events_next` 里的 `task.progress/task.finished`；实例设置页通过 `instances.settings.set` 写 `[override]`，留空即继承 `launcher.toml [game]`；开始游戏走 `launch.start`，会话事件（`game.line` / `game.exited`）在退出后自动累加 `play_seconds` 并刷新「上次游玩」。Android 端通过 `bindings/fg-ffi-jni` 加载同一个 `fg-ffi` 服务，数据根目录由 Kotlin 在首次 RPC 前通过 `fg_set_data_root` 设为应用私有外部目录；当前没有内置 Java 运行时，`launch.start` 会如实返回 `error.java.none_installed`，M6 接入 JRE 后即可启动。
+UI 侧：主页/实例库读 `instances.list` / `instances.summary`；「添加实例」进入下载页，先选游戏 / 整合包 / 模组，再在游戏页选版本与加载器（原版与 Fabric/Quilt/Forge/NeoForge/OptiFine 均可用，加载器版本由 `loaders.versions` 实时读取），下载完成自动打开该实例的「游戏设置」，内存/JVM/分辨率等全部在设置页调整；下载队列、底栏角标消费 `fg_events_next` 里的 `task.progress/task.finished`；实例设置页通过 `instances.settings.set` 写 `[override]`，留空即继承 `launcher.toml [game]`；开始游戏走 `launch.start`，会话事件（`game.line` / `game.exited`）在退出后自动累加 `play_seconds` 并刷新「上次游玩」。Android 端通过 `bindings/fg-ffi-jni` 加载同一个 `fg-ffi` 服务，数据根目录由 Kotlin 在首次 RPC 前通过 `fg_set_data_root` 设为应用私有外部目录；Android 的游戏 Java 运行时属于 M12（A0–A10），当前 `launch.start` 会如实返回 `error.java.none_installed`，Java 管理页显示“不支持自动下载”。
 
 ## 加载器安装（M5）
 
@@ -157,7 +158,40 @@ cargo run -p fg-cli -- install 1.20.1 --loader optifine --loader-version HD_U_I6
 cargo run -p fg-cli -- install 1.20.1 --loader forge --loader-version 47.4.29 --dry-run
 ```
 
-加载器写入 `shared/versions/<version-id>/`，实例的 `[loader] version_id` 指向它；启动时仍然只解析这个子版本，Vanilla jar 从 `base_id` 回退。Forge/NeoForge/OptiFine 安装需要本机 Java（M6 接入自动下载）；Fabric/Quilt 只下载 JSON 与库。实现细节、processor 变量和验收项见 [docs/m5.md](docs/m5.md)。
+加载器写入 `shared/versions/<version-id>/`，实例的 `[loader] version_id` 指向它；启动时仍然只解析这个子版本，Vanilla jar 从 `base_id` 回退。Forge/NeoForge/OptiFine 安装需要 Java；M6 起缺少运行时会先下载官方 JRE（`[java] auto_download`），Fabric/Quilt 只下载 JSON 与库。实现细节、processor 变量和验收项见 [docs/m5.md](docs/m5.md)。
+
+## Java 运行时（M6）
+
+M6 已接入 Mojang 官方运行时目录，下载到数据根目录的 `runtimes/<vendor>-<component>-<version>-<arch>/`，
+并在安装加载器、启动游戏缺 Java 时自动补全。设置 → Java 运行时可以查看系统/托管运行时、下载、
+删除并切换自动下载；实例设置里的 Java 下拉框会把选中的 home 写入 `[override] java`。
+
+```bash
+# 查看可下载的官方运行时（macOS arm64 上 Java 8/16 会标记为 x86_64 兼容模式）
+cargo run -p fg-cli -- java catalog
+
+# 安装 / 删除；--dry-run 只打印文件清单，计划写到 cache/java/<runtime-id>.json
+cargo run -p fg-cli -- java install 21
+cargo run -p fg-cli -- java install 21 --dry-run
+cargo run -p fg-cli -- java remove mojang-java-runtime-delta-21.0.7-arm64
+
+# 列表会区分系统 JDK 与启动器托管运行时
+cargo run -p fg-cli -- java list
+cargo run -p fg-cli -- java match 1.21.4
+
+# 关闭单次自动下载（也会被 [java] auto_download = false 关闭）
+cargo run -p fg-cli -- --no-auto-java install 1.20.1 --loader forge --loader-version 47.4.29
+```
+
+`launcher.toml` 新增：
+
+```toml
+[java]
+auto_download = true
+```
+
+自动补全只在“一个 Java 都没有”时触发；已有其他 major 时沿用 M3 的降级+警告，避免为了精确
+版本静默下载大文件。实现细节、平台回退表与验收项见 [docs/m6.md](docs/m6.md)。
 
 ## 桌面快捷键
 
@@ -165,7 +199,7 @@ cargo run -p fg-cli -- install 1.20.1 --loader forge --loader-version 47.4.29 --
 | --- | --- |
 | `Cmd/Ctrl+N` | 新建实例（跳到下载页） |
 | `Cmd/Ctrl+I` | 前往实例库（再点「导入 .minecraft 目录…」） |
-| `Cmd/Ctrl+F` | 打开实例库并聚焦搜索框 |
+| `Cmd/Ctrl+F` | 打开全局搜索 |
 | `Cmd/Ctrl+Shift+T` | 切换明/暗主题 |
 | `Cmd/Ctrl+1..4` | 主页 / 实例 / 下载 / 设置 |
 | `Cmd/Ctrl+Q` | 退出 |

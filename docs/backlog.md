@@ -8,6 +8,10 @@
 
 ## 桌面外壳（v2）
 
+- ✅ P1 — 原生目录选择器：macOS `choose folder`、Windows `FolderBrowserDialog`、Linux `zenity`/`kdialog`；Swing 仅作回退（2026-11-15）。
+- ✅ P1 — Debug 运行时的 Dock/任务栏图标与 macOS 标题栏跟随系统明暗（2026-11-15）。
+- ✅ P1 — 全局搜索：导轨搜索入口 + 实例/页面/操作结果，`Cmd/Ctrl+F`（2026-11-15）。
+- ✅ P1 — macOS 全窗内容 + 透明标题栏，原生红绿灯叠在导轨左上角（2026-11-15）。
 - P2 — macOS：Dock 徽标与任务进度（`NSDockTile`）。
 - P2 — Windows：Mica/Acrylic 背景、自定义标题栏、任务栏进度（`ITaskbarList3`）。
 - P2 — Linux：Unity LauncherEntry / DBus 进度（可用时）。
@@ -29,7 +33,11 @@
 ## 加载器（M5 后续）
 
 - P1 — OptiFine 与 Forge 同实例共存：把 OptiFine 作为 `mods/` 补丁而不是独立子版本；需要 Forge 启动链的兼容性验证。
-- P1 — 加载器安装前的 Java 版本校验与安装指引：M6 接入运行时下载后，直接下载缺失 major。
+- ✅ P1 — 加载器安装前的 Java 版本校验与安装指引：M6 已接入 Mojang 官方运行时下载；`install.start` / `launch.start` 缺 Java 时排队下载后继续。
+- P1 — Java 运行时第二来源（Adoptium Temurin）：覆盖 Linux arm64 等 Mojang 没有官方包的平台；需要 tar.gz 解包与 GitHub 镜像策略。
+- P2 — Java 下载的取消/暂停按钮：当前只能从任务队列取消；管理页应内联取消并清理半成品。
+- P2 — 托管运行时自动更新（LTS 安全更新）与按 major 固定版本；当前只在新安装时取目录里的最新版。
+- P2 — 运行时删除后的引用清理：实例 `[override] java` 指向已删除目录时提示改选，而不是启动时报错。
 - P2 — Fabric API 从“加载器”迁到 M8 的模组内容，支持一键安装前置。
 - P2 — 旧版 Forge（1.5 及更早）installer 兼容；当前支持 1.7–1.12 的 `versionInfo` / `version.json`。
 - P2 — 加载器版本列表本地缓存与手动刷新；当前每次打开安装页读取元数据（HTTP 条件缓存仍在 `fg-net`）。
