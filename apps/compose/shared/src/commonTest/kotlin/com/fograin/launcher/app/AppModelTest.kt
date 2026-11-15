@@ -1,5 +1,6 @@
 package com.fograin.launcher.app
 
+import com.fograin.launcher.model.GameLoaderKind
 import com.fograin.launcher.model.Instance
 import com.fograin.launcher.platform.CoreEvent
 import com.fograin.launcher.settings.ThemeMode
@@ -136,6 +137,89 @@ class AppModelTest {
         // stays on the download page instead of opening a sheet for a ghost id.
         assertEquals(AppDestination.DOWNLOADS, finished.destination)
         assertNull(finished.instanceSettingsId)
+    }
+
+    @Test
+    fun installPagePinsVersionAndWalksTheLoaderPages() = runTest {
+        val core = FakeCore()
+        val model = model(backgroundScope, core)
+        runCurrent()
+        model.loadDownloadVersions()
+        runCurrent()
+
+        model.openInstallPage("1.21.5")
+        runCurrent()
+
+        var download = model.state.value.download
+        assertEquals(DownloadStage.INSTALL, download.stage)
+        assertEquals("1.21.5", download.installVersionId)
+        assertNotNull(download.plan, "the install page must preview the pinned version")
+        assertEquals(GameLoaderKind.VANILLA, download.installLoader)
+
+        model.setInstallLoader(GameLoaderKind.FABRIC)
+        runCurrent()
+
+        download = model.state.value.download
+        assertEquals("0.16.9", download.installLoaderVersion)
+        assertEquals(listOf("0.16.9", "0.15.11"), download.loaderVersions.map { it.version })
+        assertTrue(core.rpcCalls.contains("loaders.versions"))
+
+        // Selecting a loader re-plans with the concrete build so Java, file
+        // count and size describe what will actually be downloaded.
+        val planRequest = core.planRequests.last()
+        assertEquals("fabric", (planRequest["loaderKind"] as JsonPrimitive).content)
+        assertEquals("0.16.9", (planRequest["loaderVersion"] as JsonPrimitive).content)
+
+        model.openLoaderVersionPicker()
+        assertEquals(DownloadStage.LOADER_VERSIONS, model.state.value.download.stage)
+
+        model.selectInstallLoaderVersion("0.15.11")
+        runCurrent()
+
+        download = model.state.value.download
+        assertEquals(DownloadStage.INSTALL, download.stage)
+        assertEquals("0.15.11", download.installLoaderVersion)
+
+        model.setInstallInstanceName("雾林 Fabric")
+        assertEquals("雾林 Fabric", model.state.value.download.installInstanceName)
+
+        // The flow lives inside the downloads destination; back walks it
+        // before it leaves the tab.
+        model.navigate(AppDestination.DOWNLOADS)
+        model.back()
+        assertEquals(DownloadStage.BROWSER, model.state.value.download.stage)
+        assertNull(model.state.value.download.installVersionId)
+        assertTrue(model.canGoBack())
+
+        model.back()
+        assertEquals(AppDestination.HOME, model.state.value.destination)
+        assertFalse(model.canGoBack())
+    }
+
+    @Test
+    fun submitInstallSendsThePinnedLoaderAndReturnsToList() = runTest {
+        val core = FakeCore()
+        val model = model(backgroundScope, core)
+        runCurrent()
+        model.loadDownloadVersions()
+        runCurrent()
+
+        model.openInstallPage("1.21.5")
+        model.setInstallLoader(GameLoaderKind.FABRIC)
+        model.selectInstallLoaderVersion("0.15.11")
+        model.setInstallInstanceName("雾林 1.21.5")
+        runCurrent()
+
+        model.submitInstall()
+        runCurrent()
+
+        val request = core.installRequests.single()
+        assertEquals("fabric", (request["loaderKind"] as JsonPrimitive).content)
+        assertEquals("0.15.11", (request["loaderVersion"] as JsonPrimitive).content)
+        assertEquals("雾林 1.21.5", (request["instanceName"] as JsonPrimitive).content)
+        val state = model.state.value
+        assertEquals(DownloadStage.BROWSER, state.download.stage)
+        assertTrue(state.download.isGameDownloadRunning)
     }
 
     @Test

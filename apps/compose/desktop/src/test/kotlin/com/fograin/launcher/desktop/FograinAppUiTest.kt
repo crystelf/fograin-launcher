@@ -5,15 +5,21 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import com.fograin.launcher.App
 import com.fograin.launcher.app.AppModel
+import com.fograin.launcher.app.DownloadStage
 import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.ui.AppDestination
 import com.fograin.launcher.ui.NavBarTag
 import com.fograin.launcher.ui.NavRailTag
+import com.fograin.launcher.ui.downloads.InstallDownloadTag
+import com.fograin.launcher.ui.downloads.downloadVersionTag
 import com.fograin.launcher.ui.navItemTag
 import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 
@@ -64,5 +70,27 @@ class FograinAppUiTest {
 
         onNodeWithTag(NavRailTag).assertIsDisplayed()
         onAllNodesWithTag(NavBarTag).assertCountEquals(0)
+    }
+
+    @Test
+    fun versionRowOpensThePinnedInstallPage() = runDesktopComposeUiTest(width = 1280, height = 900) {
+        val appModel = model()
+        appModel.navigate(AppDestination.DOWNLOADS)
+        setContent { App(appModel) }
+        waitForIdle()
+
+        onNodeWithTag(downloadVersionTag("1.21.5")).performClick()
+        waitForIdle()
+
+        assertEquals(DownloadStage.INSTALL, appModel.state.value.download.stage)
+        onNodeWithTag(InstallDownloadTag).assertIsDisplayed()
+        onNodeWithTag(downloadVersionTag("1.21.5")).assertDoesNotExist()
+
+        onNodeWithTag(InstallDownloadTag).performClick()
+        waitForIdle()
+
+        val afterDownload = appModel.state.value.download
+        assertEquals(DownloadStage.BROWSER, afterDownload.stage)
+        assertTrue(afterDownload.isGameDownloadRunning)
     }
 }

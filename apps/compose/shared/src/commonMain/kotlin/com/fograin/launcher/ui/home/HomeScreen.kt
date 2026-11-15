@@ -69,10 +69,12 @@ import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.app.HomeFilter
+import com.fograin.launcher.model.DownloadsCategory
 import com.fograin.launcher.model.Instance
 import com.fograin.launcher.model.InstanceFormat
 import com.fograin.launcher.model.SampleData
 import com.fograin.launcher.resources.*
+import com.fograin.launcher.ui.AppDestination
 import com.fograin.launcher.ui.components.AccountAvatarButton
 import com.fograin.launcher.ui.components.InstanceTile
 import com.fograin.launcher.ui.components.PageHeader
@@ -699,7 +701,13 @@ private fun NewsCard(model: AppModel) {
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    TextButton(onClick = { model.installVersion(item.versionId) }) {
+                    TextButton(
+                        onClick = {
+                            model.navigate(AppDestination.DOWNLOADS)
+                            model.setDownloadCategory(DownloadsCategory.GAME)
+                            model.openInstallPage(item.versionId)
+                        },
+                    ) {
                         Text(stringResource(Res.string.action_install))
                     }
                 }

@@ -11,6 +11,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -29,6 +31,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
@@ -43,7 +49,6 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -64,13 +69,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.app.DownloadRow
-import com.fograin.launcher.app.DownloadUiState
+import com.fograin.launcher.app.DownloadStage
 import com.fograin.launcher.model.ContentLoaderFilter
 import com.fograin.launcher.model.DownloadVersionChannel
 import com.fograin.launcher.model.DownloadsCategory
@@ -85,6 +92,11 @@ import com.fograin.launcher.ui.title
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 
+/**
+ * 下载 destination. The version list is the first page; a row opens the
+ * pinned install page and the loader-version page opens on top of that. All
+ * three pages share this header and the bottom navigation.
+ */
 @Composable
 fun DownloadsScreen(model: AppModel, state: AppUiState) {
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
@@ -93,7 +105,12 @@ fun DownloadsScreen(model: AppModel, state: AppUiState) {
     val settingsPending = stringResource(Res.string.downloads_settings_pending)
     val backDispatcher = remember { platformServices().backDispatcher }
     val category = state.download.category
+    val stage = state.download.stage
     val searchAvailable = category == DownloadsCategory.GAME
+    // Hoisted out of the stage switch so returning from the install page keeps
+    // the list scrolled where the user left it.
+    val listState = rememberLazyListState()
+    val gridState = rememberLazyGridState()
 
     val closeSearch: () -> Unit = {
         searchExpanded = false
@@ -102,6 +119,9 @@ fun DownloadsScreen(model: AppModel, state: AppUiState) {
     }
 
     LaunchedEffect(Unit) {
+        // A query can outlive the screen (the model owns it), so reopen the
+        // compact search field instead of showing a silently filtered list.
+        if (state.download.query.isNotEmpty()) searchExpanded = true
         if (category == DownloadsCategory.GAME) {
             model.loadDownloadVersions()
         }
@@ -113,55 +133,177 @@ fun DownloadsScreen(model: AppModel, state: AppUiState) {
             focusManager.clearFocus(force = true)
         }
     }
-    backDispatcher.handleBack(enabled = searchExpanded, onBack = closeSearch)
+    backDispatcher.handleBack(
+        enabled = searchExpanded && stage == DownloadStage.BROWSER,
+        onBack = closeSearch,
+    )
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        PageHeader(
-            title = stringResource(Res.string.downloads_title),
-            searchPlaceholder = if (searchAvailable) {
-                stringResource(Res.string.downloads_search_placeholder)
-            } else {
-                null
+    AnimatedContent(
+        targetState = stage,
+        modifier = Modifier.fillMaxSize(),
+        transitionSpec = {
+            val forward = targetState.ordinal > initialState.ordinal
+            val enter = fadeIn(tween(200)) +
+                slideInHorizontally(tween(260)) { if (forward) it / 7 else -it / 7 }
+            val exit = fadeOut(tween(140)) +
+                slideOutHorizontally(tween(220)) { if (forward) -it / 7 else it / 7 }
+            enter togetherWith exit
+        },
+        label = "download-stage",
+    ) { current ->
+        when (current) {
+            DownloadStage.BROWSER -> Column(modifier = Modifier.fillMaxSize()) {
+                PageHeader(
+                    title = stringResource(Res.string.downloads_title),
+                    searchPlaceholder = if (searchAvailable) {
+                        stringResource(Res.string.downloads_search_placeholder)
+                    } else {
+                        null
+                    },
+                    searchQuery = state.download.query,
+                    onSearchQueryChange = model::setDownloadQuery,
+                    searchExpanded = searchExpanded,
+                    onSearchExpandedChange = { expanded ->
+                        if (expanded) searchExpanded = true else closeSearch()
+                    },
+                    leadingActions = {
+                        if (category == DownloadsCategory.GAME) {
+                            ChannelFilterChip(
+                                channel = state.download.channel,
+                                onSelect = model::setDownloadChannel,
+                            )
+                        }
+                    },
+                    actions = {
+                        Box {
+                            IconButton(onClick = { menuExpanded = true }) {
+                                Icon(
+                                    imageVector = Icons.Filled.MoreVert,
+                                    contentDescription = stringResource(Res.string.action_more),
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = menuExpanded,
+                                onDismissRequest = { menuExpanded = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(Res.string.downloads_settings)) },
+                                    leadingIcon = {
+                                        Icon(Icons.Outlined.Tune, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        menuExpanded = false
+                                        model.showNotice(settingsPending)
+                                    },
+                                )
+                            }
+                        }
+                    },
+                )
+
+                DownloadsBody(
+                    model = model,
+                    state = state,
+                    listState = listState,
+                    gridState = gridState,
+                )
+            }
+
+            DownloadStage.INSTALL -> Column(modifier = Modifier.fillMaxSize()) {
+                PageHeader(
+                    title = stringResource(Res.string.install_title),
+                    onBack = model::closeInstallPage,
+                )
+                GameInstallPage(model = model, state = state)
+            }
+
+            DownloadStage.LOADER_VERSIONS -> Column(modifier = Modifier.fillMaxSize()) {
+                PageHeader(
+                    title = stringResource(
+                        Res.string.install_loader_versions,
+                        state.download.installLoader.title,
+                    ),
+                    onBack = model::closeLoaderVersionPicker,
+                )
+                LoaderVersionsPage(model = model, state = state)
+            }
+        }
+    }
+}
+
+/**
+ * Channel filter (正式版 / 快照 / …) that sits immediately left of the search
+ * affordance in the downloads header.
+ */
+@Composable
+private fun ChannelFilterChip(
+    channel: DownloadVersionChannel,
+    onSelect: (DownloadVersionChannel) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val label = channel.title()
+    val semanticsLabel = stringResource(Res.string.downloads_channel_label)
+    Box {
+        AssistChip(
+            onClick = { expanded = true },
+            label = {
+                Text(
+                    text = label,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             },
-            searchQuery = state.download.query,
-            onSearchQueryChange = model::setDownloadQuery,
-            searchExpanded = searchExpanded,
-            onSearchExpandedChange = { expanded ->
-                if (expanded) searchExpanded = true else closeSearch()
+            trailingIcon = {
+                Icon(
+                    imageVector = Icons.Filled.ArrowDropDown,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
             },
-            actions = {
-                Box {
-                    IconButton(onClick = { menuExpanded = true }) {
-                        Icon(
-                            imageVector = Icons.Filled.MoreVert,
-                            contentDescription = stringResource(Res.string.action_more),
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(Res.string.downloads_settings)) },
-                            leadingIcon = {
-                                Icon(Icons.Outlined.Tune, contentDescription = null)
-                            },
-                            onClick = {
-                                menuExpanded = false
-                                model.showNotice(settingsPending)
-                            },
-                        )
-                    }
-                }
+            shape = CircleShape,
+            colors = AssistChipDefaults.assistChipColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                labelColor = MaterialTheme.colorScheme.onSurface,
+            ),
+            border = BorderStroke(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+            ),
+            modifier = Modifier.semantics {
+                contentDescription = "$semanticsLabel：$label"
             },
         )
-
-        DownloadsBody(model = model, state = state)
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            DownloadVersionChannel.entries.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.title()) },
+                    leadingIcon = {
+                        if (option == channel) {
+                            Icon(Icons.Filled.Check, contentDescription = null)
+                        } else {
+                            Spacer(Modifier.width(24.dp))
+                        }
+                    },
+                    onClick = {
+                        expanded = false
+                        onSelect(option)
+                    },
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun DownloadsBody(model: AppModel, state: AppUiState) {
+private fun DownloadsBody(
+    model: AppModel,
+    state: AppUiState,
+    listState: LazyListState,
+    gridState: LazyGridState,
+) {
     val download = state.download
     val category = download.category
 
@@ -181,10 +323,8 @@ private fun DownloadsBody(model: AppModel, state: AppUiState) {
 
             DownloadToolbar(
                 category = category,
-                download = download,
                 selectedLoader = selectedLoader,
                 onCategoryChange = model::setDownloadCategory,
-                onChannelChange = model::setDownloadChannel,
                 onLoaderChange = model::setDownloadContentLoader,
             )
 
@@ -222,6 +362,8 @@ private fun DownloadsBody(model: AppModel, state: AppUiState) {
                             model = model,
                             state = state,
                             wide = wide,
+                            listState = listState,
+                            gridState = gridState,
                             onRetryVersions = { scope.launch { model.reloadDownloadVersions() } },
                         )
 
@@ -240,13 +382,10 @@ private fun DownloadsBody(model: AppModel, state: AppUiState) {
 @Composable
 private fun DownloadToolbar(
     category: DownloadsCategory,
-    download: com.fograin.launcher.app.DownloadUiState,
     selectedLoader: ContentLoaderFilter,
     onCategoryChange: (DownloadsCategory) -> Unit,
-    onChannelChange: (DownloadVersionChannel) -> Unit,
     onLoaderChange: (ContentLoaderFilter) -> Unit,
 ) {
-    var channelExpanded by remember { mutableStateOf(false) }
     var loaderExpanded by remember { mutableStateOf(false) }
 
     Row(
@@ -261,19 +400,6 @@ private fun DownloadToolbar(
         )
 
         when (category) {
-            DownloadsCategory.GAME -> FilterMenuChip(
-                label = download.channel.title(),
-                expanded = channelExpanded,
-                onExpandedChange = { channelExpanded = it },
-                options = DownloadVersionChannel.entries.map { channel ->
-                    MenuOption(
-                        label = channel.title(),
-                        selected = channel == download.channel,
-                        onClick = { onChannelChange(channel) },
-                    )
-                },
-            )
-
             DownloadsCategory.MOD, DownloadsCategory.MODPACK -> FilterMenuChip(
                 label = selectedLoader.title(),
                 expanded = loaderExpanded,
@@ -515,7 +641,6 @@ private fun ActiveDownloadsCard(rows: List<DownloadRow>, speedText: String) {
         }
     }
 }
-
 
 @Composable
 private fun ComingSoonCategory(

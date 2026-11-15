@@ -1,7 +1,7 @@
 package com.fograin.launcher.model
 
 /**
- * Loader families offered by the install sheet, mirroring `fg-loader`.
+ * Loader families offered by the install page, mirroring `fg-loader`.
  *
  * M5 makes every entry installable. `wireName` is the value the Rust core
  * expects in `install.start` / `loaders.versions`; it is not the enum name

@@ -20,8 +20,18 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * Download page state machine: manifest loading, plan preview, the install
- * sheet and the task that `install.start` spawns.
+ * Download page state machine: manifest loading, the pinned install page, the
+ * loader version picker and the task that `install.start` spawns.
+ *
+ * The old flow picked a version in the list, previewed it in a side card and
+ * then opened a second sheet for loader/name. The new flow is a small stack of
+ * pages, so the loader and instance name live next to the version details:
+ *
+ * ```
+ * BROWSER ──pick version──▶ INSTALL ──pick loader version──▶ LOADER_VERSIONS
+ *    ▲                         │                                   │
+ *    └──────── back ───────────┘◀──────────── select ──────────────┘
+ * ```
  *
  * Owns the "our download" bookkeeping ([pendingDownloadTaskId] /
  * [pendingDownloadInstanceId]) so the shell can jump to the new instance when
@@ -33,15 +43,14 @@ internal class DownloadsActions(private val model: AppModel) {
     private var pendingDownloadTaskId: String? = null
     private var pendingDownloadInstanceId: String? = null
     private var downloadVersionsGeneration = 0
+    private var loaderVersionsGeneration = 0
+    private var planGeneration = 0
     private var loadingDownloadChannel: DownloadVersionChannel? = null
 
     /** Loads the manifest for the selected channel after the page appeared. */
     suspend fun loadVersions() {
         val channel = model.state.value.download.channel
-        if (model.state.value.download.versionsChannel == channel) {
-            refreshPlan()
-            return
-        }
+        if (model.state.value.download.versionsChannel == channel) return
         fetchVersions()
     }
 
@@ -49,15 +58,14 @@ internal class DownloadsActions(private val model: AppModel) {
     suspend fun reloadVersions() {
         model.setState {
             it.copy(
-                download = it.download.copy(
-                    versions = emptyList(),
-                    versionsChannel = null,
-                    selectedVersionId = null,
-                    plan = null,
-                    planError = null,
-                    versionsError = null,
-                    query = "",
-                ),
+                download = it.download
+                    .copy(
+                        versions = emptyList(),
+                        versionsChannel = null,
+                        versionsError = null,
+                        query = "",
+                    )
+                    .clearInstallFlow(),
             )
         }
         fetchVersions()
@@ -95,14 +103,10 @@ internal class DownloadsActions(private val model: AppModel) {
                     download = it.download.copy(
                         versions = versions,
                         versionsChannel = channel,
-                        selectedVersionId = versions.firstOrNull()?.id,
-                        plan = null,
-                        planError = null,
                         isLoadingVersions = false,
                     ),
                 )
             }
-            if (versions.isNotEmpty()) refreshPlan()
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -128,7 +132,17 @@ internal class DownloadsActions(private val model: AppModel) {
     }
 
     fun setCategory(category: DownloadsCategory) {
-        model.setState { it.copy(download = it.download.copy(category = category)) }
+        if (category == model.state.value.download.category) return
+        model.setState {
+            val download = it.download.copy(category = category)
+            it.copy(
+                download = if (category == DownloadsCategory.GAME) {
+                    download
+                } else {
+                    download.clearInstallFlow()
+                },
+            )
+        }
         if (category == DownloadsCategory.GAME) {
             model.scope.launch { loadVersions() }
         }
@@ -136,7 +150,11 @@ internal class DownloadsActions(private val model: AppModel) {
 
     fun setChannel(channel: DownloadVersionChannel) {
         if (channel == model.state.value.download.channel) return
-        model.setState { it.copy(download = it.download.copy(channel = channel)) }
+        model.setState {
+            it.copy(
+                download = it.download.copy(channel = channel).clearInstallFlow(),
+            )
+        }
         model.scope.launch { reloadVersions() }
     }
 
@@ -148,11 +166,105 @@ internal class DownloadsActions(private val model: AppModel) {
         model.setState { it.copy(download = it.download.copy(query = query)) }
     }
 
-    fun selectVersion(versionId: String) {
+    // ------------------------------------------------------------------
+    // Install page: pinned version, loader family, loader version, name.
+    // ------------------------------------------------------------------
+
+    /** Opens the install page for [versionId]; the page can never change it. */
+    fun openInstallPage(versionId: String) {
+        if (versionId.isBlank()) return
+        planGeneration += 1
+        loaderVersionsGeneration += 1
         model.setState {
             it.copy(
                 download = it.download.copy(
-                    selectedVersionId = versionId,
+                    stage = DownloadStage.INSTALL,
+                    installVersionId = versionId,
+                    installLoader = GameLoaderKind.VANILLA,
+                    installLoaderVersion = "",
+                    installInstanceName = "",
+                    loaderVersions = emptyList(),
+                    isLoadingLoaderVersions = false,
+                    loaderVersionsError = null,
+                    isInstallRequesting = false,
+                    installError = null,
+                    plan = null,
+                    planError = null,
+                ),
+            )
+        }
+        // Populate the version entry (deep links from home) and the plan in
+        // parallel; the plan is what the page shows as soon as possible.
+        model.scope.launch { loadVersions() }
+        model.scope.launch { refreshPlan() }
+    }
+
+    /** Back from the install page to the version list. */
+    fun closeInstallPage() {
+        planGeneration += 1
+        loaderVersionsGeneration += 1
+        model.setState { it.copy(download = it.download.clearInstallFlow()) }
+    }
+
+    fun setInstallLoader(loader: GameLoaderKind) {
+        if (loader == model.state.value.download.installLoader) return
+        planGeneration += 1
+        loaderVersionsGeneration += 1
+        model.setState {
+            it.copy(
+                download = it.download.copy(
+                    installLoader = loader,
+                    installLoaderVersion = "",
+                    loaderVersions = emptyList(),
+                    isLoadingLoaderVersions = loader != GameLoaderKind.VANILLA,
+                    loaderVersionsError = null,
+                    installError = null,
+                    plan = null,
+                    planError = null,
+                ),
+            )
+        }
+        when (loader) {
+            GameLoaderKind.VANILLA -> model.scope.launch { refreshPlan() }
+            else -> model.scope.launch {
+                loadLoaderVersions(loader)
+                refreshPlan()
+            }
+        }
+    }
+
+    /** Opens the loader-version page; the install page stays behind it. */
+    fun openLoaderVersionPicker() {
+        val download = model.state.value.download
+        if (download.installVersionId == null || download.installLoader == GameLoaderKind.VANILLA) {
+            return
+        }
+        model.setState {
+            it.copy(download = it.download.copy(stage = DownloadStage.LOADER_VERSIONS))
+        }
+        if (download.loaderVersions.isEmpty() &&
+            !download.isLoadingLoaderVersions &&
+            download.loaderVersionsError == null
+        ) {
+            model.scope.launch { loadLoaderVersions(download.installLoader) }
+        }
+    }
+
+    fun closeLoaderVersionPicker() {
+        if (model.state.value.download.stage != DownloadStage.LOADER_VERSIONS) return
+        model.setState { it.copy(download = it.download.copy(stage = DownloadStage.INSTALL)) }
+    }
+
+    fun selectInstallLoaderVersion(version: String) {
+        val download = model.state.value.download
+        if (download.installLoader == GameLoaderKind.VANILLA || version.isBlank()) return
+        planGeneration += 1
+        model.setState {
+            it.copy(
+                download = it.download.copy(
+                    stage = DownloadStage.INSTALL,
+                    installLoaderVersion = version,
+                    installError = null,
                     plan = null,
                     planError = null,
                 ),
@@ -161,55 +273,169 @@ internal class DownloadsActions(private val model: AppModel) {
         model.scope.launch { refreshPlan() }
     }
 
-    fun requestPlanRefresh() {
+    fun retryLoaderVersions() {
+        val download = model.state.value.download
+        if (download.installLoader == GameLoaderKind.VANILLA) return
+        model.scope.launch {
+            loadLoaderVersions(download.installLoader)
+            refreshPlan()
+        }
+    }
+
+    fun setInstallInstanceName(name: String) {
+        model.setState {
+            it.copy(download = it.download.copy(installInstanceName = name, installError = null))
+        }
+    }
+
+    fun refreshInstallPlan() {
         model.scope.launch { refreshPlan() }
     }
 
+    private suspend fun loadLoaderVersions(kind: GameLoaderKind) {
+        val version = model.state.value.download.installVersionId ?: return
+        loaderVersionsGeneration += 1
+        val generation = loaderVersionsGeneration
+        model.setState {
+            it.copy(
+                download = it.download.copy(
+                    isLoadingLoaderVersions = true,
+                    loaderVersionsError = null,
+                ),
+            )
+        }
+        try {
+            val versions = model.loadLoaderVersions(kind, version)
+            if (generation != loaderVersionsGeneration) return
+            val current = model.state.value.download
+            if (current.installLoader != kind || current.installVersionId != version) return
+            val selected = current.installLoaderVersion
+                .takeIf { value -> value.isNotEmpty() && versions.any { it.version == value } }
+                ?: versions.firstOrNull { it.stable }?.version
+                ?: versions.firstOrNull()?.version
+                ?: ""
+            val error = if (versions.isEmpty()) {
+                "${kind.title} 没有适配 Minecraft $version 的版本。"
+            } else {
+                null
+            }
+            model.setState {
+                it.copy(
+                    download = it.download.copy(
+                        loaderVersions = versions,
+                        installLoaderVersion = selected,
+                        isLoadingLoaderVersions = false,
+                        loaderVersionsError = error,
+                    ),
+                )
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            if (generation != loaderVersionsGeneration) return
+            model.setState {
+                it.copy(
+                    download = it.download.copy(
+                        isLoadingLoaderVersions = false,
+                        loaderVersionsError = model.errorMessage(error),
+                    ),
+                )
+            }
+        }
+    }
+
+    /** Recomputes Java/files/size for the pinned version and loader. */
     private suspend fun refreshPlan() {
-        val version = model.state.value.download.selectedVersionId ?: run {
+        val download = model.state.value.download
+        val version = download.installVersionId ?: run {
             model.setState { it.copy(download = it.download.copy(plan = null, planError = null)) }
             return
         }
+        val loader = download.installLoader
+        val loaderVersion = download.installLoaderVersion
+        val withLoader = loader != GameLoaderKind.VANILLA && loaderVersion.isNotEmpty()
+
+        planGeneration += 1
+        val generation = planGeneration
         model.setState { it.copy(download = it.download.copy(planError = null)) }
         try {
             val payload = model.core.rpc(
                 "version.plan",
-                buildJsonObject { put("version", version) },
+                buildJsonObject {
+                    put("version", version)
+                    if (withLoader) {
+                        put("loaderKind", loader.wireName)
+                        put("loaderVersion", loaderVersion)
+                    }
+                },
             )
-            if (model.state.value.download.selectedVersionId != version) return
+            if (generation != planGeneration) return
+            val current = model.state.value.download
+            if (current.installVersionId != version ||
+                current.installLoader != loader ||
+                current.installLoaderVersion != loaderVersion
+            ) {
+                return
+            }
             val plan = payload.decode<CorePlanPreview>()
             model.setState { it.copy(download = it.download.copy(plan = plan)) }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
-            if (model.state.value.download.selectedVersionId != version) return
+            if (generation != planGeneration) return
+            val current = model.state.value.download
+            if (current.installVersionId != version ||
+                current.installLoader != loader ||
+                current.installLoaderVersion != loaderVersion
+            ) {
+                return
+            }
             model.setState {
                 it.copy(download = it.download.copy(plan = null, planError = model.errorMessage(error)))
             }
         }
     }
 
-    fun openInstallSheet(version: String?) {
-        if (!version.isNullOrEmpty()) {
-            model.setState { it.copy(download = it.download.copy(selectedVersionId = version)) }
+    /** Download button on the install page. */
+    fun submitInstall() {
+        val download = model.state.value.download
+        val version = download.installVersionId ?: return
+        if (download.isInstallRequesting || download.isGameDownloadRunning) return
+        if (download.installLoader != GameLoaderKind.VANILLA &&
+            download.installLoaderVersion.isEmpty()
+        ) {
+            model.setState {
+                it.copy(download = it.download.copy(installError = "请先选择加载器版本"))
+            }
+            return
         }
-        model.setState { it.copy(download = it.download.copy(installSheetVersion = version.orEmpty())) }
-    }
-
-    fun closeInstallSheet() {
-        model.setState { it.copy(download = it.download.copy(installSheetVersion = null)) }
-    }
-
-    fun installVersion(version: String) {
-        model.callCore(
-            "install.start",
-            buildJsonObject { put("version", version) },
-            notice = "已开始安装 $version",
-        )
+        model.setState {
+            it.copy(download = it.download.copy(isInstallRequesting = true, installError = null))
+        }
+        model.scope.launch {
+            try {
+                startGameInstall(
+                    version = version,
+                    instanceName = download.installInstanceName,
+                    loader = download.installLoader,
+                    loaderVersion = download.installLoaderVersion,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                model.setState {
+                    it.copy(download = it.download.copy(installError = model.errorMessage(error)))
+                }
+            } finally {
+                model.setState {
+                    it.copy(download = it.download.copy(isInstallRequesting = false))
+                }
+            }
+        }
     }
 
     /**
-     * Starts the download after the install sheet confirms loader, version and
+     * Starts the download after the install page confirms loader, version and
      * name. After `task.finished` the launcher jumps to 游戏设置 (PCL flow).
      */
     suspend fun startGameInstall(
@@ -244,11 +470,13 @@ internal class DownloadsActions(private val model: AppModel) {
         pendingDownloadInstanceId = id
         model.setState {
             it.copy(
-                download = it.download.copy(
-                    isGameDownloadRunning = true,
-                    category = DownloadsCategory.GAME,
-                    installSheetVersion = null,
-                ),
+                download = it.download
+                    .copy(
+                        isGameDownloadRunning = true,
+                        isInstallRequesting = false,
+                        category = DownloadsCategory.GAME,
+                    )
+                    .clearInstallFlow(),
                 destination = AppDestination.DOWNLOADS,
             )
         }
@@ -280,7 +508,9 @@ internal class DownloadsActions(private val model: AppModel) {
                 pendingDownloadTaskId = response.stringOrNull("taskId")
                 model.setState {
                     it.copy(
-                        download = it.download.copy(isGameDownloadRunning = true),
+                        download = it.download
+                            .copy(isGameDownloadRunning = true)
+                            .clearInstallFlow(),
                         destination = AppDestination.DOWNLOADS,
                     )
                 }
@@ -353,3 +583,18 @@ internal class DownloadsActions(private val model: AppModel) {
         pendingDownloadInstanceId = null
     }
 }
+
+/** Drops every install-page value and returns to the version list. */
+private fun DownloadUiState.clearInstallFlow(): DownloadUiState = copy(
+    stage = DownloadStage.BROWSER,
+    installVersionId = null,
+    installLoader = GameLoaderKind.VANILLA,
+    installLoaderVersion = "",
+    installInstanceName = "",
+    loaderVersions = emptyList(),
+    isLoadingLoaderVersions = false,
+    loaderVersionsError = null,
+    installError = null,
+    plan = null,
+    planError = null,
+)

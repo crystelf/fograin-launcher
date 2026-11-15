@@ -14,6 +14,7 @@
     <string name="search_clear">清除搜索</string>
     <string name="action_cancel">取消</string>
     <string name="action_close">关闭</string>
+    <string name="action_back">返回</string>
     <string name="action_install">安装</string>
     <string name="action_delete">删除</string>
     <string name="action_more">更多操作</string>
@@ -137,8 +138,6 @@
     <string name="downloads_released_on">发布于 %1$s</string>
     <string name="downloads_edition">Minecraft Java 版</string>
     <string name="downloads_latest">最新</string>
-    <string name="downloads_select_version_title">选择一个版本</string>
-    <string name="downloads_select_version_body">在版本列表中选择一个版本，查看安装内容并开始安装。</string>
     <string name="downloads_retry">重试</string>
     <string name="downloads_browse_game">浏览游戏版本</string>
     <string name="downloads_search_empty_body">换个关键词试试，或清除搜索。</string>
@@ -152,6 +151,7 @@
     <string name="downloads_version_list">版本列表</string>
     <string name="downloads_no_match">没有匹配的版本</string>
     <string name="downloads_install_hint">安装完成后会进入实例库，并在「游戏设置」里继续调整内存与显示选项。</string>
+    <string name="downloads_channel_label">版本类型</string>
     <string name="downloads_files">文件</string>
     <string name="downloads_file_count">%1$d 个</string>
     <string name="downloads_size">体积</string>
@@ -184,19 +184,31 @@
     <string name="downloads_datapack_body">把数据包放进存档或世界的 datapacks 目录。</string>
     <string name="downloads_milestone_later">后续</string>
 
-    <!-- Install sheet -->
+    <!-- Install page and loader version picker -->
     <string name="install_title">安装游戏</string>
-    <string name="install_game_version">游戏版本</string>
-    <string name="install_choose_version">选择版本</string>
+    <string name="install_contents">安装内容</string>
+    <string name="install_contents_vanilla">原版游戏文件</string>
+    <string name="install_contents_base">游戏本体文件</string>
+    <string name="install_contents_loader">含 %1$s %2$s</string>
     <string name="install_loader">加载器</string>
-    <string name="install_loader_note">Fabric、Quilt、Forge、NeoForge 与 OptiFine 已接入</string>
+    <string name="install_loader_hint">原版不需要加载器；选择 Fabric、Forge 等后可继续挑选加载器版本。</string>
     <string name="install_loader_versions">%1$s 版本</string>
+    <string name="install_loader_choose">选择加载器版本</string>
     <string name="install_loader_loading">正在读取加载器版本…</string>
     <string name="install_loader_java_note">该加载器需要 Java 执行安装处理器；未找到 Java 时会给出提示。</string>
+    <string name="install_loader_count">%1$d 个版本</string>
+    <string name="install_loader_stable">稳定版</string>
+    <string name="install_loader_preview">预览版</string>
+    <string name="install_loader_note_forge">需要 Forge %1$s</string>
+    <string name="install_loader_empty_title">没有可用版本</string>
+    <string name="install_loader_empty_body">该加载器尚未适配 Minecraft %1$s，请返回换一个加载器。</string>
+    <string name="install_loader_picker_hint">适用于 Minecraft %1$s，选择后自动返回安装页。</string>
     <string name="install_instance_name">实例名称</string>
     <string name="install_instance_name_hint">留空时使用版本号。内存、JVM 参数与显示选项在下载完成后的「游戏设置」里调整。</string>
     <string name="install_summary">将安装 %1$s（原版）</string>
     <string name="install_summary_loader">将安装 %1$s · %2$s %3$s</string>
+    <string name="install_download">下载</string>
+    <string name="install_starting">正在创建任务…</string>
 
     <!-- Settings -->
     <string name="settings_title">设置</string>

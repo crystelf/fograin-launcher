@@ -2,11 +2,13 @@ package com.fograin.launcher.app
 
 import com.fograin.launcher.model.DownloadVersionChannel
 import com.fograin.launcher.model.DownloadsCategory
+import com.fograin.launcher.model.GameLoaderKind
 import com.fograin.launcher.model.Instance
 import com.fograin.launcher.model.LibraryScope
 import com.fograin.launcher.model.LibrarySort
 import com.fograin.launcher.platform.CoreAppSnapshot
 import com.fograin.launcher.platform.CoreGameConfig
+import com.fograin.launcher.platform.CoreLoaderVersion
 import com.fograin.launcher.platform.CorePlanPreview
 import com.fograin.launcher.platform.CoreSettings
 import com.fograin.launcher.platform.CoreVersionEntry
@@ -53,6 +55,17 @@ enum class HomeFilter {
     ALL,
 }
 
+/**
+ * Pages inside the 下载 destination. The version list is the browser; picking a
+ * row opens the install page for that pinned version, and the loader version
+ * picker opens on top of it. All three share the downloads header and nav bar.
+ */
+enum class DownloadStage {
+    BROWSER,
+    INSTALL,
+    LOADER_VERSIONS,
+}
+
 /** Downloads page state owned by [AppModel]. */
 data class DownloadUiState(
     val category: DownloadsCategory = DownloadsCategory.GAME,
@@ -62,14 +75,39 @@ data class DownloadUiState(
     val versions: List<CoreVersionEntry> = emptyList(),
     val versionsChannel: DownloadVersionChannel? = null,
     val isLoadingVersions: Boolean = false,
-    val selectedVersionId: String? = null,
-    val plan: CorePlanPreview? = null,
-    val planError: String? = null,
     val versionsError: String? = null,
     val isGameDownloadRunning: Boolean = false,
-    /** Non-null when the install sheet is open; the value is the initial version. */
-    val installSheetVersion: String? = null,
-)
+    val stage: DownloadStage = DownloadStage.BROWSER,
+    /**
+     * Version pinned by the install page. The page never offers another
+     * version; users go back to the list to choose a different one.
+     */
+    val installVersionId: String? = null,
+    val installLoader: GameLoaderKind = GameLoaderKind.VANILLA,
+    val installLoaderVersion: String = "",
+    val installInstanceName: String = "",
+    val loaderVersions: List<CoreLoaderVersion> = emptyList(),
+    val isLoadingLoaderVersions: Boolean = false,
+    val loaderVersionsError: String? = null,
+    val isInstallRequesting: Boolean = false,
+    val installError: String? = null,
+    /** `version.plan` for the pinned version, including the selected loader. */
+    val plan: CorePlanPreview? = null,
+    val planError: String? = null,
+) {
+    /** Entry backing the install page; falls back to an id-only row. */
+    val installVersionEntry: CoreVersionEntry?
+        get() = installVersionId?.let { id ->
+            versions.firstOrNull { it.id == id } ?: CoreVersionEntry(id = id)
+        }
+
+    /** True while the loader choice is complete enough to start a download. */
+    val canStartInstall: Boolean
+        get() = installVersionId != null &&
+            !isInstallRequesting &&
+            !isGameDownloadRunning &&
+            (installLoader == GameLoaderKind.VANILLA || installLoaderVersion.isNotEmpty())
+}
 
 /** Everything the Compose shell renders. */
 data class AppUiState(

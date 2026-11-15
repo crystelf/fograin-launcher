@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,11 +26,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Inbox
@@ -49,25 +52,33 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
-import com.fograin.launcher.app.DownloadUiState
 import com.fograin.launcher.platform.CoreVersionEntry
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.components.SkeletonBox
 import com.fograin.launcher.ui.emptyMessage
 import org.jetbrains.compose.resources.stringResource
 
+/** Stable test tag for one row of the game version list. */
+fun downloadVersionTag(id: String): String = "download-version-$id"
+
+/**
+ * The game tab is a pure version browser: rows open the install page. Version
+ * details, loader choice and the instance name all live one page deeper, so
+ * the list stays scannable instead of splitting the screen with a preview.
+ */
 @Composable
 internal fun GameDownloads(
     model: AppModel,
     state: AppUiState,
     wide: Boolean,
+    listState: LazyListState,
+    gridState: LazyGridState,
     onRetryVersions: () -> Unit,
 ) {
     val download = state.download
@@ -80,118 +91,16 @@ internal fun GameDownloads(
             download.versions.filter { it.id.lowercase().contains(needle) }
         }
     }
-    val selected = download.versions.firstOrNull { it.id == download.selectedVersionId }
+    // The badge belongs to the newest manifest entry, not to the first row of
+    // a filtered list.
+    val latestId = download.versions.firstOrNull()?.id
 
-    if (wide) {
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            horizontalArrangement = Arrangement.spacedBy(20.dp),
-        ) {
-            VersionListPane(
-                download = download,
-                filtered = filtered,
-                onSelect = model::selectDownloadVersion,
-                onRetryVersions = onRetryVersions,
-                onClearSearch = { model.setDownloadQuery("") },
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
-            )
-            VersionDetailPane(
-                model = model,
-                state = state,
-                version = selected,
-                modifier = Modifier
-                    .width(400.dp)
-                    .fillMaxHeight(),
-            )
-        }
-    } else {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            item(key = "detail") {
-                VersionDetailCard(
-                    model = model,
-                    state = state,
-                    version = selected,
-                )
-            }
-            item(key = "list-header") {
-                VersionListHeader(
-                    count = filtered.size,
-                    loading = download.isLoadingVersions,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
-            }
-
-            when {
-                download.versionsError != null && download.versions.isEmpty() -> item {
-                    ErrorState(
-                        message = download.versionsError,
-                        onRetry = onRetryVersions,
-                    )
-                }
-
-                download.versions.isEmpty() && download.isLoadingVersions -> item {
-                    SkeletonVersionList()
-                }
-
-                download.versions.isEmpty() -> item {
-                    QuietEmptyState(
-                        icon = Icons.Outlined.Inbox,
-                        title = download.channel.emptyMessage(),
-                        body = stringResource(Res.string.downloads_empty_body),
-                    )
-                }
-
-                filtered.isEmpty() -> item {
-                    QuietEmptyState(
-                        icon = Icons.Outlined.SearchOff,
-                        title = stringResource(Res.string.downloads_no_match),
-                        body = stringResource(Res.string.downloads_search_empty_body),
-                        action = {
-                            TextButton(onClick = { model.setDownloadQuery("") }) {
-                                Text(stringResource(Res.string.downloads_clear_search))
-                            }
-                        },
-                    )
-                }
-
-                else -> itemsIndexed(
-                    items = filtered.take(80),
-                    key = { _, version -> version.id },
-                ) { index, version ->
-                    VersionRow(
-                        version = version,
-                        isSelected = version.id == download.selectedVersionId,
-                        latest = index == 0,
-                        onClick = { model.selectDownloadVersion(version.id) },
-                        modifier = Modifier.animateItem(),
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun VersionListPane(
-    download: com.fograin.launcher.app.DownloadUiState,
-    filtered: List<CoreVersionEntry>,
-    onSelect: (String) -> Unit,
-    onRetryVersions: () -> Unit,
-    onClearSearch: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier = modifier) {
+    Column(modifier = Modifier.fillMaxSize()) {
         VersionListHeader(
             count = filtered.size,
             loading = download.isLoadingVersions,
         )
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(12.dp))
 
         when {
             download.versionsError != null && download.versions.isEmpty() -> {
@@ -216,27 +125,48 @@ private fun VersionListPane(
                     title = stringResource(Res.string.downloads_no_match),
                     body = stringResource(Res.string.downloads_search_empty_body),
                     action = {
-                        TextButton(onClick = onClearSearch) {
+                        TextButton(onClick = { model.setDownloadQuery("") }) {
                             Text(stringResource(Res.string.downloads_clear_search))
                         }
                     },
                 )
             }
 
+            wide -> LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 380.dp),
+                state = gridState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                gridItemsIndexed(
+                    items = filtered.take(120),
+                    key = { _, version -> version.id },
+                ) { _, version ->
+                    VersionRow(
+                        version = version,
+                        latest = version.id == latestId,
+                        onClick = { model.openInstallPage(version.id) },
+                        modifier = Modifier.animateItem(),
+                    )
+                }
+            }
+
             else -> LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 28.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 itemsIndexed(
-                    items = filtered.take(80),
+                    items = filtered.take(120),
                     key = { _, version -> version.id },
-                ) { index, version ->
+                ) { _, version ->
                     VersionRow(
                         version = version,
-                        isSelected = version.id == download.selectedVersionId,
-                        latest = index == 0,
-                        onClick = { onSelect(version.id) },
+                        latest = version.id == latestId,
+                        onClick = { model.openInstallPage(version.id) },
                         modifier = Modifier.animateItem(),
                     )
                 }
@@ -249,10 +179,9 @@ private fun VersionListPane(
 private fun VersionListHeader(
     count: Int,
     loading: Boolean,
-    modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -284,7 +213,6 @@ private fun VersionListHeader(
 @Composable
 private fun VersionRow(
     version: CoreVersionEntry,
-    isSelected: Boolean,
     latest: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -292,38 +220,41 @@ private fun VersionRow(
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val container by animateColorAsState(
-        targetValue = when {
-            isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
-            hovered -> MaterialTheme.colorScheme.surfaceContainerHigh
-            else -> MaterialTheme.colorScheme.surfaceContainerLow
+        targetValue = if (hovered) {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerLow
         },
         animationSpec = tween(160),
         label = "version-container",
-    )
-    val border by animateColorAsState(
-        targetValue = if (isSelected) {
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
-        } else {
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-        },
-        animationSpec = tween(160),
-        label = "version-border",
     )
     val kindTint = when (version.kind) {
         "release" -> MaterialTheme.colorScheme.primary
         "snapshot" -> MaterialTheme.colorScheme.tertiary
         else -> MaterialTheme.colorScheme.secondary
     }
+    val arrowTint by animateColorAsState(
+        targetValue = if (hovered) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+        },
+        animationSpec = tween(160),
+        label = "version-arrow",
+    )
 
     Surface(
         onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
-            .semantics { selected = isSelected },
+            .testTag(downloadVersionTag(version.id)),
         shape = RoundedCornerShape(14.dp),
         color = container,
         contentColor = MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(1.dp, border),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+        ),
         interactionSource = interaction,
     ) {
         Row(
@@ -386,34 +317,15 @@ private fun VersionRow(
                     }
                 }
             }
-            AnimatedContent(
-                targetState = isSelected,
-                transitionSpec = {
-                    (fadeIn(tween(160)) + scaleIn(tween(180), initialScale = 0.7f)) togetherWith
-                        (fadeOut(tween(110)) + scaleOut(tween(110), targetScale = 0.7f))
-                },
-                label = "version-selected",
-            ) { checked ->
-                if (checked) {
-                    Icon(
-                        imageVector = Icons.Filled.CheckCircle,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Outlined.ChevronRight,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-                    )
-                }
-            }
+            Icon(
+                imageVector = Icons.Outlined.ChevronRight,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = arrowTint,
+            )
         }
     }
 }
-
 
 @Composable
 internal fun ErrorState(message: String, onRetry: () -> Unit) {
@@ -460,7 +372,7 @@ internal fun ErrorState(message: String, onRetry: () -> Unit) {
 }
 
 @Composable
-private fun QuietEmptyState(
+internal fun QuietEmptyState(
     icon: ImageVector,
     title: String,
     body: String,

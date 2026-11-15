@@ -30,6 +30,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
@@ -61,6 +62,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.resources.Res
+import com.fograin.launcher.resources.action_back
 import com.fograin.launcher.resources.search_action
 import com.fograin.launcher.resources.search_clear
 import com.fograin.launcher.resources.search_close
@@ -77,17 +79,24 @@ import org.jetbrains.compose.resources.stringResource
  * The search field is persistent on wide windows and collapses to an icon on
  * compact ones. When it expands on compact, the title fades out and the field
  * slides into the same row, so the header height never changes.
+ *
+ * [leadingActions] sit between the title and the search affordance — the
+ * downloads page puts its channel filter there, immediately left of the search
+ * icon. [onBack] replaces the title's leading edge with a back button for
+ * in-destination sub-pages.
  */
 @Composable
 fun PageHeader(
     title: String,
     modifier: Modifier = Modifier,
+    onBack: (() -> Unit)? = null,
     searchPlaceholder: String? = null,
     searchQuery: String = "",
     onSearchQueryChange: (String) -> Unit = {},
     searchExpanded: Boolean = false,
     onSearchExpandedChange: (Boolean) -> Unit = {},
     focusRequest: Long = 0,
+    leadingActions: @Composable RowScope.() -> Unit = {},
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     val focusManager = LocalFocusManager.current
@@ -145,6 +154,13 @@ fun PageHeader(
                         },
                     )
                 } else {
+                    if (onBack != null) {
+                        HeaderIconButton(
+                            icon = Icons.AutoMirrored.Outlined.ArrowBack,
+                            contentDescription = stringResource(Res.string.action_back),
+                            onClick = onBack,
+                        )
+                    }
                     Text(
                         text = title,
                         style = if (compact) {
@@ -157,6 +173,8 @@ fun PageHeader(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
+
+                    leadingActions()
 
                     if (searchPlaceholder != null) {
                         if (compact) {

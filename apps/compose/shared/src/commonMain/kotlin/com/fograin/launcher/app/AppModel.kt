@@ -2,8 +2,8 @@ package com.fograin.launcher.app
 
 import com.fograin.launcher.model.ContentLoaderFilter
 import com.fograin.launcher.model.DownloadVersionChannel
-import com.fograin.launcher.model.GameLoaderKind
 import com.fograin.launcher.model.DownloadsCategory
+import com.fograin.launcher.model.GameLoaderKind
 import com.fograin.launcher.model.Instance
 import com.fograin.launcher.model.InstanceFormat
 import com.fograin.launcher.model.LibraryScope
@@ -290,21 +290,29 @@ class AppModel internal constructor(
      */
     fun canGoBack(): Boolean {
         val current = state.value
+        val installSubPage = current.destination == AppDestination.DOWNLOADS &&
+            current.download.stage != DownloadStage.BROWSER
         return current.alert != null ||
             current.previewInstanceId != null ||
             current.instanceSettingsId != null ||
-            current.download.installSheetVersion != null ||
+            installSubPage ||
             current.destination != AppDestination.HOME
     }
 
-    /** Dismisses the topmost overlay, then falls back to the home destination. */
+    /** Dismisses the topmost overlay or sub-page, then leaves the destination. */
     fun back() {
         val current = state.value
         when {
             current.alert != null -> dismissAlert()
             current.previewInstanceId != null -> closePreview()
             current.instanceSettingsId != null -> closeInstanceSettings()
-            current.download.installSheetVersion != null -> closeInstallSheet()
+            current.destination == AppDestination.DOWNLOADS &&
+                current.download.stage == DownloadStage.LOADER_VERSIONS ->
+                closeLoaderVersionPicker()
+
+            current.destination == AppDestination.DOWNLOADS &&
+                current.download.stage == DownloadStage.INSTALL -> closeInstallPage()
+
             current.destination != AppDestination.HOME -> navigate(AppDestination.HOME)
         }
     }
@@ -423,15 +431,26 @@ class AppModel internal constructor(
 
     fun setDownloadQuery(query: String) = downloads.setQuery(query)
 
-    fun selectDownloadVersion(versionId: String) = downloads.selectVersion(versionId)
+    fun openInstallPage(versionId: String) = downloads.openInstallPage(versionId)
 
-    fun refreshDownloadPlan() = downloads.requestPlanRefresh()
+    fun closeInstallPage() = downloads.closeInstallPage()
 
-    fun openInstallSheet(version: String? = null) = downloads.openInstallSheet(version)
+    fun setInstallLoader(loader: GameLoaderKind) = downloads.setInstallLoader(loader)
 
-    fun closeInstallSheet() = downloads.closeInstallSheet()
+    fun openLoaderVersionPicker() = downloads.openLoaderVersionPicker()
 
-    fun installVersion(version: String) = downloads.installVersion(version)
+    fun closeLoaderVersionPicker() = downloads.closeLoaderVersionPicker()
+
+    fun selectInstallLoaderVersion(version: String) =
+        downloads.selectInstallLoaderVersion(version)
+
+    fun retryLoaderVersions() = downloads.retryLoaderVersions()
+
+    fun setInstallInstanceName(name: String) = downloads.setInstallInstanceName(name)
+
+    fun refreshInstallPlan() = downloads.refreshInstallPlan()
+
+    fun submitInstall() = downloads.submitInstall()
 
     suspend fun startGameInstall(
         version: String,

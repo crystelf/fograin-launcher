@@ -51,7 +51,6 @@ import com.fograin.launcher.resources.Res
 import com.fograin.launcher.resources.action_ok
 import com.fograin.launcher.ui.components.AnimatedSheetHost
 import com.fograin.launcher.ui.downloads.DownloadsScreen
-import com.fograin.launcher.ui.downloads.GameInstallSheet
 import com.fograin.launcher.ui.home.HomeScreen
 import com.fograin.launcher.ui.instances.InstanceSettingsSheet
 import com.fograin.launcher.ui.library.InstancePreviewSheet
@@ -227,17 +226,6 @@ fun FograinApp(
         onDismissRequest = model::closeInstanceSettings,
     ) { instance ->
         InstanceSettingsSheet(model = model, instance = instance)
-    }
-
-    AnimatedSheetHost(
-        value = state.download.installSheetVersion,
-        onDismissRequest = model::closeInstallSheet,
-    ) { version ->
-        GameInstallSheet(
-            model = model,
-            state = state,
-            initialVersionId = version,
-        )
     }
 }
 

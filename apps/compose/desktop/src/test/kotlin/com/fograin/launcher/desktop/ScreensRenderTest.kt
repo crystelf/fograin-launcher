@@ -5,6 +5,8 @@ import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.unit.Density
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
+import com.fograin.launcher.app.DownloadStage
+import com.fograin.launcher.model.GameLoaderKind
 import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.settings.ThemeMode
 import com.fograin.launcher.ui.AppDestination
@@ -13,6 +15,7 @@ import com.fograin.launcher.ui.theme.FograinTheme
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,10 +23,11 @@ import kotlinx.coroutines.runBlocking
 import org.jetbrains.skia.EncodedImageFormat
 
 /**
- * R2 acceptance: render the four pages and the three sheets with deterministic
- * data, in both dark and light themes. Each frame is written to a temp PNG and
- * printed so a reviewer can compare against the pen; the test fails when a page
- * crashes or renders (nearly) blank.
+ * R2 acceptance: render every page, the inspector sheets and the game install
+ * flow with deterministic data, in both dark and light themes plus a compact
+ * phone-sized layout. Each frame is written to a temp PNG and printed so a
+ * reviewer can compare against the pen; the test fails when a page crashes or
+ * renders (nearly) blank.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 class ScreensRenderTest {
@@ -41,6 +45,21 @@ class ScreensRenderTest {
         assertEquals(3, base.instances.size, "instances.list was not applied")
         assertTrue(base.download.versions.isNotEmpty(), "versions.list was not applied")
 
+        model.openInstallPage("1.21.5")
+        model.setInstallLoader(GameLoaderKind.FABRIC)
+        model.setInstallInstanceName("雾林 1.21.5")
+        val installDownload = model.state.value.download
+        assertEquals(DownloadStage.INSTALL, installDownload.stage)
+        assertNotNull(installDownload.plan, "version.plan was not applied")
+        assertTrue(
+            installDownload.loaderVersions.isNotEmpty(),
+            "loaders.versions was not applied",
+        )
+        val installPage = base.copy(
+            destination = AppDestination.DOWNLOADS,
+            download = installDownload,
+        )
+
         val pages = listOf(
             "home" to base.copy(destination = AppDestination.HOME),
             "library" to base.copy(destination = AppDestination.LIBRARY),
@@ -51,8 +70,9 @@ class ScreensRenderTest {
                 previewInstanceId = "fog-forest",
             ),
             "instance-settings-sheet" to base.copy(instanceSettingsId = "fog-forest"),
-            "install-sheet" to base.copy(
-                download = base.download.copy(installSheetVersion = "1.21.5"),
+            "install-page" to installPage,
+            "loader-versions-page" to installPage.copy(
+                download = installDownload.copy(stage = DownloadStage.LOADER_VERSIONS),
             ),
         )
 
@@ -76,12 +96,23 @@ class ScreensRenderTest {
         model.loadDownloadVersions()
         val base = model.state.value.copy(theme = ThemeMode.LIGHT)
 
+        val installPage = base.copy(
+            destination = AppDestination.DOWNLOADS,
+            download = base.download.copy(
+                stage = DownloadStage.INSTALL,
+                installVersionId = "1.21.5",
+                installLoader = GameLoaderKind.FABRIC,
+                installLoaderVersion = "0.16.9",
+            ),
+        )
+
         val pages = listOf(
             "home" to base.copy(destination = AppDestination.HOME),
             "library" to base.copy(destination = AppDestination.LIBRARY),
             "downloads" to base.copy(destination = AppDestination.DOWNLOADS),
             "settings" to base.copy(destination = AppDestination.SETTINGS),
             "instance-settings-sheet" to base.copy(instanceSettingsId = "fog-forest"),
+            "install-page" to installPage,
         )
 
         pages.forEach { (name, state) ->
@@ -93,8 +124,49 @@ class ScreensRenderTest {
         }
     }
 
-    private fun render(model: AppModel, state: AppUiState): ByteArray {
-        val scene = ImageComposeScene(width = 1120, height = 780, density = Density(1f)) {
+    @Test
+    fun rendersCompactFlow() = runBlocking {
+        val core = FakeCoreClient()
+        val model = AppModel.create(
+            core = core,
+            platform = platformServices(),
+            scope = CoroutineScope(Dispatchers.Unconfined),
+        )
+        model.loadDownloadVersions()
+        val base = model.state.value
+        model.openInstallPage("1.21.5")
+        model.setInstallLoader(GameLoaderKind.FABRIC)
+        val installDownload = model.state.value.download
+        assertNotNull(installDownload.plan, "version.plan was not applied")
+
+        val pages = listOf(
+            "downloads" to base.copy(destination = AppDestination.DOWNLOADS),
+            "install-page" to base.copy(
+                destination = AppDestination.DOWNLOADS,
+                download = installDownload,
+            ),
+            "loader-versions-page" to base.copy(
+                destination = AppDestination.DOWNLOADS,
+                download = installDownload.copy(stage = DownloadStage.LOADER_VERSIONS),
+            ),
+        )
+
+        pages.forEach { (name, state) ->
+            val bytes = render(model, state, width = 420, height = 900)
+            val output = Files.createTempFile("fograin-compact-$name-", ".png")
+            output.toFile().writeBytes(bytes)
+            println("FOGRAIN_COMPACT_PNG_$name=$output")
+            assertTrue(bytes.size > 6_000, "$name rendered suspiciously small (${bytes.size} bytes)")
+        }
+    }
+
+    private fun render(
+        model: AppModel,
+        state: AppUiState,
+        width: Int = 1120,
+        height: Int = 780,
+    ): ByteArray {
+        val scene = ImageComposeScene(width = width, height = height, density = Density(1f)) {
             FograinTheme(themeMode = state.theme, dynamicColor = false) {
                 FograinApp(
                     model = model,

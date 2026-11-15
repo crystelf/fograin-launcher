@@ -3,8 +3,8 @@
 One Compose Multiplatform UI for Android, Windows, macOS and Linux. The Rust
 core and the JSON RPC contract are unchanged; this project owns the UI and the
 platform shells. R1/R2 moved the complete M4 surface (home, library, downloads,
-settings, instance settings, install sheet and the two inspector sheets) into
-`shared/src/commonMain`.
+settings, instance settings, the two-page game install flow and the two
+inspector sheets) into `shared/src/commonMain`.
 
 ## Layout
 

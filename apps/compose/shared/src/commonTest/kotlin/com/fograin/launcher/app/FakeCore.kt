@@ -31,6 +31,7 @@ internal class FakeCore : CoreClient {
 
     var installedInstanceIds = mutableListOf<String>()
     val installRequests = mutableListOf<JsonObject>()
+    val planRequests = mutableListOf<JsonObject>()
 
     override val initError: String? = null
     override val abiVersion: Int = 1
@@ -78,9 +79,12 @@ internal class FakeCore : CoreClient {
                 ]}""",
             )
 
-            "version.plan" -> json(
-                """{"ok":true,"versionId":"1.21.5","baseId":"1.21.5","javaMajor":21,"files":42,"totalBytes":310000000}""",
-            )
+            "version.plan" -> {
+                planRequests += params
+                json(
+                    """{"ok":true,"versionId":"1.21.5","baseId":"1.21.5","javaMajor":21,"files":42,"totalBytes":310000000}""",
+                )
+            }
 
             "install.start" -> {
                 installRequests += params
