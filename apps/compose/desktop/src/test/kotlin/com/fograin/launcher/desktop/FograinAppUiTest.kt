@@ -26,6 +26,7 @@ import com.fograin.launcher.ui.search.GlobalSearchFieldTag
 import com.fograin.launcher.ui.search.globalSearchCommandTag
 import com.fograin.launcher.ui.settings.JavaScreenTag
 import com.fograin.launcher.ui.settings.SettingsJavaManageTag
+import com.fograin.launcher.ui.components.PageHeaderBackTag
 import com.fograin.launcher.ui.navItemTag
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -59,6 +60,14 @@ class FograinAppUiTest {
         onNodeWithTag(NavBarTag).assertIsDisplayed()
         onNodeWithTag(NavRailTag).assertDoesNotExist()
         AppDestination.entries.forEach { onNodeWithTag(navItemTag(it)).assertIsDisplayed() }
+
+        // On macOS the narrow header leaves the traffic-light strip above it;
+        // on the other desktop platforms it stays at the top edge.
+        if (platformServices().platformName == "macos") {
+            val avatarTop = onNodeWithTag(AccountAvatarTag)
+                .fetchSemanticsNode().boundsInRoot.top
+            assertTrue(avatarTop >= 40f, "narrow header should sit below the lights; was $avatarTop")
+        }
     }
 
     @Test
@@ -118,10 +127,11 @@ class FograinAppUiTest {
             appModel.state.value.settingsStage,
         )
 
-        appModel.back()
+        onNodeWithTag(PageHeaderBackTag).performClick()
         waitForIdle()
         onNodeWithTag(JavaScreenTag).assertDoesNotExist()
         onNodeWithTag(SettingsJavaManageTag).assertIsDisplayed()
+        assertEquals(com.fograin.launcher.app.SettingsStage.MAIN, appModel.state.value.settingsStage)
     }
 
     @Test

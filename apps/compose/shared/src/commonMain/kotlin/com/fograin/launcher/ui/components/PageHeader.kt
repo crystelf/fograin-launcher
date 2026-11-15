@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -58,6 +59,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -79,6 +81,17 @@ import org.jetbrains.compose.resources.stringResource
  * 64 dp row. The rail uses [ContentGap] to align its search button with the
  * first content card (the home hero image).
  */
+const val PageHeaderBackTag: String = "page-header-back"
+
+/**
+ * Extra top padding for the header row only.
+ *
+ * A wide macOS window keeps the title row beside the native traffic lights. A
+ * narrow window has no rail, so the whole header moves below the lights and the
+ * page becomes a full-width phone layout.
+ */
+val LocalPageHeaderTopInset = staticCompositionLocalOf { 0.dp }
+
 object PageHeaderMetrics {
     val DesktopHeight: Dp = 64.dp
     val MacHeight: Dp = 48.dp
@@ -126,6 +139,7 @@ fun PageHeader(
     val platformName = remember { platformServices().platformName }
     val headerHeight = PageHeaderMetrics.heightFor(platformName)
     val denseHeader = platformName == "macos"
+    val topInset = LocalPageHeaderTopInset.current
 
     BoxWithConstraints(
         modifier = modifier
@@ -157,7 +171,7 @@ fun PageHeader(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
+                    .padding(top = topInset, start = 20.dp, end = 20.dp)
                     .height(headerHeight),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -184,6 +198,7 @@ fun PageHeader(
                             icon = Icons.AutoMirrored.Outlined.ArrowBack,
                             contentDescription = stringResource(Res.string.action_back),
                             onClick = onBack,
+                            modifier = Modifier.testTag(PageHeaderBackTag),
                         )
                     }
                     Text(
@@ -231,8 +246,9 @@ private fun HeaderIconButton(
     icon: ImageVector,
     contentDescription: String,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    IconButton(onClick = onClick, modifier = Modifier.size(40.dp)) {
+    IconButton(onClick = onClick, modifier = modifier.size(40.dp)) {
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,

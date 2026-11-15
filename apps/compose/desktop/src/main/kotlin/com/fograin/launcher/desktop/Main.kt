@@ -147,15 +147,15 @@ fun main() {
                 App(model)
                 if (isMac) {
                     // Full-window content hides the native drag area. Keep the
-                    // title region right of the traffic lights draggable, but
-                    // stop before the header actions so the avatar, search and
-                    // page buttons remain clickable.
+                    // title region right of the traffic lights and past the
+                    // back button draggable, but stop before the header actions
+                    // so back, avatar, search and page buttons stay clickable.
                     Box(
                         Modifier
                             .align(Alignment.TopStart)
                             .fillMaxWidth(0.5f)
                             .height(PageHeaderMetrics.MacHeight)
-                            .padding(start = 76.dp),
+                            .padding(start = 168.dp),
                     ) {
                         WindowDraggableArea(Modifier.fillMaxSize()) {
                             Box(Modifier.fillMaxSize())

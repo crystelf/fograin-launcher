@@ -8,6 +8,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
@@ -58,11 +65,39 @@ fun SettingsScreen(
     dynamicColorEnabled: Boolean,
     onDynamicColorChange: (Boolean) -> Unit,
 ) {
-    if (state.settingsStage == SettingsStage.JAVA) {
-        JavaRuntimeScreen(model = model, state = state)
-        return
+    AnimatedContent(
+        targetState = state.settingsStage,
+        modifier = Modifier.fillMaxSize(),
+        transitionSpec = {
+            val forward = targetState.ordinal > initialState.ordinal
+            val enter = fadeIn(tween(200)) +
+                slideInHorizontally(tween(240)) { if (forward) it / 12 else -it / 12 }
+            val exit = fadeOut(tween(120)) +
+                slideOutHorizontally(tween(180)) { if (forward) -it / 12 else it / 12 }
+            enter togetherWith exit
+        },
+        label = "settings-stage",
+    ) { stage ->
+        when (stage) {
+            SettingsStage.JAVA -> JavaRuntimeScreen(model = model, state = state)
+            SettingsStage.MAIN -> SettingsMain(
+                model = model,
+                state = state,
+                dynamicColorEnabled = dynamicColorEnabled,
+                onDynamicColorChange = onDynamicColorChange,
+            )
+        }
     }
+}
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingsMain(
+    model: AppModel,
+    state: AppUiState,
+    dynamicColorEnabled: Boolean,
+    onDynamicColorChange: (Boolean) -> Unit,
+) {
     val preferences = remember { platformServices().preferences }
     val supportsDynamicColor = preferences.supportsDynamicColor()
     val coreReady = model.isCoreAvailable

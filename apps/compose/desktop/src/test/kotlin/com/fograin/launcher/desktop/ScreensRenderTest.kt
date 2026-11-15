@@ -178,6 +178,9 @@ class ScreensRenderTest {
         assertNotNull(installDownload.plan, "version.plan was not applied")
 
         val pages = listOf(
+            "home" to base.copy(destination = AppDestination.HOME),
+            "library" to base.copy(destination = AppDestination.LIBRARY),
+            "settings" to base.copy(destination = AppDestination.SETTINGS),
             "downloads" to base.copy(destination = AppDestination.DOWNLOADS),
             "install-page" to base.copy(
                 destination = AppDestination.DOWNLOADS,

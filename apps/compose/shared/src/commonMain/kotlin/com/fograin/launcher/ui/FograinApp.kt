@@ -47,6 +47,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -63,6 +64,7 @@ import com.fograin.launcher.resources.action_ok
 import com.fograin.launcher.resources.global_search_open
 import com.fograin.launcher.ui.accounts.AccountSheet
 import com.fograin.launcher.ui.components.AnimatedSheetHost
+import com.fograin.launcher.ui.components.LocalPageHeaderTopInset
 import com.fograin.launcher.ui.components.PageHeaderMetrics
 import com.fograin.launcher.ui.downloads.DownloadsScreen
 import com.fograin.launcher.ui.home.HomeScreen
@@ -126,10 +128,11 @@ fun FograinApp(
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val expanded = maxWidth >= ExpandedWidth
-        // Without the rail the title row starts at x = 0, where macOS draws
-        // the traffic lights. Keep the content right of them in that layout.
-        val contentStartInset =
-            if (!expanded && services.platformName == "macos") 76.dp else 0.dp
+        // A narrow macOS window has no rail for the traffic lights to sit in,
+        // so move the whole header below them. The body then behaves like a
+        // phone layout instead of being squeezed to the right.
+        val pageHeaderTopInset =
+            if (!expanded && services.platformName == "macos") 40.dp else 0.dp
 
         Scaffold(
             modifier = Modifier.fillMaxSize(),
@@ -238,32 +241,39 @@ fun FograinApp(
                     }
                     VerticalDivider()
                 }
-                AnimatedContent(
-                    targetState = state.destination,
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .padding(start = contentStartInset),
-                    transitionSpec = {
-                        val forward = targetState.ordinal > initialState.ordinal
-                        val enter = fadeIn(tween(220)) +
-                            slideInHorizontally(tween(260)) { if (forward) it / 18 else -it / 18 }
-                        val exit = fadeOut(tween(140)) +
-                            slideOutHorizontally(tween(200)) { if (forward) -it / 18 else it / 18 }
-                        enter togetherWith exit
-                    },
-                    label = "page-transition",
-                ) { destination ->
-                    when (destination) {
-                        AppDestination.HOME -> HomeScreen(model = model, state = state)
-                        AppDestination.LIBRARY -> LibraryScreen(model = model, state = state)
-                        AppDestination.DOWNLOADS -> DownloadsScreen(model = model, state = state)
-                        AppDestination.SETTINGS -> SettingsScreen(
-                            model = model,
-                            state = state,
-                            dynamicColorEnabled = dynamicColorEnabled,
-                            onDynamicColorChange = onDynamicColorChange,
-                        )
+                CompositionLocalProvider(
+                    LocalPageHeaderTopInset provides pageHeaderTopInset,
+                ) {
+                    AnimatedContent(
+                        targetState = state.destination,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                        transitionSpec = {
+                            val forward = targetState.ordinal > initialState.ordinal
+                            val enter = fadeIn(tween(220)) +
+                                slideInHorizontally(tween(260)) {
+                                    if (forward) it / 18 else -it / 18
+                                }
+                            val exit = fadeOut(tween(140)) +
+                                slideOutHorizontally(tween(200)) {
+                                    if (forward) -it / 18 else it / 18
+                                }
+                            enter togetherWith exit
+                        },
+                        label = "page-transition",
+                    ) { destination ->
+                        when (destination) {
+                            AppDestination.HOME -> HomeScreen(model = model, state = state)
+                            AppDestination.LIBRARY -> LibraryScreen(model = model, state = state)
+                            AppDestination.DOWNLOADS -> DownloadsScreen(model = model, state = state)
+                            AppDestination.SETTINGS -> SettingsScreen(
+                                model = model,
+                                state = state,
+                                dynamicColorEnabled = dynamicColorEnabled,
+                                onDynamicColorChange = onDynamicColorChange,
+                            )
+                        }
                     }
                 }
             }
