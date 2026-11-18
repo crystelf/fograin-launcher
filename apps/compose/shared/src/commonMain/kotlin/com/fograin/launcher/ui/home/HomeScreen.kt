@@ -31,12 +31,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.SwapHoriz
-import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -47,7 +51,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -70,23 +73,17 @@ import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.app.HomeFilter
-import com.fograin.launcher.model.DownloadsCategory
 import com.fograin.launcher.model.Instance
 import com.fograin.launcher.model.InstanceFormat
-import com.fograin.launcher.model.SampleData
 import com.fograin.launcher.resources.*
-import com.fograin.launcher.ui.AppDestination
 import com.fograin.launcher.ui.components.AccountAvatarButton
 import com.fograin.launcher.ui.components.InstanceTile
 import com.fograin.launcher.ui.components.PageHeader
-import com.fograin.launcher.ui.components.KeyValueRow
 import com.fograin.launcher.ui.components.SectionHeader
 import com.fograin.launcher.ui.components.StatusPill
 import com.fograin.launcher.ui.components.StatusTone
 import com.fograin.launcher.ui.components.ThinProgressBar
 import com.fograin.launcher.ui.downloadSpeedText
-import com.fograin.launcher.ui.javaSummary
-import com.fograin.launcher.ui.memorySummary
 import com.fograin.launcher.ui.stateText
 import com.fograin.launcher.ui.title
 import kotlin.time.Clock
@@ -98,17 +95,29 @@ import org.jetbrains.compose.resources.stringResource
 
 /** Test tag for the top-bar account entry. */
 const val AccountAvatarTag: String = "account-avatar"
+const val HomeListTag: String = "home-list"
+const val HomeTaskQueueTag: String = "home-task-queue"
+const val HomeOverflowTag: String = "home-overflow"
+const val HomeImportModpackTag: String = "home-import-modpack"
+const val HomeDownloadQueueTag: String = "home-download-queue"
+
+fun homeDownloadPauseTag(taskId: String): String = "home-download-pause-$taskId"
+
+fun homeDownloadResumeTag(taskId: String): String = "home-download-resume-$taskId"
+
+fun homeDownloadStopTag(taskId: String): String = "home-download-stop-$taskId"
 
 /**
- * Home tab: the current instance hero, the instance list, the task queue and
- * the runtime/news column. Matches the pen home layout and keeps every action on
- * native Material 3 controls.
+ * Home tab: the current instance hero, the instance list and the task queue.
+ * Keeps the initial screen focused on starting a game instead of repeating
+ * settings that already live under Settings.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(model: AppModel, state: AppUiState) {
     val account = state.account
     val nowMillis = remember { Clock.System.now().toEpochMilliseconds() }
+    var menuOpen by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         PageHeader(
@@ -124,13 +133,61 @@ fun HomeScreen(model: AppModel, state: AppUiState) {
                     onClick = model::openAccounts,
                     modifier = Modifier.testTag(AccountAvatarTag),
                 )
+                Box {
+                    IconButton(
+                        onClick = { menuOpen = true },
+                        modifier = Modifier.testTag(HomeOverflowTag),
+                    ) {
+                        Icon(
+                            Icons.Filled.MoreVert,
+                            contentDescription = stringResource(Res.string.action_more),
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = menuOpen,
+                        onDismissRequest = { menuOpen = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(Res.string.download_queue_open)) },
+                            leadingIcon = {
+                                Icon(Icons.Outlined.FileDownload, contentDescription = null)
+                            },
+                            trailingIcon = {
+                                if (state.activeDownloadCount > 0) {
+                                    Text(
+                                        text = state.activeDownloadCount.toString(),
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            },
+                            modifier = Modifier.testTag(HomeDownloadQueueTag),
+                            onClick = {
+                                menuOpen = false
+                                model.openDownloadQueue()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(Res.string.modpack_import)) },
+                            leadingIcon = {
+                                Icon(Icons.Outlined.Inventory2, contentDescription = null)
+                            },
+                            modifier = Modifier.testTag(HomeImportModpackTag),
+                            onClick = {
+                                menuOpen = false
+                                model.startModpackImport()
+                            },
+                        )
+                    }
+                }
             },
         )
 
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .testTag(HomeListTag),
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
@@ -195,11 +252,9 @@ fun HomeScreen(model: AppModel, state: AppUiState) {
                     enter = expandVertically(tween(220)) + fadeIn(tween(200)),
                     exit = shrinkVertically(tween(180)) + fadeOut(tween(120)),
                 ) {
-                    TaskQueueCard(state = state)
+                    TaskQueueCard(model = model, state = state)
                 }
             }
-            item { RuntimeCard(model = model, state = state) }
-            item { NewsCard(model = model) }
         }
     }
 }
@@ -208,15 +263,15 @@ fun HomeScreen(model: AppModel, state: AppUiState) {
 private fun HeroCard(model: AppModel, state: AppUiState, instance: Instance) {
     var switchExpanded by remember { mutableStateOf(false) }
     val downloading = model.isDownloading(instance)
-    val status = stringResource(
-        when {
-            state.sessionRunning -> Res.string.home_status_running
-            state.isSessionLoading -> Res.string.home_status_launching
-            downloading -> Res.string.home_status_downloading
-            !instance.isInstalled -> Res.string.home_status_not_installed
-            else -> Res.string.home_status_ready
-        },
-    )
+    // A healthy instance needs no badge; the pill is reserved for states the
+    // user has to act on or wait for.
+    val status = when {
+        state.sessionRunning -> stringResource(Res.string.home_status_running)
+        state.isSessionLoading -> stringResource(Res.string.home_status_launching)
+        downloading -> stringResource(Res.string.home_status_downloading)
+        !instance.isInstalled -> stringResource(Res.string.home_status_not_installed)
+        else -> null
+    }
     val tone = when {
         state.sessionRunning -> StatusTone.RUNNING
         state.isSessionLoading || downloading -> StatusTone.WARNING
@@ -258,7 +313,9 @@ private fun HeroCard(model: AppModel, state: AppUiState, instance: Instance) {
                     .align(Alignment.TopEnd)
                     .padding(12.dp),
             ) { (statusText, statusTone) ->
-                StatusPill(text = statusText, tone = statusTone)
+                if (statusText != null) {
+                    StatusPill(text = statusText, tone = statusTone)
+                }
             }
             Column(
                 modifier = Modifier
@@ -522,8 +579,8 @@ private fun HomeInstanceRow(
                         },
                     )
                     DropdownMenuItem(
-                        text = { Text(stringResource(Res.string.home_menu_open_in_library)) },
-                        leadingIcon = { Icon(Icons.Outlined.Tune, contentDescription = null) },
+                        text = { Text(stringResource(Res.string.home_menu_open_detail)) },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = null) },
                         onClick = {
                             menuExpanded = false
                             model.openInstance(instance)
@@ -562,174 +619,118 @@ private fun HomeInstanceRow(
 }
 
 @Composable
-private fun TaskQueueCard(state: AppUiState) {
+private fun TaskQueueCard(model: AppModel, state: AppUiState) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(HomeTaskQueueTag),
         shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = Icons.Outlined.CheckCircle,
+                    imageVector = Icons.Outlined.FileDownload,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.primary,
                 )
                 Spacer(Modifier.size(8.dp))
-                Text(
-                    text = stringResource(Res.string.home_task_queue),
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                Spacer(Modifier.weight(1f))
-                Text(
-                    text = downloadSpeedText(state),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (state.activeDownloads.isEmpty()) {
-                Text(
-                    text = stringResource(Res.string.home_task_empty),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                state.activeDownloads.forEach { task ->
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row {
-                            Text(
-                                text = task.title,
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.weight(1f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                text = task.stateText(),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        ThinProgressBar(progress = task.fraction)
-                    }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(Res.string.download_queue_title),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        text = downloadSpeedText(state),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
+                TextButton(onClick = model::openDownloadQueue) {
+                    Text(stringResource(Res.string.download_queue_view))
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+            state.activeDownloads.forEach { task ->
+                HomeDownloadRow(model = model, task = task)
             }
         }
     }
 }
 
 @Composable
-private fun RuntimeCard(model: AppModel, state: AppUiState) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    text = stringResource(Res.string.home_runtime),
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = model::openJavaSettings) {
-                    Text(stringResource(Res.string.settings_java_manage))
-                }
-            }
-            KeyValueRow(
-                label = stringResource(Res.string.home_runtime_java),
-                value = state.javaSummary(),
-                checkmark = (state.appSnapshot?.javaCount ?: 0) > 0,
-            )
-            KeyValueRow(
-                label = stringResource(Res.string.home_runtime_memory),
-                value = state.memorySummary(),
-                checkmark = true,
-            )
-            KeyValueRow(
-                label = stringResource(Res.string.home_runtime_device),
-                value = listOf(state.deviceText, state.socText)
-                    .filter { it.isNotBlank() }
-                    .joinToString(" · "),
-                checkmark = true,
-            )
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+private fun HomeDownloadRow(model: AppModel, task: com.fograin.launcher.app.DownloadRow) {
+    val paused = task.state == "paused"
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = if (state.java.managedCount > 0) {
-                    stringResource(Res.string.home_runtime_java_managed, state.java.managedCount)
-                } else {
-                    stringResource(Res.string.home_runtime_java_pending)
-                },
+                text = task.title,
                 style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = if (paused) {
+                    stringResource(Res.string.status_paused)
+                } else {
+                    "${(task.fraction * 100).toInt()}%"
+                },
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        }
-    }
-}
-
-@Composable
-private fun NewsCard(model: AppModel) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(
-                text = stringResource(Res.string.home_news),
-                style = MaterialTheme.typography.titleSmall,
-            )
-            SampleData.news.forEach { item ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+            if (paused) {
+                IconButton(
+                    onClick = { model.resumeDownload(task.id) },
+                    modifier = Modifier
+                        .size(32.dp)
+                        .testTag(homeDownloadResumeTag(task.id)),
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = item.title,
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            text = item.detail,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    TextButton(
-                        onClick = {
-                            model.navigate(AppDestination.DOWNLOADS)
-                            model.setDownloadCategory(DownloadsCategory.GAME)
-                            model.openInstallPage(item.versionId)
-                        },
-                    ) {
-                        Text(stringResource(Res.string.action_install))
-                    }
+                    Icon(
+                        imageVector = Icons.Filled.PlayArrow,
+                        contentDescription = stringResource(Res.string.download_queue_resume),
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            } else {
+                IconButton(
+                    onClick = { model.pauseDownload(task.id) },
+                    modifier = Modifier
+                        .size(32.dp)
+                        .testTag(homeDownloadPauseTag(task.id)),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Pause,
+                        contentDescription = stringResource(Res.string.download_queue_pause),
+                        modifier = Modifier.size(18.dp),
+                    )
                 }
             }
+            IconButton(
+                onClick = { model.cancelDownload(task.id) },
+                modifier = Modifier
+                    .size(32.dp)
+                    .testTag(homeDownloadStopTag(task.id)),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Stop,
+                    contentDescription = stringResource(Res.string.download_queue_stop),
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            }
         }
+        ThinProgressBar(progress = task.fraction)
     }
 }
 

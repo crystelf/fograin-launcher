@@ -1,5 +1,6 @@
 package com.fograin.launcher.app
 
+import com.fograin.launcher.model.DownloadsCategory
 import com.fograin.launcher.model.GameLoaderKind
 import com.fograin.launcher.model.Instance
 import com.fograin.launcher.platform.CoreEvent
@@ -48,20 +49,25 @@ class AppModelTest {
     }
 
     @Test
-    fun backDismissesSheetsBeforeLeavingDestination() = runTest {
+    fun backDismissesInstancePagesBeforeLeavingDestination() = runTest {
         val model = model(backgroundScope)
         runCurrent()
         val instance = model.state.value.instances.first()
 
         model.openInstance(instance)
         assertEquals(AppDestination.LIBRARY, model.state.value.destination)
-        assertFalse(model.canGoBack().not())
+        assertEquals(LibraryStage.DETAIL, model.state.value.libraryStage)
+        assertEquals(instance.id, model.state.value.libraryDetailInstance?.id)
+        assertTrue(model.canGoBack())
 
-        model.showPreview(instance)
-        assertNotNull(model.state.value.previewInstance)
+        model.manageInstance(instance)
+        assertEquals(LibraryStage.SETTINGS, model.state.value.libraryStage)
 
         model.back()
-        assertNull(model.state.value.previewInstance)
+        assertEquals(LibraryStage.DETAIL, model.state.value.libraryStage)
+
+        model.back()
+        assertEquals(LibraryStage.LIST, model.state.value.libraryStage)
         assertEquals(AppDestination.LIBRARY, model.state.value.destination)
 
         model.back()
@@ -70,17 +76,20 @@ class AppModelTest {
     }
 
     @Test
-    fun deleteClosesPreviewAndSelection() = runTest {
+    fun deleteClosesDetailAndSelection() = runTest {
         val model = model(backgroundScope)
         runCurrent()
         val instance = model.state.value.instances.first()
 
-        model.showPreview(instance)
+        model.openInstanceDetail(instance)
+        assertEquals(LibraryStage.DETAIL, model.state.value.libraryStage)
+
         model.deleteInstance(instance)
         runCurrent()
 
-        assertNull(model.state.value.previewInstanceId)
-        assertNull(model.state.value.instanceSettingsId)
+        assertEquals(LibraryStage.LIST, model.state.value.libraryStage)
+        assertNull(model.state.value.libraryDetailId)
+        assertNull(model.state.value.content.instanceId)
     }
 
     @Test
@@ -135,9 +144,9 @@ class AppModelTest {
         val finished = model.state.value
         assertFalse(finished.download.isGameDownloadRunning)
         // The fake keeps reporting the same two instances, so the launcher
-        // stays on the download page instead of opening a sheet for a ghost id.
+        // stays on the download page instead of opening a page for a ghost id.
         assertEquals(AppDestination.DOWNLOADS, finished.destination)
-        assertNull(finished.instanceSettingsId)
+        assertEquals(LibraryStage.LIST, finished.libraryStage)
     }
 
     @Test
@@ -355,6 +364,102 @@ class AppModelTest {
     }
 
     @Test
+    fun contentCategorySearchesAndStartsAnInstallTask() = runTest {
+        val model = model(backgroundScope)
+        runCurrent()
+
+        model.setDownloadCategory(DownloadsCategory.MOD)
+        runCurrent()
+
+        val browser = model.state.value.contentBrowser
+        assertTrue(browser.projects.isNotEmpty(), "content.search was not applied")
+        assertEquals("fog-forest", browser.targetInstanceId)
+
+        model.openContentProject(browser.projects.first())
+        runCurrent()
+        assertTrue(model.state.value.contentBrowser.versions.isNotEmpty(), "content.versions was not applied")
+
+        model.installSelectedContent()
+        runCurrent()
+        assertEquals("content-task-1", model.state.value.contentBrowser.installTaskId)
+        assertNull(model.state.value.contentBrowser.selectedProject)
+    }
+
+    @Test
+    fun contentManagerLoadsWorldsAndChecksUpdates() = runTest {
+        val model = model(backgroundScope)
+        runCurrent()
+        val instance = model.state.value.instances.first()
+
+        model.openInstanceDetail(instance, ContentManagerTab.MODS)
+        runCurrent()
+        assertEquals(LibraryStage.DETAIL, model.state.value.libraryStage)
+        assertTrue(model.state.value.content.items.isNotEmpty(), "content.local was not applied")
+        assertTrue(model.state.value.content.worlds.isNotEmpty(), "worlds.list was not applied")
+
+        model.setContentQuery("sodium")
+        assertEquals(
+            listOf("Sodium"),
+            model.state.value.content.visibleItemsFor(ContentManagerTab.MODS).map { it.title },
+        )
+        assertTrue(model.state.value.content.visibleItemsFor(ContentManagerTab.RESOURCE_PACKS).isEmpty())
+        model.setContentQuery("")
+
+        model.checkContentUpdates()
+        runCurrent()
+        assertTrue(model.state.value.content.updates.isNotEmpty(), "content.updates was not applied")
+
+        model.setContentTab(ContentManagerTab.WORLDS)
+        model.backupWorld("New World")
+        runCurrent()
+        assertTrue(model.state.value.content.backups.isNotEmpty(), "worlds.backup was not applied")
+
+        model.setContentQuery("New")
+        assertEquals("New", model.state.value.content.query)
+        assertTrue(model.state.value.content.visibleWorlds().isNotEmpty())
+        assertTrue(model.state.value.content.visibleBackups().isEmpty())
+
+        model.back()
+        assertEquals(LibraryStage.LIST, model.state.value.libraryStage)
+    }
+
+    @Test
+    fun detailEmptyStateOpensDownloadsForTheSameInstance() = runTest {
+        val model = model(backgroundScope)
+        runCurrent()
+        val instance = model.state.value.instances.first()
+
+        model.openInstanceDetail(instance)
+        model.browseContentFor(ContentManagerTab.RESOURCE_PACKS)
+        runCurrent()
+
+        val state = model.state.value
+        assertEquals(AppDestination.DOWNLOADS, state.destination)
+        assertEquals(DownloadsCategory.RESOURCEPACK, state.download.category)
+        assertEquals(instance.id, state.contentBrowser.targetInstanceId)
+        assertTrue(state.contentBrowser.projects.isNotEmpty())
+    }
+
+    @Test
+    fun settingsContentShortcutReturnsToTheRequestedTab() = runTest {
+        val model = model(backgroundScope)
+        runCurrent()
+        val instance = model.state.value.instances.first()
+
+        model.manageInstance(instance)
+        runCurrent()
+        assertEquals(LibraryStage.SETTINGS, model.state.value.libraryStage)
+
+        model.showInstanceContent(ContentManagerTab.RESOURCE_PACKS)
+        assertEquals(LibraryStage.DETAIL, model.state.value.libraryStage)
+        assertEquals(ContentManagerTab.RESOURCE_PACKS, model.state.value.content.tab)
+
+        model.manageInstance(instance)
+        model.back()
+        assertEquals(LibraryStage.DETAIL, model.state.value.libraryStage)
+    }
+
+    @Test
     fun globalSearchOpensFiltersAndClosesOnBack() = runTest {
         val model = model(backgroundScope)
         runCurrent()
@@ -488,6 +593,192 @@ class AppModelTest {
         assertEquals("offline-steve", request.stringOrNull("accountId"))
         assertEquals(null, request.stringOrNull("username"))
         assertEquals(installed.id, request.stringOrNull("instanceId"))
+    }
+
+    @Test
+    fun modpackCategorySearchesWithoutAnInstanceAndInstalls() = runTest {
+        val core = FakeCore()
+        val model = model(backgroundScope, core)
+        runCurrent()
+
+        model.setDownloadCategory(DownloadsCategory.MODPACK)
+        runCurrent()
+
+        val request = core.contentSearchRequests.last()
+        assertEquals("modpack", request.stringOrNull("kind"))
+        assertNull(request.stringOrNull("instanceId"))
+        val browser = model.state.value.contentBrowser
+        assertEquals("", browser.targetInstanceId)
+        assertTrue(browser.projects.isNotEmpty())
+
+        model.openContentProject(browser.projects.first())
+        runCurrent()
+        model.installSelectedContent()
+        runCurrent()
+
+        assertEquals("modpack-task-1", model.state.value.contentBrowser.installTaskId)
+        assertNull(model.state.value.contentBrowser.selectedProject)
+        assertEquals("modrinth", core.modpackInstallRequests.last().stringOrNull("source"))
+        assertEquals("Sodium", core.modpackInstallRequests.last().stringOrNull("name"))
+    }
+
+    @Test
+    fun datapackCategoryLoadsWorldsAndInstallsIntoTheWorld() = runTest {
+        val core = FakeCore()
+        val model = model(backgroundScope, core)
+        runCurrent()
+
+        model.setDownloadCategory(DownloadsCategory.DATAPACK)
+        runCurrent()
+
+        val browser = model.state.value.contentBrowser
+        assertEquals("fog-forest", browser.targetInstanceId)
+        assertEquals("New World", browser.targetWorld)
+        assertEquals(1, browser.worlds.size)
+
+        model.openContentProject(browser.projects.first())
+        runCurrent()
+        model.installSelectedContent()
+        runCurrent()
+
+        val install = core.contentInstallRequests.last()
+        assertEquals("datapack", install.stringOrNull("kind"))
+        assertEquals("New World", install.stringOrNull("world"))
+        assertEquals("content-task-1", model.state.value.contentBrowser.installTaskId)
+    }
+
+    @Test
+    fun diagnosticsAnalyzeAndExportThenBackToSettings() = runTest {
+        val model = model(backgroundScope)
+        runCurrent()
+        val instance = model.state.value.instances.first()
+
+        model.openInstanceDetail(instance)
+        model.manageInstance(instance)
+        model.openDiagnostics(instance)
+        runCurrent()
+
+        assertEquals(LibraryStage.DIAGNOSTICS, model.state.value.libraryStage)
+        val diag = model.state.value.diag
+        assertEquals(1, diag.findings.size)
+        assertEquals("java.memory", diag.findings.first().id)
+        assertTrue(diag.textFor(diag.activeTab).contains("OutOfMemory"))
+
+        model.exportDiagnostics()
+        runCurrent()
+        assertEquals("/tmp/diag.zip", model.state.value.diag.bundlePath)
+
+        model.back()
+        assertEquals(LibraryStage.SETTINGS, model.state.value.libraryStage)
+    }
+
+    @Test
+    fun datapacksLoadForTheSelectedWorld() = runTest {
+        val model = model(backgroundScope)
+        runCurrent()
+        val instance = model.state.value.instances.first()
+
+        model.openInstanceDetail(instance, ContentManagerTab.DATAPACKS)
+        runCurrent()
+
+        val content = model.state.value.content
+        assertEquals(ContentManagerTab.DATAPACKS, content.tab)
+        assertEquals("New World", content.datapackWorld)
+        assertEquals(1, content.datapacks.size)
+        assertEquals("terralith.zip", content.datapacks.first().fileName)
+
+        model.selectDatapackWorld("New World")
+        runCurrent()
+        assertTrue(content.visibleDatapacks().isNotEmpty())
+    }
+
+    @Test
+    fun modpackImportInspectsTheFileAndQueuesTheTask() = runTest {
+        val platform = FakePlatform().apply { nextFilePick = "/tmp/calm.mrpack" }
+        val model = AppModel.create(core = FakeCore(), platform = platform.services, scope = backgroundScope)
+        runCurrent()
+
+        model.startModpackImport()
+        runCurrent()
+        val pack = model.state.value.modpack.pack
+        assertNotNull(pack)
+        assertEquals("Calm", pack.name)
+        assertEquals("1.21.4", pack.minecraft)
+        assertEquals("Calm", model.state.value.modpack.name)
+
+        model.confirmModpackImport()
+        runCurrent()
+        assertEquals("task-modpack", model.state.value.modpack.taskId)
+        assertEquals("calm", model.state.value.modpack.importedInstanceId)
+    }
+
+    @Test
+    fun crashExitRunsTheAnalysisBeforeTheAlert() = runTest {
+        val model = model(backgroundScope)
+        runCurrent()
+        val instance = model.state.value.instances.first()
+        model.setState { it.copy(currentInstanceId = instance.id) }
+
+        model.handleEvent(CoreEvent.GameExited(instance.id, 1, 12))
+        runCurrent()
+
+        val alert = model.state.value.alert
+        assertNotNull(alert)
+        assertEquals("游戏异常退出", alert.title)
+        assertTrue(
+            alert.detail.orEmpty().contains("内存不足"),
+            "exit analysis should name the finding: ${alert.detail}",
+        )
+        assertEquals(instance.id, model.state.value.diag.instanceId)
+        assertTrue(model.state.value.diag.findings.isNotEmpty())
+    }
+
+    @Test
+    fun downloadQueueOpensAsItsOwnPageAndBackReturnsHome() = runTest {
+        val core = FakeCore().apply {
+            taskRows = """{"ok":true,"result":[
+                {"id":"task-1","name":"install:1.21.4","state":"running","fraction":0.42,"speed":1200000.0},
+                {"id":"task-2","name":"整合包下载:Calm","state":"paused","fraction":0.7,"speed":0.0}
+            ]}"""
+        }
+        val model = model(backgroundScope, core)
+        runCurrent()
+        assertEquals(2, model.state.value.activeDownloadCount)
+
+        model.openDownloadQueue()
+        runCurrent()
+        assertTrue(model.state.value.downloadQueueOpen)
+        assertTrue(model.canGoBack())
+
+        model.back()
+        assertFalse(model.state.value.downloadQueueOpen)
+        assertEquals(AppDestination.HOME, model.state.value.destination)
+        assertFalse(model.canGoBack())
+    }
+
+    @Test
+    fun downloadQueueControlsCallTheCoreAndRefreshRows() = runTest {
+        val core = FakeCore().apply {
+            taskRows = """{"ok":true,"result":[
+                {"id":"task-1","name":"install:1.21.4","state":"running","fraction":0.42,"speed":1200000.0}
+            ]}"""
+        }
+        val model = model(backgroundScope, core)
+        runCurrent()
+
+        model.openDownloadQueue()
+        runCurrent()
+        model.pauseDownload("task-1")
+        runCurrent()
+        assertEquals("tasks.pause" to "task-1", core.taskControlRequests.last())
+
+        model.resumeDownload("task-1")
+        runCurrent()
+        assertEquals("tasks.resume" to "task-1", core.taskControlRequests.last())
+
+        model.cancelDownload("task-1")
+        runCurrent()
+        assertEquals("tasks.cancel" to "task-1", core.taskControlRequests.last())
     }
 
     @Test

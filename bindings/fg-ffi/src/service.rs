@@ -23,7 +23,12 @@ use fg_auth::{
     Account, AccountKind, AccountStore, AuthResponse, AuthSession, AuthlibInjector, InjectorSource,
     OfflineAccount, YggdrasilClient, YggdrasilServer, random_token, validate_name,
 };
+use fg_content::{
+    ContentClient, ContentIndex, ContentKind, ContentSource, InstallRequest, LocalContent,
+    SearchQuery, check_updates, delete_local, plan_install, scan_local, set_enabled,
+};
 use fg_core::{Error, ErrorKind, GameConfig, LauncherConfig, Result, config};
+use fg_diag::{Analysis, BundleRequest, LogBundle, LogSourceKind, RuleSet};
 use fg_game::{
     instance::Instance,
     launch::{GameEvent, GameProcess, LaunchOptions, LaunchPlan},
@@ -33,8 +38,9 @@ use fg_game::{
 };
 use fg_java::{InstalledRuntime, JavaArch, JavaManager, JavaRuntime};
 use fg_loader::{LoaderKind, LoaderPaths, LoaderPlanner};
-use fg_net::{DownloadOptions, Downloader, MirrorTable, Region};
-use fg_task::{Control, NodeState, RunOptions, TaskGraph};
+use fg_net::{DownloadOptions, DownloadRequest, Downloader, MirrorTable, Priority, Region};
+use fg_task::{Control, NodeState, RunOptions, StopReason, TaskCx, TaskGraph};
+use fg_world::{Backup, World};
 
 pub use crate::events::EventQueue;
 
@@ -89,6 +95,17 @@ struct SessionState {
     finished: Arc<Mutex<Option<Value>>>,
 }
 
+/// RPC call that can recreate a paused graph.
+///
+/// Task graphs are one-shot (`FnOnce` nodes), so resuming means replaying the
+/// operation that produced the graph. Download caches make the second run pick
+/// up the bytes that were already on disk.
+#[derive(Debug, Clone)]
+struct TaskReplay {
+    method: &'static str,
+    params: Value,
+}
+
 /// One queued graph the UI can observe through `tasks.list`.
 struct QueuedTask {
     id: String,
@@ -98,6 +115,8 @@ struct QueuedTask {
     /// Set for `java:<major>` tasks so automatic provisioning can reuse a
     /// runtime download that is already running.
     runtime_id: Option<String>,
+    /// Original request, used by `tasks.resume`.
+    replay: Option<TaskReplay>,
     done: Arc<TaskDone>,
 }
 
@@ -414,6 +433,8 @@ impl Service {
             "versions.news" => self.versions_news(&params).await,
             "install.start" => self.install_start(&params).await,
             "tasks.list" => self.tasks_list().await,
+            "tasks.pause" => self.tasks_pause(&params).await,
+            "tasks.resume" => self.tasks_resume(&params).await,
             "tasks.cancel" => self.tasks_cancel(&params).await,
 
             "launch.start" => self.launch_start(&params).await,
@@ -435,6 +456,35 @@ impl Service {
             "accounts.yggdrasil.selectProfile" => {
                 self.accounts_yggdrasil_select_profile(&params).await
             }
+
+            "content.local" => self.content_local(&params).await,
+            "content.toggle" => self.content_toggle(&params).await,
+            "content.delete" => self.content_delete(&params).await,
+            "content.search" => self.content_search(&params).await,
+            "content.versions" => self.content_versions(&params).await,
+            "content.plan" => self.content_plan(&params).await,
+            "content.install" => self.content_install(&params).await,
+            "content.updates" => self.content_updates(&params).await,
+            "worlds.list" => self.worlds_list(&params).await,
+            "worlds.backups" => self.worlds_backups(&params).await,
+            "worlds.backup" => self.worlds_backup(&params).await,
+            "worlds.restore" => self.worlds_restore(&params).await,
+            "worlds.delete" => self.worlds_delete(&params).await,
+            "worlds.backup.delete" => self.worlds_backup_delete(&params).await,
+
+            "diag.logs" => self.diag_logs(&params).await,
+            "diag.analyze" => self.diag_analyze(&params).await,
+            "diag.export" => self.diag_export(&params).await,
+
+            "datapacks.list" => self.datapacks_list(&params).await,
+            "datapacks.toggle" => self.datapacks_toggle(&params).await,
+            "datapacks.delete" => self.datapacks_delete(&params).await,
+            "datapacks.import" => self.datapacks_import(&params).await,
+
+            "modpack.inspect" => self.modpack_inspect(&params).await,
+            "modpack.install" => self.modpack_install(&params).await,
+            "modpack.import" => self.modpack_import(&params).await,
+            "modpack.export" => self.modpack_export(&params).await,
 
             "java.list" => self.java_list().await,
             "java.catalog" => self.java_catalog().await,
@@ -682,6 +732,844 @@ impl Service {
         }))
     }
 
+    // ------------------------------------------------------------------
+    // Content and worlds (M8)
+    // ------------------------------------------------------------------
+
+    fn content_client(&self) -> Result<ContentClient> {
+        let config = self.config()?;
+        Ok(ContentClient::new(
+            self.http_client()?,
+            self.layout.cache(),
+            self.table.clone(),
+            config.download.source,
+            self.region,
+        ))
+    }
+
+    async fn content_local(&self, params: &Value) -> Result<Value> {
+        let request: InstanceOnlyRequest = from_value(params)?;
+        let instance = self.manager().load(&request.instance_id)?;
+        let game_dir = instance.game_dir(&self.layout);
+        let instance_dir = self.layout.instance_dir(&instance.id);
+        let index = ContentIndex::load(&instance_dir)?;
+
+        let mut items: Vec<LocalContent> = Vec::new();
+        let mut mods = 0_usize;
+        let mut resourcepacks = 0_usize;
+        let mut shaderpacks = 0_usize;
+        let mut enabled = 0_usize;
+        for kind in ContentKind::ALL {
+            let scanned = scan_local(&game_dir, kind, Some(&index))?;
+            match kind {
+                ContentKind::Mod => mods = scanned.len(),
+                ContentKind::ResourcePack => resourcepacks = scanned.len(),
+                ContentKind::ShaderPack => shaderpacks = scanned.len(),
+                ContentKind::Modpack | ContentKind::Datapack => {}
+            }
+            enabled += scanned.iter().filter(|item| item.enabled).count();
+            items.extend(scanned);
+        }
+
+        Ok(json!({
+            "items": items,
+            "counts": {
+                "mod": mods,
+                "resourcepack": resourcepacks,
+                "shaderpack": shaderpacks,
+                "enabled": enabled,
+            },
+            "indexPath": instance_dir.join(fg_content::CONTENT_INDEX_FILE).display().to_string(),
+        }))
+    }
+
+    async fn content_toggle(&self, params: &Value) -> Result<Value> {
+        let request: ContentToggleRequest = from_value(params)?;
+        let kind = ContentKind::parse(&request.kind)?;
+        let instance = self.manager().load(&request.instance_id)?;
+        let game_dir = instance.game_dir(&self.layout);
+        let instance_dir = self.layout.instance_dir(&instance.id);
+        let new_name = set_enabled(&game_dir, kind, &request.file_name, request.enabled)?;
+
+        let mut index = ContentIndex::load(&instance_dir)?;
+        if let Some(mut entry) = index.find(&request.file_name).cloned() {
+            index.remove(&request.file_name);
+            entry.file_name.clone_from(&new_name);
+            index.upsert(entry);
+            index.save(&instance_dir)?;
+        }
+        Ok(json!({ "ok": true, "fileName": new_name }))
+    }
+
+    async fn content_delete(&self, params: &Value) -> Result<Value> {
+        let request: ContentDeleteRequest = from_value(params)?;
+        let kind = ContentKind::parse(&request.kind)?;
+        let instance = self.manager().load(&request.instance_id)?;
+        let game_dir = instance.game_dir(&self.layout);
+        let instance_dir = self.layout.instance_dir(&instance.id);
+        delete_local(&game_dir, kind, &request.file_name)?;
+
+        let mut index = ContentIndex::load(&instance_dir)?;
+        if index.find(&request.file_name).is_some() {
+            index.remove(&request.file_name);
+            index.save(&instance_dir)?;
+        }
+        Ok(json!({ "ok": true }))
+    }
+
+    async fn content_search(&self, params: &Value) -> Result<Value> {
+        let request: ContentSearchRequest = from_value(params)?;
+        let kind = ContentKind::parse(&request.kind)?;
+        let source = parse_content_source(&request.source)?;
+        let instance = self.optional_instance(request.instance_id.as_deref())?;
+        let (game_version, loader) = content_context(
+            instance.as_ref(),
+            kind,
+            request.game_version.as_deref(),
+            request.loader.as_deref(),
+        );
+
+        let query = SearchQuery::new(kind)
+            .with_query(request.query.trim())
+            .with_game_version(game_version)
+            .with_loader(loader)
+            .with_page(request.offset, request.limit.clamp(1, 50));
+        let client = self.content_client()?;
+        let page = match source {
+            ContentSource::Modrinth => client.modrinth_search(&query).await?,
+            ContentSource::Curseforge => client.curseforge_search(&query).await?,
+        };
+        to_value(page)
+    }
+
+    async fn content_versions(&self, params: &Value) -> Result<Value> {
+        let request: ContentVersionsRequest = from_value(params)?;
+        let kind = ContentKind::parse(&request.kind)?;
+        let source = parse_content_source(&request.source)?;
+        let instance = self.optional_instance(request.instance_id.as_deref())?;
+        let (game_version, loader) = content_context(
+            instance.as_ref(),
+            kind,
+            request.game_version.as_deref(),
+            request.loader.as_deref(),
+        );
+        let client = self.content_client()?;
+
+        let project = match source {
+            ContentSource::Modrinth => client.modrinth_project(&request.project_id).await?,
+            ContentSource::Curseforge => client.curseforge_project(&request.project_id).await?,
+        };
+        let versions = match source {
+            ContentSource::Modrinth => {
+                client
+                    .modrinth_versions(
+                        &request.project_id,
+                        game_version.as_deref(),
+                        loader.as_deref(),
+                    )
+                    .await?
+            }
+            ContentSource::Curseforge => {
+                client
+                    .curseforge_versions(
+                        &request.project_id,
+                        game_version.as_deref(),
+                        loader.as_deref(),
+                    )
+                    .await?
+            }
+        };
+        Ok(json!({
+            "source": source.as_str(),
+            "project": project,
+            "versions": versions,
+        }))
+    }
+
+    /// Resolves an install without queueing anything. The content sheet uses
+    /// this to list missing prerequisites before the user starts a download.
+    async fn content_plan(&self, params: &Value) -> Result<Value> {
+        let request: ContentInstallRequest = from_value(params)?;
+        // Always resolve dependencies for the preview; the follow-up
+        // `content.install` decides whether they are downloaded.
+        let plan = self.build_content_plan(&request, true).await?;
+        Ok(content_plan_summary(&plan))
+    }
+
+    async fn build_content_plan(
+        &self,
+        request: &ContentInstallRequest,
+        install_dependencies: bool,
+    ) -> Result<fg_content::ContentPlan> {
+        let kind = ContentKind::parse(&request.kind)?;
+        let source = parse_content_source(&request.source)?;
+        let instance = self.manager().load(&request.instance_id)?;
+        let game_dir = instance.game_dir(&self.layout);
+        let instance_dir = self.layout.instance_dir(&instance.id);
+        let index = ContentIndex::load(&instance_dir)?;
+        let installed_projects = index
+            .items
+            .iter()
+            .map(|entry| entry.project_id.clone())
+            .collect::<Vec<_>>();
+        let loader = if kind.loader_specific() {
+            fg_content::model::normalize_loader(&instance.loader.kind)
+        } else {
+            None
+        };
+
+        let client = self.content_client()?;
+        plan_install(
+            &client,
+            InstallRequest {
+                source,
+                project_id: request.project_id.clone(),
+                version_id: request.version_id.clone(),
+                kind,
+                instance_id: instance.id.clone(),
+                instance_dir,
+                game_dir,
+                game_version: instance.minecraft.clone(),
+                loader,
+                world: request.world.clone(),
+                replace_files: request.replace_files.clone(),
+                installed_projects,
+                install_dependencies,
+            },
+        )
+        .await
+    }
+
+    async fn content_install(self: &Arc<Self>, params: &Value) -> Result<Value> {
+        let request: ContentInstallRequest = from_value(params)?;
+        let plan = self
+            .build_content_plan(&request, request.install_dependencies)
+            .await?;
+        let summary = content_plan_summary(&plan);
+
+        let plan = Arc::new(plan);
+        let task_name = format!("content:{}", plan.project_name);
+        let client = self.content_client()?;
+        let graph = plan.graph(self.downloader.clone(), client);
+        let control = Control::new();
+        let task_id = self.queue_task(
+            &task_name,
+            control.clone(),
+            graph,
+            None,
+            Some(TaskReplay {
+                method: "content.install",
+                params: params.clone(),
+            }),
+        );
+        self.runtime
+            .spawn(self.clone().watch_task(task_id.clone(), control, task_name));
+
+        let mut response = summary;
+        if let Value::Object(object) = &mut response {
+            object.insert("taskId".to_string(), Value::String(task_id));
+        }
+        Ok(response)
+    }
+
+    async fn content_updates(&self, params: &Value) -> Result<Value> {
+        let request: ContentUpdatesRequest = from_value(params)?;
+        let instance = self.manager().load(&request.instance_id)?;
+        let kind = request
+            .kind
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .map(ContentKind::parse)
+            .transpose()?;
+        let game_dir = instance.game_dir(&self.layout);
+        let instance_dir = self.layout.instance_dir(&instance.id);
+        let loader = fg_content::model::normalize_loader(&instance.loader.kind);
+        let client = self.content_client()?;
+        let check = check_updates(
+            &client,
+            &instance_dir,
+            &game_dir,
+            kind,
+            &instance.minecraft,
+            loader.as_deref(),
+        )
+        .await?;
+        to_value(check)
+    }
+
+    async fn worlds_list(&self, params: &Value) -> Result<Value> {
+        let request: InstanceOnlyRequest = from_value(params)?;
+        let instance = self.manager().load(&request.instance_id)?;
+        let worlds = fg_world::list_worlds(&instance.game_dir(&self.layout))?;
+        let backups = fg_world::list_backups(&self.root, &instance.id)?;
+        Ok(json!({ "worlds": worlds, "backups": backups }))
+    }
+
+    async fn worlds_backups(&self, params: &Value) -> Result<Value> {
+        let request: InstanceOnlyRequest = from_value(params)?;
+        let instance = self.manager().load(&request.instance_id)?;
+        let backups = fg_world::list_backups(&self.root, &instance.id)?;
+        Ok(json!({ "backups": backups }))
+    }
+
+    async fn worlds_backup(&self, params: &Value) -> Result<Value> {
+        let request: WorldNameRequest = from_value(params)?;
+        let instance = self.manager().load(&request.instance_id)?;
+        let root = self.root.clone();
+        let instance_id = instance.id.clone();
+        let game_dir = instance.game_dir(&self.layout);
+        let name = request.name;
+        let backup: Backup = tokio::task::spawn_blocking(move || {
+            fg_world::backup_world(&root, &instance_id, &game_dir, &name)
+        })
+        .await
+        .map_err(|error| {
+            Error::with_detail(
+                ErrorKind::Internal,
+                "error.world.backup",
+                format!("backup worker failed: {error}"),
+            )
+        })??;
+        let backups = fg_world::list_backups(&self.root, &instance.id)?;
+        Ok(json!({ "ok": true, "backup": backup, "backups": backups }))
+    }
+
+    async fn worlds_restore(&self, params: &Value) -> Result<Value> {
+        let request: WorldRestoreRequest = from_value(params)?;
+        let instance = self.manager().load(&request.instance_id)?;
+        let root = self.root.clone();
+        let instance_id = instance.id.clone();
+        let game_dir = instance.game_dir(&self.layout);
+        let backup = request.backup;
+        let name = request.name;
+        let path = tokio::task::spawn_blocking(move || {
+            fg_world::restore_backup(&root, &instance_id, &game_dir, &backup, &name)
+        })
+        .await
+        .map_err(|error| {
+            Error::with_detail(
+                ErrorKind::Internal,
+                "error.world.restore",
+                format!("restore worker failed: {error}"),
+            )
+        })??;
+        let worlds: Vec<World> = fg_world::list_worlds(&instance.game_dir(&self.layout))?;
+        let backups: Vec<Backup> = fg_world::list_backups(&self.root, &instance.id)?;
+        Ok(json!({
+            "ok": true,
+            "path": path.display().to_string(),
+            "worlds": worlds,
+            "backups": backups,
+        }))
+    }
+
+    async fn worlds_delete(&self, params: &Value) -> Result<Value> {
+        let request: WorldNameRequest = from_value(params)?;
+        let instance = self.manager().load(&request.instance_id)?;
+        fg_world::delete_world(&instance.game_dir(&self.layout), &request.name)?;
+        let worlds = fg_world::list_worlds(&instance.game_dir(&self.layout))?;
+        Ok(json!({ "ok": true, "worlds": worlds }))
+    }
+
+    async fn worlds_backup_delete(&self, params: &Value) -> Result<Value> {
+        let request: WorldBackupRequest = from_value(params)?;
+        let instance = self.manager().load(&request.instance_id)?;
+        fg_world::delete_backup(&self.root, &instance.id, &request.backup)?;
+        let backups = fg_world::list_backups(&self.root, &instance.id)?;
+        Ok(json!({ "ok": true, "backups": backups }))
+    }
+
+    // ------------------------------------------------------------------
+    // Servers, diagnostics, data packs and modpacks (M9)
+    // ------------------------------------------------------------------
+
+    /// Collects the diagnostic sources shared by `diag.logs` / `diag.analyze`.
+    fn diagnostic_bundle(&self, instance_id: &str) -> Result<(Instance, LogBundle)> {
+        let instance = self.manager().load(instance_id)?;
+        let stdout = self.events.recent_game_lines(&instance.id, 2000);
+        let bundle = fg_diag::collect(&instance.game_dir(&self.layout), stdout, 2000);
+        Ok((instance, bundle))
+    }
+
+    fn diagnostic_rules(&self) -> RuleSet {
+        RuleSet::load(Some(&self.root.join("diag").join("rules"))).unwrap_or_default()
+    }
+
+    async fn diag_logs(&self, params: &Value) -> Result<Value> {
+        let request: InstanceOnlyRequest = from_value(params)?;
+        let (_instance, bundle) = self.diagnostic_bundle(&request.instance_id)?;
+        let mut texts = serde_json::Map::new();
+        for input in &bundle.inputs {
+            texts.insert(
+                input.kind.as_str().to_string(),
+                Value::String(input.lines.join("\n")),
+            );
+        }
+        Ok(json!({
+            "sources": bundle.sources,
+            "crash": bundle.crash,
+            "texts": Value::Object(texts),
+            "rules": self.diagnostic_rules().len(),
+        }))
+    }
+
+    async fn diag_analyze(&self, params: &Value) -> Result<Value> {
+        let request: InstanceOnlyRequest = from_value(params)?;
+        let (_instance, bundle) = self.diagnostic_bundle(&request.instance_id)?;
+        let analysis = fg_diag::analyze(&bundle, &self.diagnostic_rules());
+        to_value(analysis)
+    }
+
+    async fn diag_export(&self, params: &Value) -> Result<Value> {
+        let request: InstanceOnlyRequest = from_value(params)?;
+        let (instance, bundle) = self.diagnostic_bundle(&request.instance_id)?;
+        let analysis: Analysis = fg_diag::analyze(&bundle, &self.diagnostic_rules());
+
+        let mut log_texts: Vec<(String, String)> = Vec::new();
+        for input in &bundle.inputs {
+            let name = match input.kind {
+                LogSourceKind::Stdout => "logs/session.log".to_string(),
+                LogSourceKind::Log => "logs/latest.log".to_string(),
+                LogSourceKind::Crash => analysis
+                    .crash
+                    .as_ref()
+                    .map(|crash| {
+                        crash
+                            .file
+                            .rsplit(['/', '\\'])
+                            .next()
+                            .unwrap_or("crash.txt")
+                            .to_string()
+                    })
+                    .map(|name| format!("crash-reports/{name}"))
+                    .unwrap_or_else(|| "crash-reports/latest.txt".to_string()),
+                LogSourceKind::HsErr => bundle
+                    .sources
+                    .iter()
+                    .find(|source| source.kind == LogSourceKind::HsErr)
+                    .and_then(|source| source.path.rsplit(['/', '\\']).next().map(str::to_string))
+                    .unwrap_or_else(|| "hs_err.log".to_string()),
+            };
+            log_texts.push((name, input.lines.join("\n")));
+        }
+
+        let manager = self.manager();
+        let effective = manager.effective_json(&instance);
+        let java = effective
+            .get("java")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("自动");
+        let memory_mb = effective
+            .get("memoryMb")
+            .and_then(Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok())
+            .unwrap_or_default();
+        let loader = if instance.loader.is_vanilla() {
+            String::new()
+        } else {
+            format!("{} {}", instance.loader.kind, instance.loader.version)
+        };
+        let instance_json = json!({
+            "instance": {
+                "id": instance.id,
+                "name": instance.name,
+                "minecraft": instance.minecraft,
+                "loaderKind": instance.loader.kind,
+                "loaderVersion": instance.loader.version,
+                "favorite": instance.meta.favorite,
+            },
+            "effective": effective,
+            "contentIndex": fg_content::ContentIndex::load(&self.layout.instance_dir(&instance.id))
+                .map(|index| index.items.len())
+                .unwrap_or(0),
+        })
+        .to_string();
+
+        let request = BundleRequest {
+            data_root: &self.root,
+            instance_id: &instance.id,
+            instance_name: &instance.name,
+            minecraft: &instance.minecraft,
+            loader: &loader,
+            java,
+            memory_mb,
+            analysis: &analysis,
+            log_texts,
+            instance_json,
+            app_version: env!("CARGO_PKG_VERSION"),
+            platform: fg_core::Platform::detect().id(),
+        };
+        let bundle = fg_diag::export_bundle(&request)?;
+        Ok(json!({ "bundle": bundle, "analysis": analysis }))
+    }
+
+    async fn datapacks_list(&self, params: &Value) -> Result<Value> {
+        let request: DatapackRequest = from_value(params)?;
+        let instance = self.manager().load(&request.instance_id)?;
+        let items = fg_world::datapack::list(&instance.game_dir(&self.layout), &request.world)?;
+        Ok(json!({ "items": items, "count": items.len() }))
+    }
+
+    async fn datapacks_toggle(&self, params: &Value) -> Result<Value> {
+        let request: DatapackToggleRequest = from_value(params)?;
+        let instance = self.manager().load(&request.instance_id)?;
+        let game_dir = instance.game_dir(&self.layout);
+        let file_name = fg_world::datapack::set_enabled(
+            &game_dir,
+            &request.world,
+            &request.file_name,
+            request.enabled,
+        )?;
+        let items = fg_world::datapack::list(&game_dir, &request.world)?;
+        Ok(json!({ "items": items, "fileName": file_name }))
+    }
+
+    async fn datapacks_delete(&self, params: &Value) -> Result<Value> {
+        let request: DatapackDeleteRequest = from_value(params)?;
+        let instance = self.manager().load(&request.instance_id)?;
+        let game_dir = instance.game_dir(&self.layout);
+        fg_world::datapack::delete(&game_dir, &request.world, &request.file_name)?;
+        let items = fg_world::datapack::list(&game_dir, &request.world)?;
+        Ok(json!({ "items": items }))
+    }
+
+    async fn datapacks_import(&self, params: &Value) -> Result<Value> {
+        let request: DatapackImportRequest = from_value(params)?;
+        let instance = self.manager().load(&request.instance_id)?;
+        let game_dir = instance.game_dir(&self.layout);
+        let source = PathBuf::from(&request.path);
+        let path = source.clone();
+        let world = request.world.clone();
+        let target_game = game_dir.clone();
+        let file_name = tokio::task::spawn_blocking(move || {
+            fg_world::datapack::import(&target_game, &world, &path)
+        })
+        .await
+        .map_err(|error| {
+            Error::with_detail(
+                ErrorKind::Internal,
+                "error.datapack.write",
+                error.to_string(),
+            )
+        })??;
+        let items = fg_world::datapack::list(&game_dir, &request.world)?;
+        Ok(json!({ "items": items, "fileName": file_name }))
+    }
+
+    async fn modpack_inspect(&self, params: &Value) -> Result<Value> {
+        let request: ModpackInspectRequest = from_value(params)?;
+        let path = PathBuf::from(&request.path);
+        let pack = tokio::task::spawn_blocking(move || fg_content::modpack::inspect(&path))
+            .await
+            .map_err(|error| {
+                Error::with_detail(ErrorKind::Internal, "error.modpack.read", error.to_string())
+            })??;
+        to_value(pack)
+    }
+
+    /// Downloads a Modrinth/CurseForge modpack and imports it.
+    ///
+    /// The archive download is a normal task so the queue shows progress; once
+    /// it finishes the background orchestrator calls the same import path as a
+    /// local `.mrpack`, which queues the base install and the pack graph.
+    async fn modpack_install(self: &Arc<Self>, params: &Value) -> Result<Value> {
+        let request: ModpackInstallRequest = from_value(params)?;
+        let source = parse_content_source(request.source.as_deref().unwrap_or_default())?;
+        let client = self.content_client()?;
+        let version = match source {
+            ContentSource::Modrinth => {
+                client
+                    .modrinth_resolve_version(
+                        &request.project_id,
+                        Some(&request.version_id),
+                        None,
+                        None,
+                    )
+                    .await?
+            }
+            ContentSource::Curseforge => {
+                client
+                    .curseforge_resolve_version(
+                        &request.project_id,
+                        Some(&request.version_id),
+                        None,
+                        None,
+                    )
+                    .await?
+            }
+        };
+        let mut file = version.file.clone().ok_or_else(|| {
+            Error::with_detail(
+                ErrorKind::NotFound,
+                "error.content.no_files",
+                request.project_id.clone(),
+            )
+        })?;
+        if file.url.trim().is_empty() {
+            if source == ContentSource::Curseforge {
+                let file_id = version.version_id.parse::<u64>().map_err(|_| {
+                    Error::with_detail(
+                        ErrorKind::InvalidInput,
+                        "error.content.version_id",
+                        version.version_id.clone(),
+                    )
+                })?;
+                file.url = client
+                    .curseforge_download_url(&request.project_id, file_id)
+                    .await?;
+            } else {
+                return Err(Error::with_detail(
+                    ErrorKind::NotFound,
+                    "error.content.no_files",
+                    request.project_id.clone(),
+                ));
+            }
+        }
+        let name = non_empty(request.name.as_deref()).unwrap_or_else(|| version.project_id.clone());
+        let directory = self.layout.cache().join("modpacks");
+        std::fs::create_dir_all(&directory).map_err(|error| {
+            Error::with_detail(
+                ErrorKind::Io,
+                "error.io.create_dir",
+                format!("{}: {error}", directory.display()),
+            )
+        })?;
+        let file_name = sanitize_download_name(&file.file_name)
+            .unwrap_or_else(|| format!("{}-{}.mrpack", version.project_id, version.version_id));
+        let dest = directory.join(format!("{}-{}", version.version_id, file_name));
+        let candidates = client.candidates(&file.url)?;
+        if candidates.is_empty() {
+            return Err(Error::with_detail(
+                ErrorKind::Network,
+                "error.content.no_candidates",
+                file.url.clone(),
+            ));
+        }
+        let mut download = DownloadRequest::new(dest.clone(), candidates)
+            .with_priority(Priority::Mod)
+            .with_size_hint(file.size);
+        if let Some(sha1) = &file.sha1 {
+            download = download.with_sha1(sha1);
+        } else if let Some(sha512) = &file.sha512 {
+            download = download.with_integrity(fg_net::Integrity::sha512(sha512));
+        } else if file.size > 0 {
+            download = download.with_size(file.size);
+        }
+        let weight = (file.size / (64 * 1024)).clamp(1, 200_000) as u32;
+        let downloader = Arc::clone(&self.downloader);
+        let mut builder = TaskGraph::builder(format!("modpack-download:{}", name));
+        builder.task("modpack.download", weight, move |cx| {
+            let downloader = Arc::clone(&downloader);
+            let download = download.clone();
+            async move {
+                cx.check()?;
+                downloader
+                    .download_with(
+                        download,
+                        fg_net::DownloadCtx {
+                            cancel: cx.cancel_handle(),
+                            progress: Arc::new(TaskSink { cx: cx.clone() }),
+                        },
+                    )
+                    .await
+                    .map(|_| ())
+            }
+        });
+        let graph = builder.build();
+        let control = Control::new();
+        let task_name = format!("整合包下载:{}", name);
+        let task_id = self.queue_task(
+            &task_name,
+            control.clone(),
+            graph,
+            None,
+            Some(TaskReplay {
+                method: "modpack.install",
+                params: params.clone(),
+            }),
+        );
+        let this = Arc::clone(self);
+        let wait_id = task_id.clone();
+        let import_name = name.clone();
+        self.runtime.spawn(async move {
+            if let Err(error) = this.wait_task(&wait_id).await {
+                tracing::warn!(%error, "modpack download failed; import skipped");
+                return;
+            }
+            let payload = json!({ "path": dest, "name": import_name });
+            if let Err(error) = this.modpack_import(&payload).await {
+                tracing::warn!(%error, "modpack import failed after download");
+            }
+        });
+        self.runtime
+            .spawn(self.clone().watch_task(task_id.clone(), control, task_name));
+
+        Ok(json!({
+            "taskId": task_id,
+            "name": name,
+            "versionId": version.version_id,
+            "versionNumber": version.version_number,
+            "source": source.as_str(),
+        }))
+    }
+
+    async fn modpack_import(self: &Arc<Self>, params: &Value) -> Result<Value> {
+        let request: ModpackImportRequest = from_value(params)?;
+        let path = PathBuf::from(&request.path);
+        let pack = tokio::task::spawn_blocking(move || fg_content::modpack::inspect(&path))
+            .await
+            .map_err(|error| {
+                Error::with_detail(ErrorKind::Internal, "error.modpack.read", error.to_string())
+            })??;
+        let name = non_empty(request.name.as_deref()).unwrap_or_else(|| pack.name.clone());
+        if pack.minecraft.trim().is_empty() {
+            return Err(Error::with_detail(
+                ErrorKind::InvalidInput,
+                "error.modpack.minecraft",
+                pack.source_path.clone(),
+            ));
+        }
+
+        if pack.external {
+            let game_dir = pack.game_dir.clone().ok_or_else(|| {
+                Error::with_detail(
+                    ErrorKind::InvalidInput,
+                    "error.modpack.directory",
+                    pack.source_path.clone(),
+                )
+            })?;
+            let manager = self.manager();
+            let instance = manager.import_external(
+                Path::new(&game_dir),
+                Some(&name),
+                Some(&pack.minecraft),
+            )?;
+            if !pack.loader_kind.eq_ignore_ascii_case("vanilla") {
+                let _ =
+                    manager.set_loader(&instance.id, &pack.loader_kind, &pack.loader_version, "");
+            }
+            return Ok(json!({
+                "instanceId": instance.id,
+                "taskId": Value::Null,
+                "external": true,
+                "pack": pack,
+            }));
+        }
+
+        let instance_id = modpack_instance_id(&self.manager(), &name);
+        let loader_kind = if pack.loader_kind.eq_ignore_ascii_case("vanilla") {
+            String::new()
+        } else {
+            pack.loader_kind.clone()
+        };
+        let install = self
+            .install_start(&json!({
+                "version": pack.minecraft,
+                "instanceId": instance_id,
+                "instanceName": name,
+                "loaderKind": loader_kind,
+                "loaderVersion": pack.loader_version,
+            }))
+            .await?;
+        let base_task = install
+            .get("taskId")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+
+        let archive = PathBuf::from(&pack.source_path);
+        let replay_params = json!({
+            "path": pack.source_path,
+            "name": pack.name,
+        });
+        let this = Arc::clone(self);
+        let task_name = format!("整合包:{}", pack.name);
+        let pack_for_task = pack.clone();
+        let instance_for_task = instance_id.clone();
+        let task_name_for_task = task_name.clone();
+        let base_task_for_task = base_task.clone();
+        self.runtime.spawn(async move {
+            if let Some(task) = base_task_for_task
+                && let Err(error) = this.wait_task(&task).await
+            {
+                tracing::warn!(%error, "base install failed; modpack import stopped");
+                return;
+            }
+            let instance = match this.manager().load(&instance_for_task) {
+                Ok(instance) => instance,
+                Err(error) => {
+                    tracing::warn!(%error, "modpack instance disappeared");
+                    return;
+                }
+            };
+            let client = match this.content_client() {
+                Ok(client) => client,
+                Err(error) => {
+                    tracing::warn!(%error, "modpack import has no content client");
+                    return;
+                }
+            };
+            let plan = fg_content::ModpackPlan::new(
+                pack_for_task,
+                archive,
+                this.layout.instance_dir(&instance_for_task),
+                instance.game_dir(&this.layout),
+            );
+            let graph = plan.graph(Arc::clone(&this.downloader), client);
+            let control = Control::new();
+            let task_id = this.queue_task(
+                &task_name_for_task,
+                control.clone(),
+                graph,
+                None,
+                Some(TaskReplay {
+                    method: "modpack.import",
+                    params: replay_params,
+                }),
+            );
+            this.clone()
+                .watch_task(task_id, control, task_name_for_task)
+                .await;
+        });
+
+        Ok(json!({
+            "instanceId": instance_id,
+            "taskId": base_task,
+            "external": false,
+            "pack": pack,
+        }))
+    }
+
+    async fn modpack_export(&self, params: &Value) -> Result<Value> {
+        let request: ModpackExportRequest = from_value(params)?;
+        let instance = self.manager().load(&request.instance_id)?;
+        let loader_kind = instance.loader.kind.clone();
+        let loader_version = instance.loader.version.clone();
+        let name = instance.name.clone();
+        let minecraft = instance.minecraft.clone();
+        let game_dir = instance.game_dir(&self.layout);
+        let exports_dir = self.root.join("exports");
+        let export = tokio::task::spawn_blocking(move || {
+            fg_content::modpack::export_mrpack(
+                &name,
+                &minecraft,
+                &loader_kind,
+                &loader_version,
+                &game_dir,
+                &exports_dir,
+            )
+        })
+        .await
+        .map_err(|error| {
+            Error::with_detail(
+                ErrorKind::Internal,
+                "error.modpack.export",
+                error.to_string(),
+            )
+        })??;
+        to_value(export)
+    }
+
     async fn versions_list(&self, params: &Value) -> Result<Value> {
         let request: VersionsListRequest = from_value(params)?;
         let manifest = self.resolver()?.manifest(request.refresh).await?;
@@ -898,7 +1786,16 @@ impl Service {
 
         let task_name = format!("install:{}", request.version);
         let control = Control::new();
-        let queue_id = self.queue_task(&task_name, control.clone(), graph, None);
+        let queue_id = self.queue_task(
+            &task_name,
+            control.clone(),
+            graph,
+            None,
+            Some(TaskReplay {
+                method: "install.start",
+                params: params.clone(),
+            }),
+        );
         self.runtime.spawn(
             self.clone()
                 .watch_task(queue_id.clone(), control, task_name),
@@ -942,6 +1839,7 @@ impl Service {
         control: Control,
         graph: TaskGraph,
         runtime_id: Option<String>,
+        replay: Option<TaskReplay>,
     ) -> String {
         let id = format!(
             "task-{}",
@@ -957,6 +1855,7 @@ impl Service {
                 control,
                 graph: Arc::new(graph),
                 runtime_id,
+                replay,
                 done: done.clone(),
             });
         self.runtime.spawn(self.clone().run_task(id.clone(), done));
@@ -973,8 +1872,11 @@ impl Service {
             (task.control.clone(), task.graph.clone())
         };
         let report = graph.run(&control, &RunOptions::default()).await;
+        let paused = report.interrupted == Some(StopReason::Paused);
         let state = if report.is_success() {
             "succeeded"
+        } else if paused {
+            "paused"
         } else if report.interrupted.is_some() {
             "cancelled"
         } else {
@@ -987,12 +1889,10 @@ impl Service {
                 .failed
                 .first()
                 .map(|(node, error)| format!("{node}: {error}"))
-                .unwrap_or_else(|| {
-                    if report.interrupted.is_some() {
-                        "task cancelled".to_string()
-                    } else {
-                        "task failed".to_string()
-                    }
+                .unwrap_or_else(|| match report.interrupted {
+                    Some(StopReason::Paused) => "task paused".to_string(),
+                    Some(StopReason::Cancelled) => "task cancelled".to_string(),
+                    None => "task failed".to_string(),
                 });
             Err(Error::with_detail(
                 if report.interrupted.is_some() {
@@ -1069,36 +1969,123 @@ impl Service {
                     .nodes
                     .iter()
                     .any(|node| node.state == NodeState::Failed);
-                let stopped = task.control.is_stopped();
+                let reason = task.control.reason();
+                let state = if failed {
+                    "failed"
+                } else if progress.is_complete() {
+                    "succeeded"
+                } else if reason == Some(StopReason::Paused) {
+                    "paused"
+                } else if reason == Some(StopReason::Cancelled) || task.control.is_stopped() {
+                    "cancelled"
+                } else {
+                    "running"
+                };
                 TaskRow {
                     id: task.id.clone(),
                     name: task.name.clone(),
-                    state: if failed {
-                        "failed"
-                    } else if stopped {
-                        "paused"
-                    } else if progress.is_complete() {
-                        "succeeded"
-                    } else {
-                        "running"
-                    },
+                    state,
                     fraction: progress.fraction,
-                    speed: progress.speed,
+                    speed: if state == "running" {
+                        progress.speed
+                    } else {
+                        0.0
+                    },
                 }
             })
             .collect();
         to_value(rows)
     }
 
+    async fn tasks_pause(&self, params: &Value) -> Result<Value> {
+        let request: TaskIdRequest = from_value(params)?;
+        let tasks = self.tasks.lock().expect("task queue poisoned");
+        let Some(task) = tasks.iter().find(|task| task.id == request.task_id) else {
+            return Err(Error::with_detail(
+                ErrorKind::NotFound,
+                "error.task.not_found",
+                request.task_id,
+            ));
+        };
+        if task.graph.progress().is_complete() {
+            return Err(Error::with_detail(
+                ErrorKind::Conflict,
+                "error.task.finished",
+                request.task_id,
+            ));
+        }
+        task.control.pause();
+        Ok(json!({ "taskId": task.id, "state": "paused" }))
+    }
+
+    /// Replays the RPC that produced a paused task.
+    ///
+    /// Graphs are one-shot, so "resume" queues a fresh graph from the original
+    /// request and drops the paused row once the replacement exists. Downloads
+    /// already in the content cache are not fetched again.
+    async fn tasks_resume(self: &Arc<Self>, params: &Value) -> Result<Value> {
+        let request: TaskIdRequest = from_value(params)?;
+        let (replay, old_name) = {
+            let tasks = self.tasks.lock().expect("task queue poisoned");
+            let Some(task) = tasks.iter().find(|task| task.id == request.task_id) else {
+                return Err(Error::with_detail(
+                    ErrorKind::NotFound,
+                    "error.task.not_found",
+                    request.task_id,
+                ));
+            };
+            if task.control.reason() != Some(StopReason::Paused) {
+                return Err(Error::with_detail(
+                    ErrorKind::Conflict,
+                    "error.task.not_paused",
+                    request.task_id,
+                ));
+            }
+            let replay = task.replay.clone().ok_or_else(|| {
+                Error::with_detail(
+                    ErrorKind::Unsupported,
+                    "error.task.resume_unsupported",
+                    task.name.clone(),
+                )
+            })?;
+            (replay, task.name.clone())
+        };
+
+        // `rpc` -> `tasks_resume` -> `rpc` is recursive; box the replay
+        // future so the compiler does not need an infinite-size future.
+        let payload = Box::pin(self.rpc(replay.method, replay.params)).await?;
+        let task_id = payload
+            .get("taskId")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| {
+                Error::with_detail(ErrorKind::Internal, "error.task.resume", old_name)
+            })?;
+        {
+            let mut tasks = self.tasks.lock().expect("task queue poisoned");
+            if let Some(index) = tasks.iter().position(|task| {
+                task.id == request.task_id && task.control.reason() == Some(StopReason::Paused)
+            }) {
+                tasks.remove(index);
+            }
+        }
+        Ok(json!({ "taskId": task_id, "oldTaskId": request.task_id }))
+    }
+
     async fn tasks_cancel(&self, params: &Value) -> Result<Value> {
-        let request: TaskCancelRequest = from_value(params)?;
-        self.tasks
-            .lock()
-            .expect("task queue poisoned")
-            .iter()
-            .filter(|task| task.id == request.task_id)
-            .for_each(|task| task.control.cancel());
-        Ok(json!(null))
+        let request: TaskIdRequest = from_value(params)?;
+        let tasks = self.tasks.lock().expect("task queue poisoned");
+        let Some(task) = tasks.iter().find(|task| task.id == request.task_id) else {
+            return Err(Error::with_detail(
+                ErrorKind::NotFound,
+                "error.task.not_found",
+                request.task_id,
+            ));
+        };
+        if !task.graph.progress().is_complete() || task.control.is_stopped() {
+            task.control.cancel();
+        }
+        Ok(json!({ "taskId": task.id, "state": "cancelled" }))
     }
 
     async fn java_list(&self) -> Result<Value> {
@@ -1182,7 +2169,20 @@ impl Service {
         });
         let graph = manager.graph(plan);
         let control = Control::new();
-        let task_id = self.queue_task(&name, control.clone(), graph, Some(runtime_id.clone()));
+        let java_replay = TaskReplay {
+            method: "java.install",
+            params: json!({
+                "major": request.major,
+                "component": request.component,
+            }),
+        };
+        let task_id = self.queue_task(
+            &name,
+            control.clone(),
+            graph,
+            Some(runtime_id.clone()),
+            Some(java_replay),
+        );
         self.runtime
             .spawn(self.clone().watch_task(task_id.clone(), control, name));
         Ok(json!({
@@ -1307,7 +2307,20 @@ impl Service {
         let runtime_id = plan.id.clone();
         let graph = manager.graph(plan);
         let control = Control::new();
-        let task_id = self.queue_task(&name, control.clone(), graph, Some(runtime_id));
+        let java_replay = TaskReplay {
+            method: "java.install",
+            params: json!({
+                "major": required,
+                "component": component,
+            }),
+        };
+        let task_id = self.queue_task(
+            &name,
+            control.clone(),
+            graph,
+            Some(runtime_id),
+            Some(java_replay),
+        );
         self.runtime
             .spawn(self.clone().watch_task(task_id.clone(), control, name));
         self.wait_task(&task_id).await?;
@@ -1937,6 +2950,65 @@ async fn finish_session(
     }));
 }
 
+/// Keeps only the file stem/extension of a remote file name.
+fn sanitize_download_name(name: &str) -> Option<String> {
+    let base = name
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .trim_matches('.');
+    if base.is_empty() || base == "." || base == ".." {
+        return None;
+    }
+    let mut safe = String::with_capacity(base.len());
+    for character in base.chars() {
+        if character.is_alphanumeric() || matches!(character, '.' | '-' | '_' | '+' | ' ') {
+            safe.push(character);
+        } else {
+            safe.push('_');
+        }
+    }
+    let safe = safe.trim_matches('.').to_string();
+    if safe.is_empty() { None } else { Some(safe) }
+}
+
+struct TaskSink {
+    cx: TaskCx,
+}
+
+impl fg_net::ProgressSink for TaskSink {
+    fn on_bytes(&self, bytes: u64) {
+        self.cx.advance(bytes);
+    }
+}
+
+/// Derives a safe instance id for a modpack import, avoiding collisions.
+fn modpack_instance_id(manager: &InstanceManager, name: &str) -> String {
+    let mut base: String = name
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .map(|character| character.to_ascii_lowercase())
+        .collect();
+    base.truncate(24);
+    let base = if base.is_empty() {
+        "modpack".to_string()
+    } else {
+        base
+    };
+    if !manager.exists(&base) {
+        return base;
+    }
+    let mut counter = 2_u32;
+    loop {
+        let candidate = format!("{base}-{counter}");
+        if !manager.exists(&candidate) {
+            return candidate;
+        }
+        counter += 1;
+    }
+}
+
 fn count_mods(game_dir: &Path) -> Option<usize> {
     let directory = game_dir.join("mods");
     if !directory.is_dir() {
@@ -2132,7 +3204,251 @@ fn resolve_loader_selection(
     )))
 }
 
+// ---- Content helpers --------------------------------------------------
+
+fn parse_content_source(value: &str) -> Result<ContentSource> {
+    if value.trim().is_empty() {
+        Ok(ContentSource::Modrinth)
+    } else {
+        ContentSource::parse(value)
+    }
+}
+
+/// Resolves the game version and loader filter for a content API call.
+///
+/// An explicit request value wins over the instance; without either the filter
+/// is omitted so browsing still works before an instance is selected.
+fn content_plan_summary(plan: &fg_content::ContentPlan) -> Value {
+    json!({
+        "source": plan.source.as_str(),
+        "projectId": plan.project_id,
+        "projectName": plan.project_name,
+        "versionId": plan.version_id,
+        "versionNumber": plan.version_number,
+        "kind": plan.kind.as_str(),
+        "files": plan.items.len(),
+        "totalBytes": plan.total_bytes,
+        "warnings": plan.warnings,
+        "items": plan.items.iter().map(|item| json!({
+            "fileName": item.file_name,
+            "projectId": item.project_id,
+            "projectName": item.project_name,
+            "versionId": item.version_id,
+            "versionNumber": item.version_number,
+            "dependency": matches!(item.dependency, fg_content::PlannedFileKind::RequiredDependency),
+            "size": item.size,
+        })).collect::<Vec<_>>(),
+    })
+}
+
+fn content_context(
+    instance: Option<&Instance>,
+    kind: ContentKind,
+    game_version: Option<&str>,
+    loader: Option<&str>,
+) -> (Option<String>, Option<String>) {
+    let game_version = non_empty(game_version)
+        .or_else(|| instance.map(|instance| instance.minecraft.clone()))
+        .filter(|value| !value.is_empty());
+    let loader = if kind.loader_specific() {
+        non_empty(loader)
+            .or_else(|| instance.map(|instance| instance.loader.kind.clone()))
+            .and_then(|value| fg_content::model::normalize_loader(&value))
+    } else {
+        None
+    };
+    (game_version, loader)
+}
+
+impl Service {
+    fn optional_instance(&self, id: Option<&str>) -> Result<Option<Instance>> {
+        match id.map(str::trim).filter(|value| !value.is_empty()) {
+            Some(id) => self.manager().load(id).map(Some),
+            None => Ok(None),
+        }
+    }
+}
+
 // ---- Request payloads -------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InstanceOnlyRequest {
+    instance_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContentToggleRequest {
+    instance_id: String,
+    kind: String,
+    file_name: String,
+    enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContentDeleteRequest {
+    instance_id: String,
+    kind: String,
+    file_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContentSearchRequest {
+    #[serde(default)]
+    source: String,
+    kind: String,
+    #[serde(default)]
+    query: String,
+    #[serde(default)]
+    instance_id: Option<String>,
+    #[serde(default)]
+    game_version: Option<String>,
+    #[serde(default)]
+    loader: Option<String>,
+    #[serde(default)]
+    offset: u32,
+    #[serde(default = "default_content_limit")]
+    limit: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContentVersionsRequest {
+    #[serde(default)]
+    source: String,
+    project_id: String,
+    kind: String,
+    #[serde(default)]
+    instance_id: Option<String>,
+    #[serde(default)]
+    game_version: Option<String>,
+    #[serde(default)]
+    loader: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContentInstallRequest {
+    #[serde(default)]
+    source: String,
+    project_id: String,
+    #[serde(default)]
+    version_id: Option<String>,
+    instance_id: String,
+    kind: String,
+    /// Target world for data packs.
+    #[serde(default)]
+    world: Option<String>,
+    #[serde(default)]
+    replace_files: Vec<String>,
+    /// Defaults to true so older clients keep auto-installing prerequisites.
+    #[serde(default = "default_true")]
+    install_dependencies: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContentUpdatesRequest {
+    instance_id: String,
+    #[serde(default)]
+    kind: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorldNameRequest {
+    instance_id: String,
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorldRestoreRequest {
+    instance_id: String,
+    backup: String,
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorldBackupRequest {
+    instance_id: String,
+    backup: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DatapackRequest {
+    instance_id: String,
+    world: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DatapackToggleRequest {
+    instance_id: String,
+    world: String,
+    file_name: String,
+    enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DatapackDeleteRequest {
+    instance_id: String,
+    world: String,
+    file_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DatapackImportRequest {
+    instance_id: String,
+    world: String,
+    path: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ModpackInspectRequest {
+    path: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ModpackInstallRequest {
+    #[serde(default)]
+    source: Option<String>,
+    project_id: String,
+    version_id: String,
+    #[serde(default)]
+    name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ModpackImportRequest {
+    path: String,
+    #[serde(default)]
+    name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ModpackExportRequest {
+    instance_id: String,
+}
+
+fn default_content_limit() -> u32 {
+    20
+}
+
+const fn default_true() -> bool {
+    true
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -2250,7 +3566,7 @@ struct InstallStartRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct TaskCancelRequest {
+struct TaskIdRequest {
     task_id: String,
 }
 
@@ -2934,6 +4250,231 @@ mod tests {
     }
 
     #[test]
+    fn datapacks_are_managed_per_world() {
+        let (dir, service) = fixture();
+        service.block_on(async {
+            service
+                .rpc(
+                    "instances.create",
+                    json!({ "id": "packs", "name": "数据包", "minecraft": "1.21.4" }),
+                )
+                .await
+                .expect("create");
+            let game_dir = dir.path().join("instances/packs/.minecraft");
+            let saves = game_dir.join("saves/World/datapacks");
+            std::fs::create_dir_all(&saves).expect("saves");
+            fg_world::datapack::write_pack(&saves.join("terralith.zip"), 48, "Terralith")
+                .expect("pack");
+
+            let listed = service
+                .rpc(
+                    "datapacks.list",
+                    json!({ "instanceId": "packs", "world": "World" }),
+                )
+                .await
+                .expect("list");
+            assert_eq!(listed["count"], json!(1));
+            assert_eq!(listed["items"][0]["title"], json!("Terralith"));
+
+            let toggled = service
+                .rpc(
+                    "datapacks.toggle",
+                    json!({
+                        "instanceId": "packs",
+                        "world": "World",
+                        "fileName": "terralith.zip",
+                        "enabled": false
+                    }),
+                )
+                .await
+                .expect("toggle");
+            assert_eq!(toggled["fileName"], json!("terralith.zip.disabled"));
+
+            let deleted = service
+                .rpc(
+                    "datapacks.delete",
+                    json!({
+                        "instanceId": "packs",
+                        "world": "World",
+                        "fileName": "terralith.zip.disabled"
+                    }),
+                )
+                .await
+                .expect("delete");
+            assert!(deleted["items"].as_array().expect("array").is_empty());
+        });
+    }
+
+    #[test]
+    fn diagnostics_find_a_memory_crash_and_export_a_bundle() {
+        let (dir, service) = fixture();
+        service.block_on(async {
+            service
+                .rpc(
+                    "instances.create",
+                    json!({ "id": "diag", "name": "诊断", "minecraft": "1.21.4" }),
+                )
+                .await
+                .expect("create");
+            let game_dir = dir.path().join("instances/diag/.minecraft");
+            std::fs::create_dir_all(game_dir.join("logs")).expect("logs");
+            std::fs::write(
+                game_dir.join("logs/latest.log"),
+                "[main/ERROR]: java.lang.OutOfMemoryError: Java heap space\n",
+            )
+            .expect("log");
+
+            let analysis = service
+                .rpc("diag.analyze", json!({ "instanceId": "diag" }))
+                .await
+                .expect("analyze");
+            let findings = analysis["findings"].as_array().expect("findings");
+            assert!(
+                findings
+                    .iter()
+                    .any(|finding| finding["id"] == json!("java.memory"))
+            );
+            assert_eq!(analysis["severity"], json!("error"));
+            assert!(analysis["scannedLines"].as_u64().unwrap_or_default() >= 1);
+
+            let logs = service
+                .rpc("diag.logs", json!({ "instanceId": "diag" }))
+                .await
+                .expect("logs");
+            assert!(
+                logs["texts"]["log"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("OutOfMemory")
+            );
+
+            let exported = service
+                .rpc("diag.export", json!({ "instanceId": "diag" }))
+                .await
+                .expect("export");
+            let path = exported["bundle"]["path"].as_str().expect("path");
+            assert!(std::path::Path::new(path).is_file());
+            assert!(exported["bundle"]["sizeBytes"].as_u64().unwrap_or_default() > 0);
+        });
+    }
+
+    #[test]
+    fn task_queue_pauses_and_cancels_and_rejects_unsupported_resume() {
+        let (_dir, service) = fixture();
+        let mut builder = fg_task::TaskGraph::builder("slow");
+        builder.task("slow", 1, |cx| async move {
+            cx.cancel_handle().cancelled().await;
+            Err(Error::new(ErrorKind::Cancelled, "error.task.cancelled"))
+        });
+        let graph = builder.build();
+        let control = Control::new();
+        let task_id = service.queue_task("test", control, graph, None, None);
+
+        let state = |service: &Arc<Service>, task_id: &str| {
+            service
+                .block_on(service.tasks_list())
+                .expect("rows")
+                .as_array()
+                .expect("array")
+                .iter()
+                .find(|row| row["id"] == json!(task_id))
+                .map(|row| row["state"].as_str().unwrap_or_default().to_string())
+                .unwrap_or_default()
+        };
+
+        for _ in 0..40 {
+            if state(&service, &task_id) == "running" {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(state(&service, &task_id), "running");
+
+        service
+            .block_on(service.rpc("tasks.pause", json!({ "taskId": task_id })))
+            .expect("pause");
+        for _ in 0..40 {
+            if state(&service, &task_id) == "paused" {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(state(&service, &task_id), "paused");
+        // Wait for `run_task` to exit so the service (and its runtime) is not
+        // dropped from one of its own worker threads at the end of the test.
+        assert!(service.block_on(service.wait_task(&task_id)).is_err());
+
+        let error = service
+            .block_on(service.rpc("tasks.resume", json!({ "taskId": task_id })))
+            .expect_err("a graph without replay data cannot resume");
+        assert_eq!(error.message_key, "error.task.resume_unsupported");
+
+        service
+            .block_on(service.rpc("tasks.cancel", json!({ "taskId": task_id })))
+            .expect("cancel");
+        assert_eq!(state(&service, &task_id), "cancelled");
+    }
+
+    #[test]
+    fn task_queue_resume_replays_the_original_rpc() {
+        let (_dir, service) = fixture();
+        let layout = service.layout().clone();
+        let version_id = "resume-version";
+        let jar_bytes = b"test";
+        std::fs::create_dir_all(layout.version_dir(version_id)).expect("version dir");
+        std::fs::write(layout.version_jar(version_id), jar_bytes).expect("jar");
+        std::fs::write(
+            layout.version_json(version_id),
+            format!(
+                r#"{{"id":"{version_id}","type":"release","mainClass":"TestMain","downloads":{{"client":{{"url":"https://example.invalid/client.jar","sha1":"a94a8fe5ccb19ba61c4c0873d391e987982fbbd3","size":{}}}}}}}"#,
+                jar_bytes.len()
+            ),
+        )
+        .expect("version json");
+
+        let mut builder = fg_task::TaskGraph::builder("slow");
+        builder.task("slow", 1, |cx| async move {
+            cx.cancel_handle().cancelled().await;
+            Err(Error::new(ErrorKind::Cancelled, "error.task.cancelled"))
+        });
+        let graph = builder.build();
+        let control = Control::new();
+        let replay = Some(TaskReplay {
+            method: "install.start",
+            params: json!({
+                "version": version_id,
+                "instanceId": "resume-instance",
+                "instanceName": "恢复下载",
+            }),
+        });
+        let task_id = service.queue_task("slow", control, graph, None, replay);
+        std::thread::sleep(Duration::from_millis(30));
+        service
+            .block_on(service.rpc("tasks.pause", json!({ "taskId": task_id })))
+            .expect("pause");
+        assert!(service.block_on(service.wait_task(&task_id)).is_err());
+
+        let resumed = service
+            .block_on(service.rpc("tasks.resume", json!({ "taskId": task_id })))
+            .expect("resume");
+        let new_task = resumed["taskId"].as_str().expect("new task").to_string();
+        assert_ne!(new_task, task_id);
+        assert_eq!(resumed["oldTaskId"], json!(task_id));
+        service
+            .block_on(service.wait_task(&new_task))
+            .expect("replayed install should finish");
+        let rows = service.block_on(service.tasks_list()).expect("rows");
+        assert!(
+            rows.as_array()
+                .expect("array")
+                .iter()
+                .all(|row| row["id"] != json!(task_id)),
+            "paused row should be replaced by its replay"
+        );
+        assert!(service.manager().exists("resume-instance"));
+    }
+
+    #[test]
     fn task_rows_expose_running_graphs() {
         let (_dir, service) = fixture();
         let mut builder = fg_task::TaskGraph::builder("t");
@@ -2946,6 +4487,7 @@ mod tests {
             control: control.clone(),
             graph: Arc::new(graph),
             runtime_id: None,
+            replay: None,
             done: Arc::new(TaskDone::default()),
         });
         let rows = service.block_on(service.tasks_list()).expect("rows");

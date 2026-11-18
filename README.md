@@ -16,6 +16,8 @@ Minecraft Java 版启动器：一套 Rust 核心 + 一套 Compose Multiplatform 
 | M5 | Fabric/Quilt/Forge/NeoForge/OptiFine 安装器与启动接线 | 完成（2026-11-14） |
 | M6 | Java 运行时自动下载、安装/启动自动补全与管理页 | 完成（2026-11-15） |
 | M7 | 离线与第三方 Yggdrasil / authlib-injector 登录、账户页与启动接线 | 完成（2026-11-15）；不含皮肤管理与正版登录 |
+| M8 | 模组、资源包、光影、世界管理，Modrinth / CurseForge 内容下载页与更新检查 | 完成（2026-11-15） |
+| M9 | 崩溃分析与诊断包；按世界的数据包；整合包导入/导出、在线浏览与桌面拖放导入 | 完成（2026-11-17）；服务器功能同日移除 |
 | R0 | Compose Multiplatform 重构：技术验证 | 完成（2026-11-12） |
 | R1 | 共享层：kotlinx.serialization、平台接口、`AppModel` 去 Android 化、commonTest | 完成（2026-11-13） |
 | R2 | UI 迁移：四页 + 3 个 sheet、字符串与图片资源化、Material 3 差异 | 完成（2026-11-13） |
@@ -32,6 +34,10 @@ R3/R4/R6 于 2026-11-14 收尾：`AppModel` 拆成四个按功能的 controller�
 
 M7（2026-11-15）加入离线账户与第三方 Yggdrasil / authlib-injector 登录、账户面板和启动接线。按范围调整，皮肤管理从计划中移除；微软正版登录保留在 M11。
 
+M8（2026-11-15）加入实例内容管理与内容下载页：模组、资源包、光影的扫描/启用/删除/更新检查，世界的列表/备份/恢复/删除，以及 Modrinth 与 CurseForge（MCIM）的搜索、版本选择、必需前置解析和安装。原理图（`.litematic` / `.schem` / `.nbt`）已从 M8 与全部后续计划中删除，实例目录不再创建 `schematics/`；数据包与整合包留在 M9。实现细节与手测记录见 [docs/m8.md](docs/m8.md)。
+
+M9（2026-11-17）加入崩溃分析页、数据包安装和整合包导入/导出。`fg-diag` 用可覆盖的 TOML 规则分析 `latest.log`、崩溃报告与 `hs_err`，并导出脱敏诊断包；数据包按世界管理并可从下载页安装；整合包支持 Modrinth `.mrpack`、CurseForge/HMCL zip 与 MultiMC/Prism 外部实例，导入后写入 `modpack.json`，并可导出 `.mrpack`。下载页的「整合包 / 数据包 / 资源包」分类现在都有真实内容：整合包安装到新实例，数据包安装到选中的世界，资源包/光影/模组沿用内容浏览器；桌面支持把 `.mrpack` / `.zip` / MultiMC 目录拖进窗口导入，主页三点菜单也有「导入整合包…」。服务器列表、状态 Ping、局域网与快速加入在当天从产品范围移除。整合包增量更新留在 M9.1。实现细节见 [docs/m9.md](docs/m9.md)。
+
 ## 目录
 
 ```text
@@ -42,6 +48,9 @@ crates/fg-game     版本清单、inheritsFrom 合并、rules、安装任务图�
 crates/fg-java     Java 发现、release/PE/Mach-O 解析、版本匹配
 crates/fg-loader   Fabric/Quilt/Forge/NeoForge/OptiFine 版本发现与安装
 crates/fg-auth     离线账户、Yggdrasil / authlib-injector 登录与账户仓库
+crates/fg-content  本地模组/资源包/光影、内容索引、Modrinth / CurseForge、整合包与安装计划
+crates/fg-world    世界、level.dat、数据包、zip 备份与删除
+crates/fg-diag     日志与崩溃报告收集、规则引擎、诊断包导出
 crates/fg-cli      无 UI 的调试与 CI 入口
 bindings/fg-ffi    C ABI / JSON 契约
 bindings/fg-ffi-jni JVM JNI 桥（Android .so + 桌面 .dylib/.dll/.so）
@@ -109,6 +118,54 @@ cargo run -p fg-cli -- java match 1.21.4
 
 Java 版本按 `version_json.javaVersion.majorVersion` 选择；缺失时按 §5.5 推断。1.8.9 / 1.12.2 / 1.16.5 需要 Java 8，本机没有时可用 `--java <home>` 指定；M6 起也会按需下载官方运行时（见下）。Apple Silicon 上这些老版本只有 x86_64 natives，启动器会优先下载 x86_64 Java 8 并用 Rosetta 运行。
 
+## 内容、世界与下载页手测（M8）
+
+```bash
+# 先在实例里放入内容，或从下载页安装
+cargo run -p fg-cli -- content list my-instance
+cargo run -p fg-cli -- content search mod sodium --instance my-instance
+cargo run -p fg-cli -- content versions AANobbMI mod --instance my-instance
+cargo run -p fg-cli -- content install AANobbMI mod --instance my-instance
+cargo run -p fg-cli -- content update my-instance
+
+# CurseForge 只走 MCIM；模组需要 Fabric/Quilt/Forge/NeoForge 实例
+cargo run -p fg-cli -- content install 1728334 mod --instance my-instance --provider curseforge
+
+# 启用/禁用与删除
+cargo run -p fg-cli -- content toggle my-instance mod sodium-fabric-0.6.13+mc1.21.4.jar --disable
+cargo run -p fg-cli -- content delete my-instance mod sodium-fabric-0.6.13+mc1.21.4.jar --yes
+
+# 世界备份与恢复
+cargo run -p fg-cli -- world list my-instance
+cargo run -p fg-cli -- world backup my-instance "New World"
+cargo run -p fg-cli -- world backups my-instance
+cargo run -p fg-cli -- world restore my-instance 20261115-180000.zip
+```
+
+在实例库点击实例进入实例详情页，模组 / 资源包 / 光影 / 世界 / 数据包五个分页就在页面内管理；设置页的「模组管理 / 资源包管理 / 光影包管理 / 世界管理 / 数据包」会直接跳到对应分页。实例详情页头只有一行：实例名、搜索、开始游戏、收藏和三点菜单（实例设置、复制目录、删除）。下载页的「模组 / 整合包 / 资源包 / 光影 / 数据包」五个内容分类都是真实浏览器；原理图不在下载页和实例管理中。
+
+## 诊断、数据包与整合包手测（M9）
+
+```bash
+# 崩溃分析：先跑过游戏或放入 logs/latest.log
+cargo run -p fg-cli -- diag logs my-instance
+cargo run -p fg-cli -- diag analyze my-instance
+cargo run -p fg-cli -- diag export my-instance
+
+# 数据包按世界管理
+cargo run -p fg-cli -- datapack list my-instance "New World"
+cargo run -p fg-cli -- datapack import my-instance "New World" ~/Downloads/terralith.zip
+cargo run -p fg-cli -- datapack toggle my-instance "New World" terralith.zip --disable
+
+# 整合包：检查 → 导入新实例（基础游戏需另装）/ 导入已有实例 → 导出
+cargo run -p fg-cli -- modpack inspect ~/Downloads/calm.mrpack
+cargo run -p fg-cli -- modpack import ~/Downloads/calm.mrpack
+cargo run -p fg-cli -- modpack import ~/Downloads/calm.mrpack --instance my-instance --dry-run
+cargo run -p fg-cli -- modpack export my-instance
+```
+
+下载页的「整合包」分类会搜索 Modrinth / CurseForge，选中版本后「创建实例并导入」；「数据包」分类先选实例与世界，再安装到存档。桌面可以把 `.mrpack`、`.zip` 或 MultiMC/Prism 实例目录直接拖进窗口，主页右上角三点菜单也有「导入整合包…」。实例设置 →「日志与诊断」显示规则命中、修复入口和日志原文，右上角导出诊断包；「更多功能 → 导出整合包」写出 `.mrpack` 到 `<data root>/exports/`。增量更新尚未实现（M9.1）。
+
 ## 下载引擎手测（M2）
 
 ```bash
@@ -141,7 +198,7 @@ cargo run -p fg-cli -- instance delete my-instance
 cargo run -p fg-cli -- instance import ~/path/to/.minecraft --name 外部存档
 ```
 
-UI 侧：主页/实例库读 `instances.list` / `instances.summary`；「添加实例」进入下载页，先选游戏 / 整合包 / 模组，再在游戏页选版本与加载器（原版与 Fabric/Quilt/Forge/NeoForge/OptiFine 均可用，加载器版本由 `loaders.versions` 实时读取），下载完成自动打开该实例的「游戏设置」，内存/JVM/分辨率等全部在设置页调整；下载队列、底栏角标消费 `fg_events_next` 里的 `task.progress/task.finished`；实例设置页通过 `instances.settings.set` 写 `[override]`，留空即继承 `launcher.toml [game]`；开始游戏走 `launch.start`，会话事件（`game.line` / `game.exited`）在退出后自动累加 `play_seconds` 并刷新「上次游玩」。Android 端通过 `bindings/fg-ffi-jni` 加载同一个 `fg-ffi` 服务，数据根目录由 Kotlin 在首次 RPC 前通过 `fg_set_data_root` 设为应用私有外部目录；Android 的游戏 Java 运行时属于 M12（A0–A10），当前 `launch.start` 会如实返回 `error.java.none_installed`，Java 管理页显示“不支持自动下载”。
+UI 侧：主页/实例库读 `instances.list` / `instances.summary`；「添加实例」进入下载页，先选游戏 / 整合包 / 模组，再在游戏页选版本与加载器（原版与 Fabric/Quilt/Forge/NeoForge/OptiFine 均可用，加载器版本由 `loaders.versions` 实时读取），下载完成自动打开该实例的详情页，内存/JVM/分辨率等全部在实例设置页调整；下载队列页与底栏角标消费 `fg_events_next` 里的 `task.progress/task.finished`，并可用 `tasks.pause/resume/cancel` 控制任务；实例设置页通过 `instances.settings.set` 写 `[override]`，留空即继承 `launcher.toml [game]`；开始游戏走 `launch.start`，会话事件（`game.line` / `game.exited`）在退出后自动累加 `play_seconds` 并刷新「上次游玩」。Android 端通过 `bindings/fg-ffi-jni` 加载同一个 `fg-ffi` 服务，数据根目录由 Kotlin 在首次 RPC 前通过 `fg_set_data_root` 设为应用私有外部目录；Android 的游戏 Java 运行时属于 M12（A0–A10），当前 `launch.start` 会如实返回 `error.java.none_installed`，Java 管理页显示“不支持自动下载”。
 
 ## 加载器安装（M5）
 

@@ -9,9 +9,22 @@ import com.fograin.launcher.model.LibrarySort
 import com.fograin.launcher.platform.CoreAccount
 import com.fograin.launcher.platform.CoreAppSnapshot
 import com.fograin.launcher.platform.CoreGameConfig
+import com.fograin.launcher.platform.CoreContentCounts
+import com.fograin.launcher.platform.CoreContentProject
+import com.fograin.launcher.platform.CoreContentUpdate
+import com.fograin.launcher.platform.CoreContentVersion
+import com.fograin.launcher.platform.CoreDatapack
+import com.fograin.launcher.platform.CoreDiagLogs
+import com.fograin.launcher.platform.CoreDiagnostics
+import com.fograin.launcher.platform.CoreFinding
 import com.fograin.launcher.platform.CoreJavaCatalogEntry
 import com.fograin.launcher.platform.CoreJavaRuntime
+import com.fograin.launcher.platform.CoreLocalContent
+import com.fograin.launcher.platform.CoreWorld
+import com.fograin.launcher.platform.CoreWorldBackup
 import com.fograin.launcher.platform.CoreLoaderVersion
+import com.fograin.launcher.platform.CoreModpack
+import com.fograin.launcher.platform.CoreModpackExport
 import com.fograin.launcher.platform.CorePlanPreview
 import com.fograin.launcher.platform.CoreSettings
 import com.fograin.launcher.platform.CoreVersionEntry
@@ -56,6 +69,19 @@ data class DownloadRow(
 enum class SettingsStage {
     MAIN,
     JAVA,
+}
+
+/**
+ * Pages inside the 实例库 destination. The instance list is the root; a row
+ * opens the detail page (overview + content management), and the detail page's
+ * settings action opens the per-instance settings page. All three share the
+ * library header and nav bar, exactly like the downloads flow.
+ */
+enum class LibraryStage {
+    LIST,
+    DETAIL,
+    SETTINGS,
+    DIAGNOSTICS,
 }
 
 /** Java runtime inventory and download state owned by [AppModel]. */
@@ -178,6 +204,189 @@ data class DownloadUiState(
             (installLoader == GameLoaderKind.VANILLA || installLoaderVersion.isNotEmpty())
 }
 
+/** Tabs of the instance content manager. */
+enum class ContentManagerTab(val kind: String?) {
+    MODS("mod"),
+    RESOURCE_PACKS("resourcepack"),
+    SHADER_PACKS("shaderpack"),
+    WORLDS(null),
+    DATAPACKS(null),
+}
+
+/** Source switcher on the downloads content tabs. */
+enum class ContentSourceOption(val wire: String) {
+    MODRINTH("modrinth"),
+    CURSEFORGE("curseforge"),
+}
+
+/** Instance content manager state (M8). */
+data class ContentManagerUiState(
+    val instanceId: String? = null,
+    val tab: ContentManagerTab = ContentManagerTab.MODS,
+    /** Search text for the installed-content lists. */
+    val query: String = "",
+    val items: List<CoreLocalContent> = emptyList(),
+    val counts: CoreContentCounts = CoreContentCounts(),
+    val worlds: List<CoreWorld> = emptyList(),
+    val backups: List<CoreWorldBackup> = emptyList(),
+    /** Selected world for the data pack tab; defaults to the first world. */
+    val datapackWorld: String? = null,
+    val datapacks: List<CoreDatapack> = emptyList(),
+    val datapacksLoading: Boolean = false,
+    val datapackError: String? = null,
+    val isLoading: Boolean = false,
+    val error: String? = null,
+    val isCheckingUpdates: Boolean = false,
+    val updates: Map<String, CoreContentUpdate> = emptyMap(),
+    val updateUnknown: Int = 0,
+    val busyFile: String? = null,
+    val busyWorld: String? = null,
+) {
+    fun itemsFor(tab: ContentManagerTab): List<CoreLocalContent> =
+        items.filter { it.kind == tab.kind }
+
+    fun countFor(tab: ContentManagerTab): Int = when (tab) {
+        ContentManagerTab.WORLDS -> worlds.size
+        ContentManagerTab.DATAPACKS -> datapacks.size
+        else -> itemsFor(tab).size
+    }
+
+    fun updateFor(fileName: String): CoreContentUpdate? = updates[fileName]
+
+    /** [itemsFor] narrowed by the page search field. */
+    fun visibleItemsFor(tab: ContentManagerTab): List<CoreLocalContent> {
+        val term = query.trim()
+        if (term.isEmpty()) return itemsFor(tab)
+        return itemsFor(tab).filter { item ->
+            listOfNotNull(item.title, item.fileName, item.version, item.description)
+                .any { it.contains(term, ignoreCase = true) }
+        }
+    }
+
+    /** Worlds narrowed by the page search field. */
+    fun visibleWorlds(): List<CoreWorld> {
+        val term = query.trim()
+        if (term.isEmpty()) return worlds
+        return worlds.filter { it.name.contains(term, ignoreCase = true) }
+    }
+
+    /** Backups narrowed by the page search field. */
+    fun visibleBackups(): List<CoreWorldBackup> {
+        val term = query.trim()
+        if (term.isEmpty()) return backups
+        return backups.filter { it.name.contains(term, ignoreCase = true) }
+    }
+
+    /** Data packs narrowed by the page search field. */
+    fun visibleDatapacks(): List<CoreDatapack> {
+        val term = query.trim()
+        if (term.isEmpty()) return datapacks
+        return datapacks.filter { item ->
+            listOfNotNull(item.title, item.fileName, item.description)
+                .any { it.contains(term, ignoreCase = true) }
+        }
+    }
+}
+
+/** Log sources available on the diagnostics page. */
+enum class DiagTab(val kind: String) {
+    LOG("log"),
+    CRASH("crash"),
+    SESSION("stdout"),
+    JVM("hsErr"),
+}
+
+/** Diagnostics page state (M9). */
+data class DiagUiState(
+    val instanceId: String? = null,
+    val analysis: CoreDiagnostics? = null,
+    val logs: CoreDiagLogs? = null,
+    val tab: DiagTab = DiagTab.LOG,
+    val isLoading: Boolean = false,
+    val isExporting: Boolean = false,
+    val error: String? = null,
+    val bundlePath: String? = null,
+) {
+    val findings: List<CoreFinding>
+        get() = analysis?.findings.orEmpty()
+
+    /** Sources that actually contain text, in display order. */
+    val availableTabs: List<DiagTab>
+        get() {
+            val texts = logs?.texts ?: return listOf(DiagTab.LOG)
+            val available = DiagTab.entries.filter { tab ->
+                when (tab) {
+                    DiagTab.LOG -> !texts.log.isNullOrBlank()
+                    DiagTab.CRASH -> !texts.crash.isNullOrBlank()
+                    DiagTab.SESSION -> !texts.stdout.isNullOrBlank()
+                    DiagTab.JVM -> !texts.hsErr.isNullOrBlank()
+                }
+            }
+            return available.ifEmpty { listOf(DiagTab.LOG) }
+        }
+
+    fun textFor(tab: DiagTab): String {
+        val texts = logs?.texts ?: return ""
+        return when (tab) {
+            DiagTab.LOG -> texts.log
+            DiagTab.CRASH -> texts.crash
+            DiagTab.SESSION -> texts.stdout
+            DiagTab.JVM -> texts.hsErr
+        }.orEmpty()
+    }
+
+    /** The selected tab may disappear after a refresh; fall back to the first. */
+    val activeTab: DiagTab
+        get() = if (tab in availableTabs) tab else availableTabs.first()
+}
+
+/** Modpack import/export state (M9). */
+data class ModpackUiState(
+    val inspecting: Boolean = false,
+    /** Non-null while the confirmation sheet is open. */
+    val pack: CoreModpack? = null,
+    val name: String = "",
+    val isImporting: Boolean = false,
+    val error: String? = null,
+    val taskId: String? = null,
+    val importedInstanceId: String? = null,
+    val exportResult: CoreModpackExport? = null,
+    /** True while a file is dragged over the desktop window. */
+    val dragActive: Boolean = false,
+) {
+    val canImport: Boolean
+        get() = pack != null && name.isNotBlank() && !isImporting
+}
+
+/** Downloads page content browser state (M8). */
+data class ContentBrowserUiState(
+    val source: ContentSourceOption = ContentSourceOption.MODRINTH,
+    val targetInstanceId: String = "",
+    /** Selected world for data packs; blank for the other categories. */
+    val targetWorld: String = "",
+    val worlds: List<CoreWorld> = emptyList(),
+    val isLoadingWorlds: Boolean = false,
+    val projects: List<CoreContentProject> = emptyList(),
+    val total: Long = 0,
+    val isLoading: Boolean = false,
+    val error: String? = null,
+    val selectedProject: CoreContentProject? = null,
+    val versions: List<CoreContentVersion> = emptyList(),
+    val isLoadingVersions: Boolean = false,
+    val versionsError: String? = null,
+    val selectedVersionId: String? = null,
+    val isInstalling: Boolean = false,
+    val installTaskId: String? = null,
+) {
+    val selectedVersion: CoreContentVersion?
+        get() = versions.firstOrNull { it.versionId == selectedVersionId } ?: versions.firstOrNull()
+
+    val canInstall: Boolean
+        get() = selectedProject != null &&
+            selectedVersion != null &&
+            !isInstalling
+}
+
 /** Everything the Compose shell renders. */
 data class AppUiState(
     val settings: CoreSettings,
@@ -186,6 +395,8 @@ data class AppUiState(
     val settingsStage: SettingsStage = SettingsStage.MAIN,
     val instances: List<Instance> = emptyList(),
     val downloads: List<DownloadRow> = emptyList(),
+    /** Full-window queue page opened from Home or the downloads card. */
+    val downloadQueueOpen: Boolean = false,
     val appSnapshot: CoreAppSnapshot? = null,
     val gameConfig: CoreGameConfig? = null,
     val currentInstanceId: String = "",
@@ -207,10 +418,18 @@ data class AppUiState(
     val download: DownloadUiState = DownloadUiState(),
     val java: JavaUiState = JavaUiState(),
     val account: AccountUiState = AccountUiState(),
-    /** Non-null when the instance settings sheet is open. */
-    val instanceSettingsId: String? = null,
-    /** Instance shown by the library preview sheet. */
-    val previewInstanceId: String? = null,
+    val content: ContentManagerUiState = ContentManagerUiState(),
+    val contentBrowser: ContentBrowserUiState = ContentBrowserUiState(),
+    val diag: DiagUiState = DiagUiState(),
+    val modpack: ModpackUiState = ModpackUiState(),
+    /** Library sub-page shown by [com.fograin.launcher.ui.library.LibraryScreen]. */
+    val libraryStage: LibraryStage = LibraryStage.LIST,
+    /**
+     * Instance backing the detail/settings page. It survives the exit
+     * animation after [libraryStage] returns to [LibraryStage.LIST]; the next
+     * open overwrites it and deletion clears it.
+     */
+    val libraryDetailId: String? = null,
     val deviceMemoryBytes: Long = 0,
     val deviceText: String = "",
     val socText: String = "",
@@ -218,11 +437,8 @@ data class AppUiState(
     val currentInstance: Instance?
         get() = instances.firstOrNull { it.id == currentInstanceId } ?: instances.firstOrNull()
 
-    val previewInstance: Instance?
-        get() = previewInstanceId?.let { id -> instances.firstOrNull { it.id == id } }
-
-    val instanceSettings: Instance?
-        get() = instanceSettingsId?.let { id -> instances.firstOrNull { it.id == id } }
+    val libraryDetailInstance: Instance?
+        get() = libraryDetailId?.let { id -> instances.firstOrNull { it.id == id } }
 
     /** Tasks still working; finished rows stay for history. */
     val activeDownloads: List<DownloadRow>

@@ -105,6 +105,10 @@ data class CoreErrorPayload(
             "error.task.cancelled" -> "任务已取消。"
             "error.task.failed" -> "任务执行失败，请查看详情。"
             "error.task.not_found" -> "找不到这个任务。"
+            "error.task.finished" -> "这个任务已经结束，无法暂停。"
+            "error.task.not_paused" -> "只有已暂停的任务可以继续下载。"
+            "error.task.resume", "error.task.resume_unsupported" ->
+                "这个任务无法继续，请重新开始下载。"
             "error.task.already_running" -> "已有下载任务在进行，请等待完成或取消。"
             "error.network" -> "网络请求失败，请检查网络或代理设置。"
             "error.install.failed" -> "安装没有完成，请重试。"
@@ -156,6 +160,57 @@ data class CoreErrorPayload(
             "error.auth.accounts_write", "error.auth.accounts_serialize",
             "error.auth.credentials_write", "error.auth.accounts_schema" ->
                 "账户数据无法读取或保存，请检查数据目录权限。"
+            "error.content.kind" -> "不支持的内容类型。"
+            "error.content.source" -> "不支持的内容来源。"
+            "error.content.project_id", "error.content.version_id" ->
+                "项目或版本标识不正确。"
+            "error.content.request", "error.content.response" ->
+                "内容服务器返回了无法识别的响应，请稍后重试或切换镜像。"
+            "error.content.version_missing" -> "这个项目没有适配当前实例的版本。"
+            "error.content.version_mismatch", "error.content.version_incompatible" ->
+                "这个版本与实例的 Minecraft 版本或加载器不兼容。"
+            "error.content.no_files", "error.content.download_disabled" ->
+                "这个版本没有可下载文件。"
+            "error.content.loader_required" ->
+                "模组需要 Fabric、Quilt、Forge 或 NeoForge 实例；请先安装加载器。"
+            "error.content.file", "error.content.file_missing", "error.content.file_conflict" ->
+                "内容文件不存在或名称冲突。"
+            "error.content.delete" -> "删除内容文件失败，请检查文件权限。"
+            "error.content.index_read", "error.content.index_parse",
+            "error.content.index_write", "error.content.index_serialize",
+            "error.content.index_schema" ->
+                "内容索引无法读取或保存，请检查实例目录权限。"
+            "error.content.update" -> "检查内容更新失败，请稍后重试。"
+            "error.content.no_candidates" -> "没有可用的下载源。"
+            "error.world.name", "error.world.not_a_world" -> "世界名称或目录不正确。"
+            "error.world.missing" -> "找不到这个世界。"
+            "error.world.delete", "error.world.restore" -> "世界操作失败，请检查文件权限。"
+            "error.world.exists" -> "同名世界已经存在，请换一个名称。"
+            "error.diag.read", "error.diag.missing" -> "无法读取这日志文件，可能已被删除或没有权限。"
+            "error.diag.export" -> "诊断包写入失败，请检查数据目录的磁盘空间与权限。"
+            "error.diag.rule_id", "error.diag.rule_pattern", "error.diag.rules_parse" ->
+                "诊断规则文件格式不正确，请检查 diag/rules 下的 TOML。"
+            "error.datapack.read", "error.datapack.write", "error.datapack.delete" ->
+                "数据包文件无法读取或写入，请检查世界目录权限。"
+            "error.datapack.name", "error.datapack.missing", "error.datapack.source" ->
+                "数据包名称或文件不正确。"
+            "error.datapack.exists" -> "同名数据包已经存在。"
+            "error.modpack.missing" -> "找不到这个整合包文件。"
+            "error.modpack.read", "error.modpack.manifest" ->
+                "整合包清单无法读取，请确认文件没有损坏。"
+            "error.modpack.format" -> "无法识别这个整合包格式，支持 .mrpack、CurseForge/HMCL zip 与 MultiMC 实例目录。"
+            "error.modpack.minecraft" -> "整合包没有声明 Minecraft 版本。"
+            "error.modpack.file" -> "整合包里有一个文件缺少下载来源。"
+            "error.modpack.directory" -> "这个目录不是 MultiMC/Prism 实例（缺少 mmc-pack.json 与游戏目录）。"
+            "error.modpack.overrides", "error.modpack.record", "error.modpack.export" ->
+                "整合包文件写入失败，请检查数据目录的磁盘空间与权限。"
+            "error.modpack.import" -> "整合包导入没有完成，请检查网络后重试。"
+            "error.world.backup", "error.world.backup_read", "error.world.backup_write",
+            "error.world.backup_parse", "error.world.backup_missing",
+            "error.world.backup_name", "error.world.backup_delete",
+            "error.world.backup_entries", "error.world.backup_entry",
+            "error.world.backup_too_large" ->
+                "世界备份不可用或无法写入，请检查备份目录。"
             "error.core.unavailable" -> "无法连接启动器核心。请确认应用已正确安装原生库。"
             "error.data_root.already_set", "error.data_root.service_started" ->
                 "启动器核心已经启动，无法再切换数据目录。请重启应用。"
@@ -369,6 +424,405 @@ data class CoreYggdrasilLoginResult(
     val pendingId: String? = null,
     val serverName: String = "",
     val profiles: List<CoreYggdrasilProfile> = emptyList(),
+)
+
+// ---------------------------------------------------------------------------
+// Content and worlds (M8)
+// ---------------------------------------------------------------------------
+
+/** One installed mod/resource pack/shader pack from `content.local`. */
+@Serializable
+data class CoreLocalContent(
+    val kind: String = "mod",
+    val fileName: String,
+    val displayName: String = fileName,
+    val enabled: Boolean = true,
+    val path: String = "",
+    val sizeBytes: Long = 0,
+    val modifiedMs: Long? = null,
+    val title: String = displayName,
+    val version: String? = null,
+    val loader: String? = null,
+    val description: String? = null,
+    val packFormat: Int? = null,
+    val source: String? = null,
+    val projectId: String? = null,
+    val projectName: String? = null,
+    val versionId: String? = null,
+)
+
+/** Per-kind counts included in `content.local`. */
+@Serializable
+data class CoreContentCounts(
+    val mod: Int = 0,
+    val resourcepack: Int = 0,
+    val shaderpack: Int = 0,
+    val enabled: Int = 0,
+)
+
+/** `content.local` envelope. */
+@Serializable
+data class CoreContentLocal(
+    val items: List<CoreLocalContent> = emptyList(),
+    val counts: CoreContentCounts = CoreContentCounts(),
+    val indexPath: String = "",
+)
+
+/** One search hit from Modrinth or CurseForge. */
+@Serializable
+data class CoreContentProject(
+    val source: String = "modrinth",
+    val projectId: String,
+    val slug: String = "",
+    val title: String = projectId,
+    val description: String = "",
+    val downloads: Long = 0,
+    val follows: Long = 0,
+    val iconUrl: String? = null,
+    val categories: List<String> = emptyList(),
+    val updated: String? = null,
+)
+
+/** `content.search` envelope. */
+@Serializable
+data class CoreContentSearchPage(
+    val source: String = "modrinth",
+    val projects: List<CoreContentProject> = emptyList(),
+    val total: Long = 0,
+    val offset: Int = 0,
+    val limit: Int = 20,
+)
+
+/** Download file of a content version. */
+@Serializable
+data class CoreContentFile(
+    val fileName: String = "",
+    val url: String = "",
+    val size: Long = 0,
+    val sha1: String? = null,
+    val sha512: String? = null,
+)
+
+/** Required/optional dependency of a content version. */
+@Serializable
+data class CoreContentDependency(
+    val projectId: String? = null,
+    val versionId: String? = null,
+    val kind: String = "optional",
+    val name: String? = null,
+)
+
+/** One version of a content project. */
+@Serializable
+data class CoreContentVersion(
+    val source: String = "modrinth",
+    val projectId: String = "",
+    val versionId: String,
+    val name: String = versionId,
+    val versionNumber: String = name,
+    val gameVersions: List<String> = emptyList(),
+    val loaders: List<String> = emptyList(),
+    val downloads: Long = 0,
+    val versionType: String = "release",
+    val published: String? = null,
+    val file: CoreContentFile? = null,
+    val dependencies: List<CoreContentDependency> = emptyList(),
+)
+
+/** `content.versions` envelope. */
+@Serializable
+data class CoreContentVersions(
+    val source: String = "modrinth",
+    val project: CoreContentProject? = null,
+    val versions: List<CoreContentVersion> = emptyList(),
+)
+
+/** One file selected by `content.install`. */
+@Serializable
+data class CoreContentInstallItem(
+    val fileName: String = "",
+    val projectId: String = "",
+    val projectName: String = "",
+    val versionId: String = "",
+    val versionNumber: String = "",
+    val dependency: Boolean = false,
+    val size: Long = 0,
+)
+
+/** `content.install` result; the download itself is a task. */
+@Serializable
+data class CoreContentInstall(
+    val taskId: String? = null,
+    val source: String = "modrinth",
+    val projectId: String = "",
+    val projectName: String = "",
+    val versionId: String = "",
+    val versionNumber: String = "",
+    val kind: String = "mod",
+    val files: Int = 0,
+    val totalBytes: Long = 0,
+    val warnings: List<String> = emptyList(),
+    val items: List<CoreContentInstallItem> = emptyList(),
+)
+
+/** One available content update. */
+@Serializable
+data class CoreContentUpdate(
+    val kind: String = "mod",
+    val fileName: String,
+    val displayName: String = fileName,
+    val source: String = "modrinth",
+    val projectId: String = "",
+    val projectName: String = displayName,
+    val currentVersion: String = "",
+    val latestVersion: String = "",
+    val latestVersionId: String = "",
+    val latestFileName: String? = null,
+    val latestSize: Long = 0,
+)
+
+/** `content.updates` envelope. */
+@Serializable
+data class CoreContentUpdates(
+    val checked: Int = 0,
+    val updates: List<CoreContentUpdate> = emptyList(),
+    val unknown: Int = 0,
+    val warnings: List<String> = emptyList(),
+)
+
+/** One world folder from `worlds.list`. */
+@Serializable
+data class CoreWorld(
+    val name: String,
+    val path: String = "",
+    val sizeBytes: Long = 0,
+    val modifiedMs: Long? = null,
+    val hasIcon: Boolean = false,
+    /** `level.dat` display name; [name] stays the folder key. */
+    val levelName: String? = null,
+    val gameMode: String? = null,
+    val version: String? = null,
+    val lastPlayedMs: Long? = null,
+    val seed: Long? = null,
+)
+
+/** One world backup. */
+@Serializable
+data class CoreWorldBackup(
+    val name: String,
+    val path: String = "",
+    val sizeBytes: Long = 0,
+    val modifiedMs: Long? = null,
+)
+
+/** `worlds.list` envelope. */
+@Serializable
+data class CoreWorlds(
+    val worlds: List<CoreWorld> = emptyList(),
+    val backups: List<CoreWorldBackup> = emptyList(),
+)
+
+/** `worlds.backups` envelope. */
+@Serializable
+data class CoreWorldBackups(
+    val backups: List<CoreWorldBackup> = emptyList(),
+)
+
+/** `worlds.backup` / `worlds.restore` / `worlds.delete` envelope. */
+@Serializable
+data class CoreWorldsChanged(
+    val ok: Boolean = true,
+    val backup: CoreWorldBackup? = null,
+    val backups: List<CoreWorldBackup> = emptyList(),
+    val worlds: List<CoreWorld> = emptyList(),
+    val path: String = "",
+)
+
+// ---------------------------------------------------------------------------
+// Diagnostics (M9)
+// ---------------------------------------------------------------------------
+
+/** Header of the newest crash report. */
+@Serializable
+data class CoreCrashSummary(
+    val description: String = "",
+    val minecraft: String = "",
+    val java: String = "",
+    val file: String = "",
+    val modifiedMs: Long? = null,
+)
+
+/** One diagnostic source row. */
+@Serializable
+data class CoreDiagSource(
+    val kind: String = "log",
+    val name: String = "",
+    val path: String = "",
+    val exists: Boolean = false,
+    val sizeBytes: Long = 0,
+    val modifiedMs: Long? = null,
+    val lines: Int = 0,
+)
+
+/** Raw log text by source kind (`stdout` / `log` / `crash` / `hsErr`). */
+@Serializable
+data class CoreDiagTexts(
+    val stdout: String? = null,
+    val log: String? = null,
+    val crash: String? = null,
+    val hsErr: String? = null,
+)
+
+/** `diag.logs` envelope. */
+@Serializable
+data class CoreDiagLogs(
+    val sources: List<CoreDiagSource> = emptyList(),
+    val crash: CoreCrashSummary? = null,
+    val texts: CoreDiagTexts = CoreDiagTexts(),
+    val rules: Int = 0,
+)
+
+/** One matched analysis rule. */
+@Serializable
+data class CoreFinding(
+    val id: String,
+    val severity: String = "warning",
+    val confidence: Float = 0f,
+    val title: String = id,
+    val body: String = "",
+    val excerpt: String = "",
+    val line: Int = 0,
+    val source: String = "",
+    val sourceKind: String = "log",
+    /** `installJava`, `openJavaSettings`, `openContent`, `disableMod`, … */
+    val fix: String = "none",
+)
+
+/** `diag.analyze` envelope. */
+@Serializable
+data class CoreDiagnostics(
+    val findings: List<CoreFinding> = emptyList(),
+    val severity: String? = null,
+    val summary: String = "",
+    val scannedLines: Int = 0,
+    val rules: Int = 0,
+    val sources: List<CoreDiagSource> = emptyList(),
+    val crash: CoreCrashSummary? = null,
+    val analyzedAtMs: Long = 0,
+)
+
+/** Written diagnostic bundle. */
+@Serializable
+data class CoreDiagBundle(
+    val path: String = "",
+    val sizeBytes: Long = 0,
+    val files: List<String> = emptyList(),
+)
+
+/** `diag.export` envelope: the bundle plus the analysis it contains. */
+@Serializable
+data class CoreDiagExport(
+    val bundle: CoreDiagBundle = CoreDiagBundle(),
+    val analysis: CoreDiagnostics = CoreDiagnostics(),
+)
+
+// ---------------------------------------------------------------------------
+// Data packs (M9)
+// ---------------------------------------------------------------------------
+
+/** One data pack inside a world. */
+@Serializable
+data class CoreDatapack(
+    val fileName: String,
+    val title: String = fileName,
+    val enabled: Boolean = true,
+    val sizeBytes: Long = 0,
+    val modifiedMs: Long? = null,
+    val packFormat: Int? = null,
+    val description: String? = null,
+)
+
+/** `datapacks.*` envelope. */
+@Serializable
+data class CoreDatapacks(
+    val items: List<CoreDatapack> = emptyList(),
+    val count: Int = items.size,
+)
+
+/** `datapacks.import` and `datapacks.toggle` add the new file name. */
+@Serializable
+data class CoreDatapackChange(
+    val fileName: String? = null,
+    val items: List<CoreDatapack> = emptyList(),
+)
+
+// ---------------------------------------------------------------------------
+// Modpacks (M9)
+// ---------------------------------------------------------------------------
+
+/** One file managed by a modpack. */
+@Serializable
+data class CorePackFile(
+    val path: String,
+    val size: Long = 0,
+    val sha1: String? = null,
+    val sha512: String? = null,
+    val url: String? = null,
+    val projectId: String? = null,
+    val fileId: Long? = null,
+)
+
+/** `modpack.inspect` result. */
+@Serializable
+data class CoreModpack(
+    /** `modrinth`, `curseForge`, `hmcl` or `multiMc`. */
+    val kind: String = "modrinth",
+    val name: String,
+    val version: String = "",
+    val minecraft: String = "",
+    val loaderKind: String = "vanilla",
+    val loaderVersion: String = "",
+    val summary: String? = null,
+    val author: String? = null,
+    val files: List<CorePackFile> = emptyList(),
+    val overrides: String? = null,
+    val sourcePath: String = "",
+    val gameDir: String? = null,
+    val external: Boolean = false,
+    val skipped: Int = 0,
+) {
+    val fileCount: Int
+        get() = files.size
+
+    val totalBytes: Long
+        get() = files.sumOf { it.size }
+}
+
+/** `modpack.import` result; the actual work is a task. */
+@Serializable
+data class CoreModpackImport(
+    val instanceId: String,
+    val taskId: String? = null,
+    val external: Boolean = false,
+    val pack: CoreModpack? = null,
+)
+
+/** `modpack.install` result: the archive download task. */
+@Serializable
+data class CoreModpackInstallTask(
+    val taskId: String? = null,
+    val name: String = "",
+    val versionId: String = "",
+    val versionNumber: String = "",
+    val source: String = "modrinth",
+)
+
+/** `modpack.export` result. */
+@Serializable
+data class CoreModpackExport(
+    val path: String = "",
+    val sizeBytes: Long = 0,
+    val files: Int = 0,
 )
 
 // ---------------------------------------------------------------------------

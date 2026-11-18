@@ -38,7 +38,7 @@ owns the boundary between them.
   `game.line`, `game.exited`) as a JSON array.
 - `fg_string_free(value)` — releases strings returned by the core.
 
-### RPC methods implemented (M4/M5/M6/M7)
+### RPC methods implemented (M4–M9)
 
 | Method | Params → Result |
 | --- | --- |
@@ -56,7 +56,9 @@ owns the boundary between them.
 | `versions.news` | `{limit, refresh}` → latest releases |
 | `version.plan` | `{version, loaderKind?, loaderVersion?}` → files/totalBytes/javaMajor preview, plus `loaderKind` / `loaderVersion` |
 | `install.start` | `{version, instanceId?, instanceName?, loaderKind?, loaderVersion?}` → `{taskId, versionId}`; creates the instance when missing or reuses an existing one with the same Minecraft version (so 开始游戏 can complete an incomplete instance); pushes `task.*` events. Forge/NeoForge/OptiFine require a discovered Java runtime before the task is queued |
-| `tasks.list` / `tasks.cancel` | `{}` / `{taskId}` |
+| `tasks.list` | `{}` → `[{id, name, state, fraction, speed}]`; states are `running`, `paused`, `succeeded`, `failed`, `cancelled` |
+| `tasks.pause` / `tasks.cancel` | `{taskId}` → `{taskId, state}`; pause keeps completed bytes, cancel stops the graph |
+| `tasks.resume` | `{taskId}` → `{taskId, oldTaskId}`; replays the original RPC and reuses the download cache |
 | `launch.start` | `{instanceId, accountId?}` → `{pid}`; uses the selected account by default (the legacy `username` override still forces a one-shot offline session); needs installed files + matching Java |
 | `launch.status` / `session.wait` / `session.stop` | session polling and stop |
 | `game.log.recent` | `{instanceId, limit}` → last buffered log lines |
@@ -74,6 +76,38 @@ owns the boundary between them.
 | `accounts.yggdrasil.discover` | `{server}` → `{server, serverName, implementationName?, implementationVersion?}` |
 | `accounts.yggdrasil.login` | `{server, username, password}` → `{account, selectedId}` or `{selectionRequired:true, pendingId, server, serverName, profiles:[{id,name}]}` |
 | `accounts.yggdrasil.selectProfile` | `{pendingId, profileId}` → `{account, selectedId}`; pending logins expire after 10 minutes |
+| `content.local` | `{instanceId}` → `{items:[LocalContent], counts:{mod,resourcepack,shaderpack,enabled}, indexPath}` |
+| `content.toggle` | `{instanceId, kind, fileName, enabled}` → `{ok, fileName}`; renames to/from `.disabled` |
+| `content.delete` | `{instanceId, kind, fileName}` → `{ok}`; also removes the content index entry |
+| `content.search` | `{source?, kind, query, instanceId?, gameVersion?, loader?, offset?, limit?}` → `{source, projects, total, offset, limit}`; `source` is `modrinth` (default) or `curseforge` |
+| `content.versions` | `{source?, projectId, kind, instanceId?, gameVersion?, loader?}` → `{source, project, versions}` |
+| `content.install` | `{source?, projectId, versionId?, instanceId, kind, world?, replaceFiles?}` → `{taskId, projectName, versionId, files, totalBytes, items, warnings}`; queues a `content:<project>` task and resolves required dependencies. `kind` may be `datapack`, which requires `world` |
+| `content.updates` | `{instanceId, kind?}` → `{checked, updates, unknown, warnings}`; indexed projects plus Modrinth SHA-1 lookups |
+| `worlds.list` | `{instanceId}` → `{worlds:[World], backups:[Backup]}` |
+| `worlds.backups` | `{instanceId}` → `{backups:[Backup]}` |
+| `worlds.backup` | `{instanceId, name}` → `{ok, backup, backups}` |
+| `worlds.restore` | `{instanceId, backup, name}` → `{ok, path, worlds, backups}`; restores into a new world folder |
+| `worlds.delete` | `{instanceId, name}` → `{ok, worlds}` |
+| `worlds.backup.delete` | `{instanceId, backup}` → `{ok, backups}` |
+| `diag.logs` | `{instanceId}` → `{sources:[{kind,name,path,exists,sizeBytes,modifiedMs?,lines}], crash?, texts:{stdout?,log?,crash?,hsErr?}, rules}` |
+| `diag.analyze` | `{instanceId}` → `{findings:[{id,severity,confidence,title,body,excerpt,line,source,sourceKind,fix}], severity?, summary, scannedLines, rules, sources, crash?, analyzedAtMs}` |
+| `diag.export` | `{instanceId}` → `{bundle:{path,sizeBytes,files}, analysis}`; writes a redacted zip under `<root>/diagnostics/` |
+| `datapacks.list` | `{instanceId, world}` → `{items:[DataPack], count}` |
+| `datapacks.toggle` | `{instanceId, world, fileName, enabled}` → `{items, fileName}`; renames to/from `.disabled` |
+| `datapacks.delete` | `{instanceId, world, fileName}` → `{items}` |
+| `datapacks.import` | `{instanceId, world, path}` → `{items, fileName}`; copies a local `.zip` into the world |
+| `modpack.inspect` | `{path}` → `{kind,name,version,minecraft,loaderKind,loaderVersion,summary?,author?,files,overrides?,sourcePath,gameDir?,external,skipped}`; detects `.mrpack`, CurseForge/HMCL zip and MultiMC/Prism folders |
+| `modpack.install` | `{source?, projectId, versionId, name?}` → `{taskId, name, versionId, versionNumber, source}`; downloads the pack archive as a task and imports it on completion |
+| `modpack.import` | `{path, name?}` → `{instanceId, taskId?, external, pack}`; zip packs queue `install.start` first, then a `整合包:<name>` graph; external folders are registered in place |
+| `modpack.export` | `{instanceId}` → `{path, sizeBytes, files}`; writes `<root>/exports/<instance>-<timestamp>.mrpack` |
+
+`LocalContent` is `{kind, fileName, displayName, enabled, path, sizeBytes, modifiedMs?,
+title, version?, loader?, description?, packFormat?, source?, projectId?, projectName?,
+versionId?}`. Content kinds are `mod`, `resourcepack` and `shaderpack`; schematics are not
+part of the M8 contract. `World` is `{name, path, sizeBytes, modifiedMs?, hasIcon,
+levelName?, gameMode?, version?, lastPlayedMs?, seed?}` and `Backup` is
+`{name, path, sizeBytes, modifiedMs?}`. `DataPack` is `{fileName, title, enabled,
+sizeBytes, modifiedMs?, packFormat?, description?}`.
 
 `AccountRow` is `{id, kind, name, uuid, server?, serverName?, selected}`; tokens and
 passwords never cross the RPC boundary. Offline accounts use UUID v3; Yggdrasil
@@ -93,6 +127,18 @@ installed at all, `install.start` / `launch.start` download the matching Mojang
 runtime first and wait for the queued `java:<major>` task, so the UI sees normal
 `task.progress` / `task.finished` events. The catalog, platform fallback table
 and validation rules are documented in [../docs/m6.md](../docs/m6.md).
+
+The content and world contract is documented in [../docs/m8.md](../docs/m8.md).
+Paths use `content.json` under the instance directory; world backups live under
+`backups/<instance-id>/`. Content installation is a normal task graph, so progress
+arrives through `task.progress` / `task.finished`.
+
+The M9 contract is documented in [../docs/m9.md](../docs/m9.md). Content kinds are
+`mod`, `modpack`, `resourcepack`, `shaderpack` and `datapack`; data packs need
+`content.install.world` and are written to `saves/<world>/datapacks/`. Imported packs
+record `instances/<id>/modpack.json`; `modpack.install` downloads a remote archive
+before running the same import path. Diagnostic bundles are written to
+`<data root>/diagnostics/` and rule overrides are read from `<data root>/diag/rules/`.
 
 Errors always keep the shape `{kind, messageKey, detail}` and camelCase keys
 throughout.

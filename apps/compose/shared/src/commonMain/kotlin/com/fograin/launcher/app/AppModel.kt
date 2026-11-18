@@ -10,6 +10,9 @@ import com.fograin.launcher.model.LibraryScope
 import com.fograin.launcher.model.LibrarySort
 import com.fograin.launcher.platform.CoreAppSnapshot
 import com.fograin.launcher.platform.CoreClient
+import com.fograin.launcher.platform.CoreContentProject
+import com.fograin.launcher.platform.CoreContentUpdate
+import com.fograin.launcher.platform.CoreLocalContent
 import com.fograin.launcher.platform.CoreEvent
 import com.fograin.launcher.platform.CoreException
 import com.fograin.launcher.platform.CoreGameConfig
@@ -19,6 +22,7 @@ import com.fograin.launcher.platform.CoreJavaList
 import com.fograin.launcher.platform.CoreJavaRuntime
 import com.fograin.launcher.platform.CoreLoaderVersion
 import com.fograin.launcher.platform.CoreTaskRow
+import com.fograin.launcher.platform.CoreWorldBackup
 import com.fograin.launcher.platform.DirectoryPick
 import com.fograin.launcher.platform.PlatformServices
 import com.fograin.launcher.platform.decode
@@ -83,6 +87,9 @@ class AppModel internal constructor(
     internal val instanceSettings = InstanceSettingsActions(this)
     internal val java = JavaActions(this)
     internal val account = AccountActions(this)
+    internal val content = ContentActions(this)
+    internal val diag = DiagActions(this)
+    internal val modpack = ModpackActions(this)
 
     private val refreshMutex = Mutex()
 
@@ -199,10 +206,12 @@ class AppModel internal constructor(
                     }
                 }
 
-            refreshDownloadsFromTasks()
+            refreshTaskList()
             _state.update { it.copy(isInitialLoading = false) }
         }
     }
+
+    internal suspend fun refreshTaskList() = refreshDownloadsFromTasks()
 
     private suspend fun refreshDownloadsFromTasks() {
         try {
@@ -307,33 +316,41 @@ class AppModel internal constructor(
         _state.update {
             it.copy(
                 destination = destination,
-                // Entering Settings from the rail/menu always lands on the
-                // main page; the Java management page has its own entry point.
-                settingsStage = if (destination == AppDestination.SETTINGS) {
-                    SettingsStage.MAIN
+                // Entering Settings always lands on the main page; leaving a
+                // Java sub-page also resets it so back cannot dismiss an
+                // invisible page later.
+                settingsStage = SettingsStage.MAIN,
+                // Library sub-pages are not tabs of their own: leaving the
+                // destination returns the next visit to the instance list.
+                libraryStage = if (destination == AppDestination.LIBRARY) {
+                    it.libraryStage
                 } else {
-                    it.settingsStage
+                    LibraryStage.LIST
                 },
             )
         }
     }
 
     /**
-     * True when [back] would change something: a dialog or sheet is open, or
-     * the shell is not on the home destination. Drives Android's back gesture
-     * and the desktop Escape key through the same [com.fograin.launcher.platform.BackDispatcher].
+     * True when [back] would change something: a dialog or sheet is open, an
+     * in-destination sub-page is showing, or the shell is not on the home
+     * destination. Drives Android's back gesture and the desktop Escape key
+     * through the same [com.fograin.launcher.platform.BackDispatcher].
      */
     fun canGoBack(): Boolean {
         val current = state.value
         val installSubPage = current.destination == AppDestination.DOWNLOADS &&
             current.download.stage != DownloadStage.BROWSER
+        val librarySubPage = current.destination == AppDestination.LIBRARY &&
+            current.libraryStage != LibraryStage.LIST
         return current.alert != null ||
             current.account.open ||
+            current.downloadQueueOpen ||
+            current.contentBrowser.selectedProject != null ||
             current.globalSearchOpen ||
-            current.previewInstanceId != null ||
-            current.instanceSettingsId != null ||
             current.settingsStage != SettingsStage.MAIN ||
             installSubPage ||
+            librarySubPage ||
             current.destination != AppDestination.HOME
     }
 
@@ -343,9 +360,18 @@ class AppModel internal constructor(
         when {
             current.alert != null -> dismissAlert()
             current.account.open -> account.back()
+            current.downloadQueueOpen -> closeDownloadQueue()
+            current.contentBrowser.selectedProject != null -> closeContentProject()
             current.globalSearchOpen -> closeGlobalSearch()
-            current.previewInstanceId != null -> closePreview()
-            current.instanceSettingsId != null -> closeInstanceSettings()
+            current.destination == AppDestination.LIBRARY &&
+                current.libraryStage == LibraryStage.DIAGNOSTICS -> closeDiagnostics()
+
+            current.destination == AppDestination.LIBRARY &&
+                current.libraryStage == LibraryStage.SETTINGS -> closeInstanceSettings()
+
+            current.destination == AppDestination.LIBRARY &&
+                current.libraryStage == LibraryStage.DETAIL -> closeInstanceDetail()
+
             current.settingsStage != SettingsStage.MAIN -> closeJavaSettings()
             current.destination == AppDestination.DOWNLOADS &&
                 current.download.stage == DownloadStage.LOADER_VERSIONS ->
@@ -362,37 +388,82 @@ class AppModel internal constructor(
         _state.update { it.copy(currentInstanceId = instance.id) }
     }
 
-    fun openInstance(instance: Instance) {
+    /** Opens the instance detail page; the library list row uses this. */
+    fun openInstance(instance: Instance) = openInstanceDetail(instance)
+
+    /**
+     * Enters the instance detail page and loads its local content. The tab is
+     * the content category shown below the instance summary.
+     */
+    fun openInstanceDetail(
+        instance: Instance,
+        tab: ContentManagerTab = ContentManagerTab.MODS,
+    ) {
         _state.update {
             it.copy(
                 currentInstanceId = instance.id,
                 librarySelection = instance.id,
+                libraryDetailId = instance.id,
+                libraryStage = LibraryStage.DETAIL,
                 destination = AppDestination.LIBRARY,
             )
         }
+        content.open(instance.id, tab)
     }
 
-    fun showPreview(instance: Instance) {
-        _state.update { it.copy(previewInstanceId = instance.id, librarySelection = instance.id) }
+    /** Back from the detail page; the id stays for the exit animation. */
+    fun closeInstanceDetail() {
+        content.setQuery("")
+        _state.update { it.copy(libraryStage = LibraryStage.LIST) }
     }
 
-    fun closePreview() {
-        _state.update { it.copy(previewInstanceId = null) }
-    }
-
+    /** Opens the per-instance settings page from the detail page or home. */
     fun manageInstance(instance: Instance) {
+        val current = state.value.content
+        val tab = if (current.instanceId == instance.id) current.tab else ContentManagerTab.MODS
         _state.update {
             it.copy(
                 currentInstanceId = instance.id,
                 librarySelection = instance.id,
-                previewInstanceId = null,
-                instanceSettingsId = instance.id,
+                libraryDetailId = instance.id,
+                libraryStage = LibraryStage.SETTINGS,
+                destination = AppDestination.LIBRARY,
+            )
+        }
+        // Load the content list in the background so returning to the detail
+        // page is instant even when the settings page was opened from Home.
+        if (current.instanceId != instance.id) {
+            content.open(instance.id, tab)
+        }
+    }
+
+    /** Back from settings to the detail page that owns the instance summary. */
+    fun closeInstanceSettings() {
+        _state.update {
+            it.copy(
+                libraryStage = if (it.libraryDetailId != null) {
+                    LibraryStage.DETAIL
+                } else {
+                    LibraryStage.LIST
+                },
             )
         }
     }
 
-    fun closeInstanceSettings() {
-        _state.update { it.copy(instanceSettingsId = null) }
+    /** Jump from a settings shortcut back to one of the detail content tabs. */
+    fun showInstanceContent(tab: ContentManagerTab) {
+        val instanceId = state.value.libraryDetailId ?: return
+        _state.update {
+            it.copy(
+                libraryStage = LibraryStage.DETAIL,
+                destination = AppDestination.LIBRARY,
+            )
+        }
+        if (state.value.content.instanceId != instanceId) {
+            content.open(instanceId, tab)
+        } else {
+            content.setTab(tab)
+        }
     }
 
     fun openGlobalSearch() {
@@ -412,6 +483,7 @@ class AppModel internal constructor(
         _state.update {
             it.copy(
                 destination = AppDestination.LIBRARY,
+                libraryStage = LibraryStage.LIST,
                 librarySearchRequest = it.librarySearchRequest + 1,
             )
         }
@@ -533,6 +605,16 @@ class AppModel internal constructor(
 
     fun isDownloading(instance: Instance): Boolean = downloads.isDownloading(instance)
 
+    fun openDownloadQueue() = downloads.openQueue()
+
+    fun closeDownloadQueue() = downloads.closeQueue()
+
+    fun pauseDownload(taskId: String) = downloads.pause(taskId)
+
+    fun resumeDownload(taskId: String) = downloads.resume(taskId)
+
+    fun cancelDownload(taskId: String) = downloads.cancel(taskId)
+
     fun startGame(instance: Instance) = session.start(instance)
 
     fun stopGame() = session.stop()
@@ -597,6 +679,143 @@ class AppModel internal constructor(
 
     suspend fun loadJavaRuntimes(): List<CoreJavaRuntime> = java.runtimes()
 
+    /**
+     * Opens the downloads content browser for this instance and matches the
+     * detail page tab (mods / resource packs / shaders). The instance detail
+     * page's empty state uses this so installing content never requires
+     * finding the instance again in the downloads target picker.
+     */
+    fun browseContentFor(tab: ContentManagerTab) {
+        val instance = state.value.libraryDetailInstance ?: return
+        val category = when (tab) {
+            ContentManagerTab.MODS -> DownloadsCategory.MOD
+            ContentManagerTab.RESOURCE_PACKS -> DownloadsCategory.RESOURCEPACK
+            ContentManagerTab.SHADER_PACKS -> DownloadsCategory.SHADERPACK
+            ContentManagerTab.WORLDS -> return
+            ContentManagerTab.DATAPACKS -> return
+        }
+        if (state.value.download.stage != DownloadStage.BROWSER) {
+            downloads.closeInstallPage()
+        }
+        _state.update {
+            it.copy(
+                destination = AppDestination.DOWNLOADS,
+                libraryStage = LibraryStage.LIST,
+                contentBrowser = it.contentBrowser.copy(targetInstanceId = instance.id),
+            )
+        }
+        if (state.value.download.category != category) {
+            downloads.setCategory(category)
+        } else {
+            content.openCategory(category)
+        }
+    }
+
+    fun setContentTab(tab: ContentManagerTab) = content.setTab(tab)
+
+    fun setContentQuery(query: String) = content.setQuery(query)
+
+    fun refreshContentManager() = content.refresh()
+
+    fun toggleContent(item: CoreLocalContent) = content.toggle(item)
+
+    fun deleteContent(item: CoreLocalContent) = content.delete(item)
+
+    fun checkContentUpdates() = content.checkUpdates()
+
+    fun installContentUpdate(update: CoreContentUpdate) = content.installUpdate(update)
+
+    fun backupWorld(worldName: String) = content.backupWorld(worldName)
+
+    fun deleteWorld(worldName: String) = content.deleteWorld(worldName)
+
+    fun restoreWorldBackup(backup: CoreWorldBackup, worldName: String) =
+        content.restoreBackup(backup, worldName)
+
+    fun deleteWorldBackup(backup: CoreWorldBackup) = content.deleteBackup(backup)
+
+    fun openContentCategory(category: DownloadsCategory) = content.openCategory(category)
+
+    fun setContentSource(source: ContentSourceOption) = content.setSource(source)
+
+    fun setContentTargetInstance(instanceId: String) = content.setTargetInstance(instanceId)
+
+    fun selectContentWorld(world: String) = content.selectWorld(world)
+
+    fun openContentProject(project: CoreContentProject) = content.openProject(project)
+
+    fun closeContentProject() = content.closeProject()
+
+    fun selectContentVersion(versionId: String) = content.selectVersion(versionId)
+
+    fun installSelectedContent() = content.installSelected()
+
+    // ------------------------------------------------------------------
+    // Servers, diagnostics and modpacks (M9)
+    // ------------------------------------------------------------------
+
+    /** Opens the instance's log and crash analysis page. */
+    fun openDiagnostics(instance: Instance) = diag.open(instance)
+
+    fun closeDiagnostics() {
+        _state.update {
+            it.copy(
+                libraryStage = if (it.libraryDetailId != null) {
+                    LibraryStage.SETTINGS
+                } else {
+                    LibraryStage.LIST
+                },
+            )
+        }
+    }
+
+    fun refreshDiagnostics() = diag.refresh()
+
+    fun selectDiagTab(tab: DiagTab) = diag.selectTab(tab)
+
+    fun exportDiagnostics() = diag.export()
+
+    fun applyDiagFix(finding: com.fograin.launcher.platform.CoreFinding) =
+        diag.applyFix(finding)
+
+    fun copyDiagBundlePath() = diag.copyBundlePath()
+
+    /** Crash analysis used by the session-exit alert; never throws. */
+    suspend fun diagnoseCrash(instanceId: String) = diag.prefillCrash(instanceId)
+
+    fun selectDatapackWorld(world: String) = content.selectDatapackWorld(world)
+
+    fun refreshDatapacks() = content.refreshDatapacks()
+
+    fun toggleDatapack(item: com.fograin.launcher.platform.CoreDatapack) =
+        content.toggleDatapack(item)
+
+    fun deleteDatapack(item: com.fograin.launcher.platform.CoreDatapack) =
+        content.deleteDatapack(item)
+
+    fun importDatapack(path: String) = content.importDatapack(path)
+
+    fun importDatapackFile() = content.importFromFile()
+
+    fun startModpackImport() = modpack.startImport()
+
+    /** Import a file or MultiMC directory, e.g. from a desktop drag-and-drop. */
+    fun importModpackPath(path: String) = modpack.importPath(path)
+
+    fun setModpackDragActive(active: Boolean) = modpack.setDragActive(active)
+
+    fun setModpackName(name: String) = modpack.setName(name)
+
+    fun dismissModpackImport() = modpack.dismiss()
+
+    fun confirmModpackImport() = modpack.confirmImport()
+
+    fun exportModpack(instance: Instance) = modpack.export(instance)
+
+    fun dismissModpackExport() = modpack.dismissExport()
+
+    fun copyModpackExportPath() = modpack.copyExportPath()
+
     // ------------------------------------------------------------------
     // Core event pump.
     // ------------------------------------------------------------------
@@ -619,6 +838,8 @@ class AppModel internal constructor(
             is CoreEvent.TaskFinished -> {
                 downloads.onTaskFinished(event)
                 java.onTaskFinished(event)
+                content.onTaskFinished(event.taskId)
+                modpack.onTaskFinished(event.taskId)
             }
 
             is CoreEvent.TaskProgress -> Unit

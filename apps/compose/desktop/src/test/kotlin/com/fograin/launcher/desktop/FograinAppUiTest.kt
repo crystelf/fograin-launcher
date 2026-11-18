@@ -4,13 +4,21 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import com.fograin.launcher.App
 import com.fograin.launcher.app.AppModel
+import com.fograin.launcher.app.ContentManagerTab
 import com.fograin.launcher.app.DownloadStage
+import com.fograin.launcher.app.LibraryStage
+import com.fograin.launcher.model.DownloadsCategory
 import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.ui.AppDestination
 import com.fograin.launcher.ui.GlobalSearchButtonTag
@@ -18,12 +26,42 @@ import com.fograin.launcher.ui.accounts.AccountAddOfflineTag
 import com.fograin.launcher.ui.accounts.AccountOfflineNameTag
 import com.fograin.launcher.ui.accounts.AccountSheetTag
 import com.fograin.launcher.ui.home.AccountAvatarTag
+import com.fograin.launcher.ui.home.HomeDownloadQueueTag
+import com.fograin.launcher.ui.home.HomeImportModpackTag
+import com.fograin.launcher.ui.home.HomeListTag
+import com.fograin.launcher.ui.home.HomeOverflowTag
+import com.fograin.launcher.ui.home.HomeTaskQueueTag
+import com.fograin.launcher.ui.home.homeDownloadPauseTag
+import com.fograin.launcher.ui.home.homeDownloadResumeTag
 import com.fograin.launcher.ui.NavBarTag
 import com.fograin.launcher.ui.NavRailTag
+import com.fograin.launcher.ui.content.ContentCheckUpdatesTag
+import com.fograin.launcher.ui.content.ContentInstallTag
+import com.fograin.launcher.ui.content.contentProjectTag
+import com.fograin.launcher.ui.content.contentTabTag
+import com.fograin.launcher.ui.downloads.ContentTargetTag
+import com.fograin.launcher.ui.downloads.DownloadQueueTag
+import com.fograin.launcher.ui.downloads.DownloadsQueueCardTag
+import com.fograin.launcher.ui.downloads.contentTargetOptionTag
+import com.fograin.launcher.ui.downloads.downloadQueuePauseTag
+import com.fograin.launcher.ui.downloads.downloadQueueResumeTag
+import com.fograin.launcher.ui.downloads.downloadQueueRowTag
+import com.fograin.launcher.ui.downloads.downloadQueueStopTag
 import com.fograin.launcher.ui.downloads.InstallDownloadTag
 import com.fograin.launcher.ui.downloads.downloadVersionTag
+import com.fograin.launcher.ui.downloads.downloadsCategoryTag
+import com.fograin.launcher.ui.instances.InstanceDetailTag
+import com.fograin.launcher.ui.diagnostics.DiagnosticsPageTag
+import com.fograin.launcher.ui.diagnostics.DiagnosticsExportTag
+import com.fograin.launcher.ui.instances.InstanceFavoriteTag
+import com.fograin.launcher.ui.instances.InstanceOverflowTag
+import com.fograin.launcher.ui.instances.InstanceQuickStartTag
+import com.fograin.launcher.ui.instances.InstanceSettingsPageTag
+import com.fograin.launcher.ui.library.libraryRowTag
 import com.fograin.launcher.ui.search.GlobalSearchFieldTag
 import com.fograin.launcher.ui.search.globalSearchCommandTag
+import com.fograin.launcher.ui.modpack.ModpackImportConfirmTag
+import com.fograin.launcher.ui.modpack.ModpackImportSheetTag
 import com.fograin.launcher.ui.settings.JavaScreenTag
 import com.fograin.launcher.ui.settings.SettingsJavaManageTag
 import com.fograin.launcher.ui.components.PageHeaderBackTag
@@ -81,6 +119,10 @@ class FograinAppUiTest {
         onNodeWithTag(GlobalSearchButtonTag).assertIsDisplayed()
         AppDestination.entries.forEach { onNodeWithTag(navItemTag(it)).assertIsDisplayed() }
 
+        // Home stays focused: the old runtime/news panels were removed.
+        onNodeWithText("运行环境").assertDoesNotExist()
+        onNodeWithText("版本动态").assertDoesNotExist()
+
         // The page title row sits at the window edge (not below a reserved
         // title-bar strip), while the rail search button is lowered to the
         // first content card.
@@ -110,6 +152,362 @@ class FograinAppUiTest {
         onNodeWithTag(NavRailTag).assertIsDisplayed()
         onAllNodesWithTag(NavBarTag).assertCountEquals(0)
     }
+
+
+
+    @Test
+    fun instanceSettingsOpensDiagnosticsAndExports() = runDesktopComposeUiTest(width = 1280, height = 900) {
+        val appModel = model()
+        appModel.navigate(AppDestination.LIBRARY)
+        setContent { App(appModel) }
+        waitForIdle()
+
+        onNodeWithTag(libraryRowTag("fog-forest")).performClick()
+        waitForIdle()
+        onNodeWithTag(InstanceOverflowTag).performClick()
+        waitForIdle()
+        onNodeWithText("游戏设置").performClick()
+        waitForIdle()
+
+        onNodeWithText("日志与诊断").performScrollTo().performClick()
+        waitForIdle()
+
+        assertEquals(LibraryStage.DIAGNOSTICS, appModel.state.value.libraryStage)
+        onNodeWithTag(DiagnosticsPageTag).assertIsDisplayed()
+        onNodeWithText("内存不足").assertIsDisplayed()
+
+        onNodeWithTag(DiagnosticsExportTag).performClick()
+        waitForIdle()
+        assertTrue(appModel.state.value.diag.bundlePath != null)
+
+        onNodeWithTag(PageHeaderBackTag).performClick()
+        waitForIdle()
+        assertEquals(LibraryStage.SETTINGS, appModel.state.value.libraryStage)
+    }
+
+    @Test
+    fun datapackTabLoadsTheSelectedWorld() = runDesktopComposeUiTest(width = 1280, height = 900) {
+        val appModel = model()
+        appModel.navigate(AppDestination.LIBRARY)
+        setContent { App(appModel) }
+        waitForIdle()
+
+        onNodeWithTag(libraryRowTag("fog-forest")).performClick()
+        waitForIdle()
+        onNodeWithTag(contentTabTag(ContentManagerTab.DATAPACKS)).performClick()
+        waitForIdle()
+
+        assertEquals(ContentManagerTab.DATAPACKS, appModel.state.value.content.tab)
+        assertTrue(appModel.state.value.content.datapacks.isNotEmpty())
+        onNodeWithText("Terralith 地形").assertIsDisplayed()
+    }
+
+    @Test
+    fun homeOverflowOffersTheModpackImport() = runDesktopComposeUiTest(width = 1280, height = 900) {
+        val appModel = model()
+        setContent { App(appModel) }
+        waitForIdle()
+
+        onNodeWithTag(HomeOverflowTag).performClick()
+        waitForIdle()
+        onNodeWithTag(HomeImportModpackTag).assertIsDisplayed()
+    }
+
+    @Test
+    fun downloadQueueOpensFromHomeMenuAndHidesNavigation() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val appModel = model()
+            setContent { App(appModel) }
+            waitForIdle()
+
+            onNodeWithTag(HomeOverflowTag).performClick()
+            waitForIdle()
+            onNodeWithTag(HomeDownloadQueueTag).performClick()
+            waitForIdle()
+
+            assertTrue(appModel.state.value.downloadQueueOpen)
+            onNodeWithTag(DownloadQueueTag).assertIsDisplayed()
+            onNodeWithTag(downloadQueueRowTag("task-1")).assertIsDisplayed()
+            onNodeWithTag(NavRailTag).assertDoesNotExist()
+
+            onNodeWithTag(PageHeaderBackTag).performClick()
+            waitForIdle()
+            assertEquals(false, appModel.state.value.downloadQueueOpen)
+            onNodeWithTag(NavRailTag).assertIsDisplayed()
+        }
+
+    @Test
+    fun downloadQueueControlsPauseResumeAndStop() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val appModel = model()
+            setContent { App(appModel) }
+            waitForIdle()
+
+            onNodeWithTag(HomeOverflowTag).performClick()
+            waitForIdle()
+            onNodeWithTag(HomeDownloadQueueTag).performClick()
+            waitForIdle()
+
+            onNodeWithTag(downloadQueuePauseTag("task-1")).performClick()
+            waitForIdle()
+            assertEquals(
+                "paused",
+                appModel.state.value.downloads.first { it.id == "task-1" }.state,
+            )
+            onNodeWithTag(downloadQueueResumeTag("task-1")).performClick()
+            waitForIdle()
+            assertEquals(
+                "running",
+                appModel.state.value.downloads.first { it.id == "task-1" }.state,
+            )
+            onNodeWithTag(downloadQueueStopTag("task-1")).performClick()
+            waitForIdle()
+            assertEquals(
+                "cancelled",
+                appModel.state.value.downloads.first { it.id == "task-1" }.state,
+            )
+            onNodeWithTag(downloadQueueRowTag("task-1")).assertDoesNotExist()
+        }
+
+    @Test
+    fun downloadsActiveCardOpensTheQueue() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val appModel = model()
+            appModel.navigate(AppDestination.DOWNLOADS)
+            setContent { App(appModel) }
+            waitForIdle()
+
+            onNodeWithTag(DownloadsQueueCardTag).performClick()
+            waitForIdle()
+            assertTrue(appModel.state.value.downloadQueueOpen)
+            onNodeWithTag(DownloadQueueTag).assertIsDisplayed()
+        }
+
+    @Test
+    fun homeQueueControlsWorkWithoutOpeningTheFullPage() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val appModel = model()
+            setContent { App(appModel) }
+            waitForIdle()
+
+            onNodeWithTag(HomeListTag)
+                .performScrollToNode(hasTestTag(HomeTaskQueueTag))
+            waitForIdle()
+            onNodeWithTag(homeDownloadPauseTag("task-1")).performClick()
+            waitForIdle()
+            assertEquals(
+                "paused",
+                appModel.state.value.downloads.first { it.id == "task-1" }.state,
+            )
+            onNodeWithTag(homeDownloadResumeTag("task-1")).performClick()
+            waitForIdle()
+            assertEquals(
+                "running",
+                appModel.state.value.downloads.first { it.id == "task-1" }.state,
+            )
+        }
+
+    @Test
+    fun importEntryShowsTheModpackSheet() = runDesktopComposeUiTest(width = 1280, height = 900) {
+        val appModel = model()
+        setContent { App(appModel) }
+        waitForIdle()
+
+        // The home menu and the desktop drop target both call this entry point.
+        appModel.importModpackPath("/tmp/Calm Pack.mrpack")
+        waitForIdle()
+
+        onNodeWithTag(ModpackImportSheetTag).assertIsDisplayed()
+        onNodeWithTag(ModpackImportConfirmTag).assertIsDisplayed()
+    }
+
+    @Test
+    fun instanceDetailHeaderCarriesLaunchFavoriteAndSettingsMenu() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val appModel = model()
+            appModel.navigate(AppDestination.LIBRARY)
+            setContent { App(appModel) }
+            waitForIdle()
+
+            onNodeWithTag(libraryRowTag("fog-forest")).performClick()
+            waitForIdle()
+
+            onNodeWithTag(InstanceQuickStartTag).assertIsDisplayed()
+            onNodeWithTag(InstanceFavoriteTag).assertIsDisplayed()
+            onNodeWithTag(InstanceOverflowTag).performClick()
+            waitForIdle()
+            onNodeWithText("游戏设置").assertIsDisplayed()
+            onNodeWithText("复制实例目录路径").assertIsDisplayed()
+        }
+
+    @Test
+    fun modpackCategoryCreatesAnInstanceFromTheProjectSheet() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val appModel = model()
+            appModel.navigate(AppDestination.DOWNLOADS)
+            setContent { App(appModel) }
+            waitForIdle()
+
+            onNodeWithTag(downloadsCategoryTag(DownloadsCategory.MODPACK)).performClick()
+            waitForIdle()
+
+            val browser = appModel.state.value.contentBrowser
+            assertEquals("", browser.targetInstanceId)
+            assertTrue(browser.projects.isNotEmpty())
+            onNodeWithTag(contentProjectTag(browser.projects.first())).performClick()
+            waitForIdle()
+
+            onNodeWithText("创建实例并导入").assertIsDisplayed().performClick()
+            waitForIdle()
+
+            assertEquals("modpack-task-1", appModel.state.value.contentBrowser.installTaskId)
+            assertEquals(null, appModel.state.value.contentBrowser.selectedProject)
+        }
+
+    @Test
+    fun datapackCategoryPicksAWorldAndInstalls() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val appModel = model()
+            appModel.navigate(AppDestination.DOWNLOADS)
+            setContent { App(appModel) }
+            waitForIdle()
+
+            onNodeWithTag(downloadsCategoryTag(DownloadsCategory.DATAPACK)).performClick()
+            waitForIdle()
+
+            val browser = appModel.state.value.contentBrowser
+            assertEquals("New World", browser.targetWorld)
+            onNodeWithText("雾林世界").assertIsDisplayed()
+            onNodeWithTag(contentProjectTag(browser.projects.first())).performClick()
+            waitForIdle()
+
+            onNodeWithText("安装到世界").assertIsDisplayed().performClick()
+            waitForIdle()
+
+            assertEquals("content-task-1", appModel.state.value.contentBrowser.installTaskId)
+        }
+
+    @Test
+    fun contentTargetSelectorSitsInTheHeader() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val appModel = model()
+            appModel.navigate(AppDestination.DOWNLOADS)
+            setContent { App(appModel) }
+            waitForIdle()
+
+            onNodeWithTag(ContentTargetTag).assertDoesNotExist()
+            onNodeWithTag(downloadsCategoryTag(DownloadsCategory.MOD)).performClick()
+            waitForIdle()
+
+            onNodeWithTag(ContentTargetTag).assertIsDisplayed()
+            onNodeWithTag(ContentTargetTag).performClick()
+            waitForIdle()
+            onNodeWithTag(contentTargetOptionTag("machinery")).performClick()
+            waitForIdle()
+
+            assertEquals("machinery", appModel.state.value.contentBrowser.targetInstanceId)
+            assertTrue(appModel.state.value.contentBrowser.projects.isNotEmpty())
+        }
+
+    @Test
+    fun contentBrowserInstallsAProjectIntoTheSelectedInstance() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val appModel = model()
+            appModel.navigate(AppDestination.DOWNLOADS)
+            setContent { App(appModel) }
+            waitForIdle()
+
+            onNodeWithTag(downloadsCategoryTag(DownloadsCategory.MOD)).performClick()
+            waitForIdle()
+
+            val browser = appModel.state.value.contentBrowser
+            assertTrue(browser.projects.isNotEmpty(), "content.search was not applied")
+            assertEquals("fog-forest", browser.targetInstanceId)
+
+            onNodeWithTag(contentProjectTag(browser.projects.first())).performClick()
+            waitForIdle()
+            onNodeWithTag(ContentInstallTag).assertIsDisplayed().performClick()
+            waitForIdle()
+
+            assertEquals("content-task-1", appModel.state.value.contentBrowser.installTaskId)
+            assertEquals(null, appModel.state.value.contentBrowser.selectedProject)
+        }
+
+    @Test
+    fun libraryRowOpensTheInstanceDetailPage() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val appModel = model()
+            appModel.navigate(AppDestination.LIBRARY)
+            setContent { App(appModel) }
+            waitForIdle()
+
+            onNodeWithTag(libraryRowTag("fog-forest")).performClick()
+            waitForIdle()
+
+            assertEquals(LibraryStage.DETAIL, appModel.state.value.libraryStage)
+            onNodeWithTag(InstanceDetailTag).assertIsDisplayed()
+            assertTrue(appModel.state.value.content.items.isNotEmpty())
+
+            // The old summary card and its status/metrics are gone.
+            onNodeWithText("已就绪").assertDoesNotExist()
+            onNodeWithText("占用空间").assertDoesNotExist()
+            onNodeWithText("上次游玩").assertDoesNotExist()
+
+            onNodeWithTag(PageHeaderBackTag).performClick()
+            waitForIdle()
+
+            assertEquals(LibraryStage.LIST, appModel.state.value.libraryStage)
+            onNodeWithTag(libraryRowTag("fog-forest")).assertIsDisplayed()
+        }
+
+    @Test
+    fun settingsPageOpensFromTheDetailPageAndBackReturns() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val appModel = model()
+            appModel.navigate(AppDestination.LIBRARY)
+            setContent { App(appModel) }
+            waitForIdle()
+
+            onNodeWithTag(libraryRowTag("fog-forest")).performClick()
+            waitForIdle()
+
+            onNodeWithTag(InstanceOverflowTag).performClick()
+            waitForIdle()
+            onNodeWithText("游戏设置").performClick()
+            waitForIdle()
+
+            assertEquals(LibraryStage.SETTINGS, appModel.state.value.libraryStage)
+            onNodeWithTag(InstanceSettingsPageTag).assertIsDisplayed()
+
+            onNodeWithTag(PageHeaderBackTag).performClick()
+            waitForIdle()
+
+            assertEquals(LibraryStage.DETAIL, appModel.state.value.libraryStage)
+            onNodeWithTag(InstanceDetailTag).assertIsDisplayed()
+        }
+
+    @Test
+    fun contentManagerOpensWorldsAndChecksUpdates() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val appModel = model()
+            val instance = appModel.state.value.instances.first()
+            appModel.openInstanceDetail(instance, ContentManagerTab.MODS)
+            setContent { App(appModel) }
+            waitForIdle()
+
+            onNodeWithTag(InstanceDetailTag).assertIsDisplayed()
+            assertEquals(LibraryStage.DETAIL, appModel.state.value.libraryStage)
+            assertTrue(appModel.state.value.content.items.isNotEmpty())
+
+            onNodeWithTag(ContentCheckUpdatesTag).performClick()
+            waitForIdle()
+            assertTrue(appModel.state.value.content.updates.isNotEmpty())
+
+            onNodeWithTag(contentTabTag(ContentManagerTab.WORLDS)).performClick()
+            waitForIdle()
+            assertTrue(appModel.state.value.content.worlds.isNotEmpty())
+            assertEquals(ContentManagerTab.WORLDS, appModel.state.value.content.tab)
+        }
 
     @Test
     fun javaManagementOpensFromSettingsAndBackReturns() = runDesktopComposeUiTest(width = 1280, height = 900) {
@@ -144,6 +542,9 @@ class FograinAppUiTest {
         waitForIdle()
 
         onNodeWithTag(GlobalSearchFieldTag).assertIsDisplayed()
+        // Scroll to the Java row instead of assuming it is above the fold.
+        onNodeWithTag(com.fograin.launcher.ui.search.GlobalSearchScreenTag)
+            .performScrollToNode(hasTestTag(globalSearchCommandTag("java")))
         onNodeWithTag(globalSearchCommandTag("java")).performClick()
         waitForIdle()
 
@@ -167,6 +568,9 @@ class FograinAppUiTest {
         assertEquals(DownloadStage.INSTALL, appModel.state.value.download.stage)
         onNodeWithTag(InstallDownloadTag).assertIsDisplayed()
         onNodeWithTag(downloadVersionTag("1.21.5")).assertDoesNotExist()
+
+        // The verbose install-page hint was removed.
+        onNodeWithText("安装完成后会进入实例库", substring = true).assertDoesNotExist()
 
         onNodeWithTag(InstallDownloadTag).performClick()
         waitForIdle()

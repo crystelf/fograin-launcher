@@ -2,28 +2,19 @@ package com.fograin.launcher.ui.downloads
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -35,14 +26,13 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AssistChip
@@ -65,10 +55,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -81,10 +69,14 @@ import com.fograin.launcher.app.DownloadStage
 import com.fograin.launcher.model.ContentLoaderFilter
 import com.fograin.launcher.model.DownloadVersionChannel
 import com.fograin.launcher.model.DownloadsCategory
+import com.fograin.launcher.model.Instance
 import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.resources.*
-import com.fograin.launcher.ui.components.MilestoneChip
 import com.fograin.launcher.ui.components.PageHeader
+import com.fograin.launcher.ui.components.SegmentedTabRail
+import com.fograin.launcher.ui.components.fograinPageTransition
+import com.fograin.launcher.ui.components.fograinTabTransition
+import com.fograin.launcher.ui.content.ContentBrowser
 import com.fograin.launcher.ui.components.ThinProgressBar
 import com.fograin.launcher.ui.downloadSpeedText
 import com.fograin.launcher.ui.stateText
@@ -106,7 +98,7 @@ fun DownloadsScreen(model: AppModel, state: AppUiState) {
     val backDispatcher = remember { platformServices().backDispatcher }
     val category = state.download.category
     val stage = state.download.stage
-    val searchAvailable = category == DownloadsCategory.GAME
+    val searchAvailable = category.isGame || category.isContent
     // Hoisted out of the stage switch so returning from the install page keeps
     // the list scrolled where the user left it.
     val listState = rememberLazyListState()
@@ -142,12 +134,7 @@ fun DownloadsScreen(model: AppModel, state: AppUiState) {
         targetState = stage,
         modifier = Modifier.fillMaxSize(),
         transitionSpec = {
-            val forward = targetState.ordinal > initialState.ordinal
-            val enter = fadeIn(tween(200)) +
-                slideInHorizontally(tween(260)) { if (forward) it / 7 else -it / 7 }
-            val exit = fadeOut(tween(140)) +
-                slideOutHorizontally(tween(220)) { if (forward) -it / 7 else it / 7 }
-            enter togetherWith exit
+            fograinPageTransition(forward = targetState.ordinal > initialState.ordinal)
         },
         label = "download-stage",
     ) { current ->
@@ -155,10 +142,26 @@ fun DownloadsScreen(model: AppModel, state: AppUiState) {
             DownloadStage.BROWSER -> Column(modifier = Modifier.fillMaxSize()) {
                 PageHeader(
                     title = stringResource(Res.string.downloads_title),
-                    searchPlaceholder = if (searchAvailable) {
-                        stringResource(Res.string.downloads_search_placeholder)
-                    } else {
-                        null
+                    searchPlaceholder = when {
+                        category == DownloadsCategory.GAME ->
+                            stringResource(Res.string.downloads_search_placeholder)
+
+                        category.isContent -> stringResource(
+                            when (category) {
+                                DownloadsCategory.MOD -> Res.string.downloads_search_mod
+                                DownloadsCategory.MODPACK -> Res.string.downloads_search_modpack
+                                DownloadsCategory.RESOURCEPACK ->
+                                    Res.string.downloads_search_resourcepack
+
+                                DownloadsCategory.SHADERPACK ->
+                                    Res.string.downloads_search_shaderpack
+
+                                DownloadsCategory.DATAPACK -> Res.string.downloads_search_datapack
+                                DownloadsCategory.GAME -> Res.string.downloads_search_placeholder
+                            },
+                        )
+
+                        else -> null
                     },
                     searchQuery = state.download.query,
                     onSearchQueryChange = model::setDownloadQuery,
@@ -167,11 +170,23 @@ fun DownloadsScreen(model: AppModel, state: AppUiState) {
                         if (expanded) searchExpanded = true else closeSearch()
                     },
                     leadingActions = {
-                        if (category == DownloadsCategory.GAME) {
-                            ChannelFilterChip(
-                                channel = state.download.channel,
-                                onSelect = model::setDownloadChannel,
-                            )
+                        when {
+                            category == DownloadsCategory.GAME -> {
+                                ChannelFilterChip(
+                                    channel = state.download.channel,
+                                    onSelect = model::setDownloadChannel,
+                                )
+                            }
+
+                            category.installsToNewInstance -> NewInstanceChip()
+
+                            category.isContent -> {
+                                ContentTargetChip(
+                                    instances = state.instances,
+                                    selectedId = state.contentBrowser.targetInstanceId,
+                                    onSelect = model::setContentTargetInstance,
+                                )
+                            }
                         }
                     },
                     actions = {
@@ -186,6 +201,29 @@ fun DownloadsScreen(model: AppModel, state: AppUiState) {
                                 expanded = menuExpanded,
                                 onDismissRequest = { menuExpanded = false },
                             ) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(Res.string.download_queue_open)) },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Outlined.FileDownload,
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    trailingIcon = {
+                                        if (state.activeDownloadCount > 0) {
+                                            Text(
+                                                text = state.activeDownloadCount.toString(),
+                                                style = MaterialTheme.typography.labelLarge,
+                                                color = MaterialTheme.colorScheme.primary,
+                                            )
+                                        }
+                                    },
+                                    modifier = Modifier.testTag(DownloadsQueueMenuTag),
+                                    onClick = {
+                                        menuExpanded = false
+                                        model.openDownloadQueue()
+                                    },
+                                )
                                 DropdownMenuItem(
                                     text = { Text(stringResource(Res.string.downloads_settings)) },
                                     leadingIcon = {
@@ -226,6 +264,116 @@ fun DownloadsScreen(model: AppModel, state: AppUiState) {
                     onBack = model::closeLoaderVersionPicker,
                 )
                 LoaderVersionsPage(model = model, state = state)
+            }
+        }
+    }
+}
+
+/** Stable test tag for one downloads category tab. */
+fun downloadsCategoryTag(category: DownloadsCategory): String =
+    "downloads-category-${category.name.lowercase()}"
+
+const val DownloadsQueueCardTag: String = "downloads-queue-card"
+const val DownloadsQueueMenuTag: String = "downloads-queue-menu"
+
+/** Tag for the target-instance selector that sits in the downloads header. */
+const val ContentTargetTag: String = "content-target-menu"
+
+fun contentTargetOptionTag(instanceId: String): String = "content-target-option-$instanceId"
+
+/** Static replacement for the target chip on the modpack category. */
+@Composable
+private fun NewInstanceChip() {
+    AssistChip(
+        onClick = {},
+        enabled = false,
+        label = {
+            Text(
+                text = stringResource(Res.string.downloads_content_target_new_instance),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        shape = CircleShape,
+        colors = AssistChipDefaults.assistChipColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            labelColor = MaterialTheme.colorScheme.onSurface,
+            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+        ),
+    )
+}
+
+/**
+ * Target instance selector for the content categories. It lives in the page
+ * header on the same row as the search field so the content body starts with
+ * the source filter instead of duplicating the install target.
+ */
+@Composable
+private fun ContentTargetChip(
+    instances: List<Instance>,
+    selectedId: String,
+    onSelect: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selected = instances.firstOrNull { it.id == selectedId }
+    val targetLabel = stringResource(Res.string.downloads_content_target)
+    val instanceLabel = selected?.name
+        ?: stringResource(Res.string.downloads_content_target_empty)
+    val label = "$targetLabel：$instanceLabel"
+    Box {
+        AssistChip(
+            onClick = { if (instances.isNotEmpty()) expanded = true },
+            enabled = instances.isNotEmpty(),
+            label = {
+                Text(
+                    text = label,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 150.dp),
+                )
+            },
+            trailingIcon = {
+                Icon(
+                    imageVector = Icons.Filled.ArrowDropDown,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+            },
+            shape = CircleShape,
+            colors = AssistChipDefaults.assistChipColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                labelColor = MaterialTheme.colorScheme.onSurface,
+            ),
+            border = BorderStroke(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+            ),
+            modifier = Modifier
+                .testTag(ContentTargetTag)
+                .semantics { contentDescription = label },
+        )
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            instances.forEach { instance ->
+                DropdownMenuItem(
+                    text = { Text(instance.name) },
+                    leadingIcon = {
+                        if (instance.id == selectedId) {
+                            Icon(Icons.Filled.Check, contentDescription = null)
+                        } else {
+                            Spacer(Modifier.width(24.dp))
+                        }
+                    },
+                    modifier = Modifier.testTag(contentTargetOptionTag(instance.id)),
+                    onClick = {
+                        expanded = false
+                        onSelect(instance.id)
+                    },
+                )
             }
         }
     }
@@ -339,6 +487,7 @@ private fun DownloadsBody(
                     ActiveDownloadsCard(
                         rows = state.activeDownloads,
                         speedText = downloadSpeedText(state),
+                        onOpen = model::openDownloadQueue,
                     )
                     Spacer(Modifier.height(14.dp))
                 }
@@ -351,10 +500,7 @@ private fun DownloadsBody(
             ) {
                 AnimatedContent(
                     targetState = category,
-                    transitionSpec = {
-                        (fadeIn(tween(220)) + scaleIn(tween(240), initialScale = 0.985f)) togetherWith
-                            fadeOut(tween(130))
-                    },
+                    transitionSpec = { fograinTabTransition() },
                     label = "download-category",
                 ) { current ->
                     when (current) {
@@ -367,10 +513,11 @@ private fun DownloadsBody(
                             onRetryVersions = { scope.launch { model.reloadDownloadVersions() } },
                         )
 
-                        else -> ComingSoonCategory(
+                        else -> ContentBrowser(
+                            model = model,
+                            state = state,
                             category = current,
-                            loader = selectedLoader,
-                            onBrowseGame = { model.setDownloadCategory(DownloadsCategory.GAME) },
+                            wide = wide,
                         )
                     }
                 }
@@ -393,14 +540,17 @@ private fun DownloadToolbar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        CategoryRail(
+        SegmentedTabRail(
+            options = DownloadsCategory.entries,
             selected = category,
             onSelect = onCategoryChange,
             modifier = Modifier.weight(1f),
+            tabModifier = { option -> Modifier.testTag(downloadsCategoryTag(option)) },
+            label = { option -> option.title() },
         )
 
         when (category) {
-            DownloadsCategory.MOD, DownloadsCategory.MODPACK -> FilterMenuChip(
+            DownloadsCategory.MODPACK -> FilterMenuChip(
                 label = selectedLoader.title(),
                 expanded = loaderExpanded,
                 onExpandedChange = { loaderExpanded = it },
@@ -414,88 +564,6 @@ private fun DownloadToolbar(
             )
 
             else -> Unit
-        }
-    }
-}
-
-/** Pill-style category rail with an animated selected background. */
-@Composable
-private fun CategoryRail(
-    selected: DownloadsCategory,
-    onSelect: (DownloadsCategory) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        modifier = modifier.height(42.dp),
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(
-            1.dp,
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-        ),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxHeight()
-                .horizontalScroll(rememberScrollState())
-                .padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            DownloadsCategory.entries.forEach { category ->
-                val isSelected = category == selected
-                val container by animateColorAsState(
-                    targetValue = if (isSelected) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        Color.Transparent
-                    },
-                    animationSpec = tween(180),
-                    label = "category-container",
-                )
-                val content by animateColorAsState(
-                    targetValue = if (isSelected) {
-                        MaterialTheme.colorScheme.onPrimary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    animationSpec = tween(180),
-                    label = "category-content",
-                )
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .selectable(
-                            selected = isSelected,
-                            role = Role.Tab,
-                            onClick = { onSelect(category) },
-                        )
-                        .background(container)
-                        .animateContentSize(tween(160))
-                        .padding(horizontal = 12.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                ) {
-                    AnimatedVisibility(
-                        visible = isSelected,
-                        enter = fadeIn(tween(140)) + scaleIn(tween(160), initialScale = 0.5f),
-                        exit = fadeOut(tween(90)) + scaleOut(tween(90), targetScale = 0.5f),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Check,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                            tint = content,
-                        )
-                    }
-                    Text(
-                        text = category.title(),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = content,
-                        maxLines = 1,
-                    )
-                }
-            }
         }
     }
 }
@@ -565,9 +633,16 @@ private fun FilterMenuChip(
 }
 
 @Composable
-private fun ActiveDownloadsCard(rows: List<DownloadRow>, speedText: String) {
+private fun ActiveDownloadsCard(
+    rows: List<DownloadRow>,
+    speedText: String,
+    onOpen: () -> Unit,
+) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        onClick = onOpen,
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(DownloadsQueueCardTag),
         shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = BorderStroke(
@@ -617,6 +692,12 @@ private fun ActiveDownloadsCard(rows: List<DownloadRow>, speedText: String) {
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                 )
+                Icon(
+                    imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                    contentDescription = stringResource(Res.string.download_queue_open),
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             rows.take(3).forEach { row ->
@@ -636,103 +717,6 @@ private fun ActiveDownloadsCard(rows: List<DownloadRow>, speedText: String) {
                         )
                     }
                     ThinProgressBar(progress = row.fraction)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ComingSoonCategory(
-    category: DownloadsCategory,
-    loader: ContentLoaderFilter,
-    onBrowseGame: () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(vertical = 16.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Surface(
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-            border = BorderStroke(
-                1.dp,
-                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-            ),
-            modifier = Modifier.widthIn(max = 520.dp),
-        ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 32.dp, vertical = 36.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(66.dp)
-                        .background(
-                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-                            RoundedCornerShape(22.dp),
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.FileDownload,
-                        contentDescription = null,
-                        modifier = Modifier.size(30.dp),
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                }
-                Text(
-                    text = category.title(),
-                    style = MaterialTheme.typography.headlineSmall,
-                    textAlign = TextAlign.Center,
-                )
-                Text(
-                    text = when (category) {
-                        DownloadsCategory.MOD -> if (loader != ContentLoaderFilter.ALL) {
-                            stringResource(Res.string.downloads_mod_body_filtered, loader.title())
-                        } else {
-                            stringResource(Res.string.downloads_mod_body)
-                        }
-
-                        DownloadsCategory.MODPACK -> if (loader != ContentLoaderFilter.ALL) {
-                            stringResource(Res.string.downloads_modpack_body_filtered, loader.title())
-                        } else {
-                            stringResource(Res.string.downloads_modpack_body)
-                        }
-
-                        DownloadsCategory.RESOURCEPACK ->
-                            stringResource(Res.string.downloads_resourcepack_body)
-
-                        DownloadsCategory.SHADERPACK ->
-                            stringResource(Res.string.downloads_shaderpack_body)
-
-                        DownloadsCategory.DATAPACK ->
-                            stringResource(Res.string.downloads_datapack_body)
-
-                        DownloadsCategory.GAME -> ""
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.widthIn(max = 420.dp),
-                )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    MilestoneChip(
-                        stringResource(
-                            Res.string.downloads_milestone_chip,
-                            category.milestone
-                                ?: stringResource(Res.string.downloads_milestone_later),
-                        ),
-                    )
-                    TextButton(onClick = onBrowseGame) {
-                        Text(stringResource(Res.string.downloads_browse_game))
-                    }
                 }
             }
         }

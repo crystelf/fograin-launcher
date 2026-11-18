@@ -8,9 +8,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -26,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
@@ -55,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
@@ -62,15 +63,20 @@ import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.resources.Res
 import com.fograin.launcher.resources.action_ok
 import com.fograin.launcher.resources.global_search_open
+import com.fograin.launcher.resources.modpack_drop_body
+import com.fograin.launcher.resources.modpack_drop_title
 import com.fograin.launcher.ui.accounts.AccountSheet
 import com.fograin.launcher.ui.components.AnimatedSheetHost
 import com.fograin.launcher.ui.components.LocalPageHeaderTopInset
 import com.fograin.launcher.ui.components.PageHeaderMetrics
+import com.fograin.launcher.ui.components.fograinPageTransition
+import com.fograin.launcher.ui.content.ContentProjectSheet
+import com.fograin.launcher.ui.downloads.DownloadQueueScreen
 import com.fograin.launcher.ui.downloads.DownloadsScreen
 import com.fograin.launcher.ui.home.HomeScreen
-import com.fograin.launcher.ui.instances.InstanceSettingsSheet
-import com.fograin.launcher.ui.library.InstancePreviewSheet
 import com.fograin.launcher.ui.library.LibraryScreen
+import com.fograin.launcher.ui.modpack.ModpackExportDialog
+import com.fograin.launcher.ui.modpack.ModpackImportSheet
 import com.fograin.launcher.ui.search.GlobalSearchSheet
 import com.fograin.launcher.ui.settings.SettingsScreen
 import org.jetbrains.compose.resources.stringResource
@@ -132,7 +138,15 @@ fun FograinApp(
         // so move the whole header below them. The body then behaves like a
         // phone layout instead of being squeezed to the right.
         val pageHeaderTopInset =
-            if (!expanded && services.platformName == "macos") 40.dp else 0.dp
+            if (services.platformName == "macos" &&
+                (!expanded || state.downloadQueueOpen)
+            ) {
+                // Without the rail the queue header owns the top-left corner;
+                // keep its back button clear of the native traffic lights.
+                40.dp
+            } else {
+                0.dp
+            }
 
         Scaffold(
             modifier = Modifier.fillMaxSize(),
@@ -148,7 +162,7 @@ fun FograinApp(
                 }
             },
             bottomBar = {
-                if (!expanded) {
+                if (!expanded && !state.downloadQueueOpen) {
                     NavigationBar(
                         modifier = Modifier.testTag(NavBarTag),
                         containerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -172,108 +186,170 @@ fun FograinApp(
                 }
             },
         ) { innerPadding ->
-            Row(
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
             ) {
-                if (expanded) {
-                    NavigationRail(
-                        modifier = Modifier.testTag(NavRailTag),
-                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    ) {
-                        Column(
-                            modifier = Modifier.fillMaxHeight(),
-                            verticalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                // Align the search button with the first
-                                // content card (the home hero image).
-                                Spacer(
-                                    Modifier.height(
-                                        headerHeight + PageHeaderMetrics.ContentGap,
-                                    ),
-                                )
-                                RailSearchButton(onClick = model::openGlobalSearch)
-                                Spacer(Modifier.height(24.dp))
-                                AppDestination.entries
-                                    .filter { it != AppDestination.SETTINGS }
-                                    .forEachIndexed { index, item ->
-                                        if (index > 0) Spacer(Modifier.height(18.dp))
-                                        NavigationRailItem(
-                                            modifier = Modifier.testTag(navItemTag(item)),
-                                            selected = item == state.destination,
-                                            onClick = { model.navigate(item) },
-                                            icon = {
-                                                DestinationIcon(
-                                                    destination = item,
-                                                    selected = item == state.destination,
-                                                    activeDownloads = state.activeDownloadCount,
-                                                )
-                                            },
-                                            label = { Text(stringResource(item.label)) },
-                                        )
-                                    }
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                HorizontalDivider(
-                                    modifier = Modifier.width(36.dp),
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                val settings = AppDestination.SETTINGS
-                                NavigationRailItem(
-                                    modifier = Modifier.testTag(navItemTag(settings)),
-                                    selected = settings == state.destination,
-                                    onClick = { model.navigate(settings) },
-                                    icon = {
-                                        DestinationIcon(
-                                            destination = settings,
-                                            selected = settings == state.destination,
-                                            activeDownloads = state.activeDownloadCount,
-                                        )
-                                    },
-                                    label = { Text(stringResource(settings.label)) },
-                                )
-                                Spacer(Modifier.height(12.dp))
-                            }
-                        }
-                    }
-                    VerticalDivider()
-                }
                 CompositionLocalProvider(
                     LocalPageHeaderTopInset provides pageHeaderTopInset,
                 ) {
                     AnimatedContent(
-                        targetState = state.destination,
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
+                        targetState = state.downloadQueueOpen,
+                        modifier = Modifier.fillMaxSize(),
                         transitionSpec = {
-                            val forward = targetState.ordinal > initialState.ordinal
-                            val enter = fadeIn(tween(220)) +
-                                slideInHorizontally(tween(260)) {
-                                    if (forward) it / 18 else -it / 18
-                                }
-                            val exit = fadeOut(tween(140)) +
-                                slideOutHorizontally(tween(200)) {
-                                    if (forward) -it / 18 else it / 18
-                                }
-                            enter togetherWith exit
+                            fograinPageTransition(forward = targetState)
                         },
-                        label = "page-transition",
-                    ) { destination ->
-                        when (destination) {
-                            AppDestination.HOME -> HomeScreen(model = model, state = state)
-                            AppDestination.LIBRARY -> LibraryScreen(model = model, state = state)
-                            AppDestination.DOWNLOADS -> DownloadsScreen(model = model, state = state)
-                            AppDestination.SETTINGS -> SettingsScreen(
-                                model = model,
-                                state = state,
-                                dynamicColorEnabled = dynamicColorEnabled,
-                                onDynamicColorChange = onDynamicColorChange,
-                            )
+                        label = "queue-page",
+                    ) { queueOpen ->
+                        if (queueOpen) {
+                            DownloadQueueScreen(model = model, state = state)
+                        } else {
+                            Row(modifier = Modifier.fillMaxSize()) {
+                                if (expanded) {
+                                    NavigationRail(
+                                        modifier = Modifier.testTag(NavRailTag),
+                                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.fillMaxHeight(),
+                                            verticalArrangement = Arrangement.SpaceBetween,
+                                        ) {
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                // Align the search button with the first
+                                                // content card (the home hero image).
+                                                Spacer(
+                                                    Modifier.height(
+                                                        headerHeight + PageHeaderMetrics.ContentGap,
+                                                    ),
+                                                )
+                                                RailSearchButton(onClick = model::openGlobalSearch)
+                                                Spacer(Modifier.height(24.dp))
+                                                AppDestination.entries
+                                                    .filter { it != AppDestination.SETTINGS }
+                                                    .forEachIndexed { index, item ->
+                                                        if (index > 0) Spacer(Modifier.height(18.dp))
+                                                        NavigationRailItem(
+                                                            modifier = Modifier.testTag(navItemTag(item)),
+                                                            selected = item == state.destination,
+                                                            onClick = { model.navigate(item) },
+                                                            icon = {
+                                                                DestinationIcon(
+                                                                    destination = item,
+                                                                    selected = item == state.destination,
+                                                                    activeDownloads = state.activeDownloadCount,
+                                                                )
+                                                            },
+                                                            label = { Text(stringResource(item.label)) },
+                                                        )
+                                                    }
+                                            }
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                HorizontalDivider(
+                                                    modifier = Modifier.width(36.dp),
+                                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                                                )
+                                                Spacer(Modifier.height(4.dp))
+                                                val settings = AppDestination.SETTINGS
+                                                NavigationRailItem(
+                                                    modifier = Modifier.testTag(navItemTag(settings)),
+                                                    selected = settings == state.destination,
+                                                    onClick = { model.navigate(settings) },
+                                                    icon = {
+                                                        DestinationIcon(
+                                                            destination = settings,
+                                                            selected = settings == state.destination,
+                                                            activeDownloads = state.activeDownloadCount,
+                                                        )
+                                                    },
+                                                    label = { Text(stringResource(settings.label)) },
+                                                )
+                                                Spacer(Modifier.height(12.dp))
+                                            }
+                                        }
+                                    }
+                                    VerticalDivider()
+                                }
+                                AnimatedContent(
+                                    targetState = state.destination,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight(),
+                                    transitionSpec = {
+                                        fograinPageTransition(
+                                            forward = targetState.ordinal > initialState.ordinal,
+                                        )
+                                    },
+                                    label = "page-transition",
+                                ) { destination ->
+                                    when (destination) {
+                                        AppDestination.HOME ->
+                                            HomeScreen(model = model, state = state)
+
+                                        AppDestination.LIBRARY ->
+                                            LibraryScreen(model = model, state = state)
+
+                                        AppDestination.DOWNLOADS ->
+                                            DownloadsScreen(model = model, state = state)
+
+                                        AppDestination.SETTINGS -> SettingsScreen(
+                                            model = model,
+                                            state = state,
+                                            dynamicColorEnabled = dynamicColorEnabled,
+                                            onDynamicColorChange = onDynamicColorChange,
+                                        )
+                                    }
+                                }
+                            }
                         }
+                    }
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = state.modpack.dragActive,
+            enter = fadeIn(tween(120)),
+            exit = fadeOut(tween(120)),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.55f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(22.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    border = BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+                    ),
+                    modifier = Modifier.padding(32.dp),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 36.dp, vertical = 30.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Inventory2,
+                            contentDescription = null,
+                            modifier = Modifier.size(34.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            text = stringResource(Res.string.modpack_drop_title),
+                            style = MaterialTheme.typography.titleLarge,
+                        )
+                        Text(
+                            text = stringResource(Res.string.modpack_drop_body),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
                     }
                 }
             }
@@ -294,18 +370,35 @@ fun FograinApp(
     }
 
     // Each host keeps its payload composed through the slide-out animation.
+    // Instance management lives on library sub-pages now, so only the project
+    // inspector, global search, account panel and modpack confirmation remain
+    // sheets.
     AnimatedSheetHost(
-        value = state.previewInstance,
-        onDismissRequest = model::closePreview,
-    ) { instance ->
-        InstancePreviewSheet(model = model, state = state, instance = instance)
+        value = state.modpack.pack,
+        onDismissRequest = model::dismissModpackImport,
+    ) { pack ->
+        ModpackImportSheet(
+            pack = pack,
+            state = state.modpack,
+            onNameChange = model::setModpackName,
+            onDismiss = model::dismissModpackImport,
+            onImport = model::confirmModpackImport,
+        )
+    }
+
+    state.modpack.exportResult?.let { result ->
+        ModpackExportDialog(
+            result = result,
+            onCopy = model::copyModpackExportPath,
+            onDismiss = model::dismissModpackExport,
+        )
     }
 
     AnimatedSheetHost(
-        value = state.instanceSettings,
-        onDismissRequest = model::closeInstanceSettings,
-    ) { instance ->
-        InstanceSettingsSheet(model = model, instance = instance)
+        value = state.contentBrowser.selectedProject,
+        onDismissRequest = model::closeContentProject,
+    ) { project ->
+        ContentProjectSheet(model = model, state = state, project = project)
     }
 
     AnimatedSheetHost(

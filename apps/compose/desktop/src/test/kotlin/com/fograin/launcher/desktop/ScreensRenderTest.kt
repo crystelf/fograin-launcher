@@ -6,8 +6,15 @@ import androidx.compose.ui.unit.Density
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AccountStage
 import com.fograin.launcher.app.AppUiState
+import com.fograin.launcher.app.ContentManagerTab
 import com.fograin.launcher.app.DownloadStage
+import com.fograin.launcher.app.LibraryStage
+import com.fograin.launcher.model.DownloadsCategory
+import com.fograin.launcher.app.ModpackUiState
+import com.fograin.launcher.app.DiagUiState
 import com.fograin.launcher.model.GameLoaderKind
+import com.fograin.launcher.platform.CoreModpack
+import com.fograin.launcher.platform.CorePackFile
 import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.settings.ThemeMode
 import com.fograin.launcher.ui.AppDestination
@@ -24,11 +31,11 @@ import kotlinx.coroutines.runBlocking
 import org.jetbrains.skia.EncodedImageFormat
 
 /**
- * R2 acceptance: render every page, the inspector sheets and the game install
- * flow with deterministic data, in both dark and light themes plus a compact
- * phone-sized layout. Each frame is written to a temp PNG and printed so a
- * reviewer can compare against the pen; the test fails when a page crashes or
- * renders (nearly) blank.
+ * R2 acceptance: render every page, the instance detail/settings pages, the
+ * remaining sheets and the game install flow with deterministic data, in both
+ * dark and light themes plus compact and landscape phone-sized layouts. Each
+ * frame is written to a temp PNG and printed so a reviewer can compare against
+ * the pen; the test fails when a page crashes or renders (nearly) blank.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 class ScreensRenderTest {
@@ -66,20 +73,114 @@ class ScreensRenderTest {
             download = installDownload,
         )
 
+        model.setDownloadCategory(DownloadsCategory.MOD)
+        model.openContentCategory(DownloadsCategory.MOD)
+        val contentBrowser = model.state.value
+        assertTrue(contentBrowser.contentBrowser.projects.isNotEmpty(), "content.search was not applied")
+        model.openContentProject(contentBrowser.contentBrowser.projects.first())
+        val contentProjectState = model.state.value
+        assertTrue(contentProjectState.contentBrowser.versions.isNotEmpty(), "content.versions was not applied")
+
+        model.closeContentProject()
+        model.setDownloadCategory(DownloadsCategory.MODPACK)
+        val modpackCategory = model.state.value
+        model.openContentProject(modpackCategory.contentBrowser.projects.first())
+        val modpackProjectSheet = model.state.value
+        model.closeContentProject()
+        model.setDownloadCategory(DownloadsCategory.DATAPACK)
+        val datapackCategory = model.state.value
+        model.setDownloadCategory(DownloadsCategory.RESOURCEPACK)
+        val resourcepackCategory = model.state.value
+
+        model.openInstanceDetail(base.instances.first(), ContentManagerTab.MODS)
+        val instanceDetail = model.state.value
+        assertTrue(instanceDetail.content.items.isNotEmpty(), "content.local was not applied")
+        model.checkContentUpdates()
+        // Notices are transient; drop the snackbar so page captures show the
+        // page itself rather than a toast from the previous action.
+        model.state.value.notice?.let { model.consumeNotice(it.id) }
+        val instanceDetailUpdates = model.state.value
+        assertTrue(instanceDetailUpdates.content.updates.isNotEmpty(), "content.updates was not applied")
+        model.setContentTab(ContentManagerTab.WORLDS)
+        val instanceDetailWorlds = model.state.value
+        assertTrue(instanceDetailWorlds.content.worlds.isNotEmpty(), "worlds.list was not applied")
+
+        model.setContentTab(ContentManagerTab.DATAPACKS)
+        val instanceDetailDatapacks = model.state.value
+        assertTrue(
+            instanceDetailDatapacks.content.datapacks.isNotEmpty(),
+            "datapacks.list was not applied",
+        )
+
+        model.openDiagnostics(base.instances.first())
+        val diagnosticsPage = model.state.value
+        assertTrue(
+            diagnosticsPage.diag.findings.isNotEmpty(),
+            "diag.analyze was not applied",
+        )
+        model.exportDiagnostics()
+        model.state.value.notice?.let { model.consumeNotice(it.id) }
+        val diagnosticsExported = model.state.value
+        assertNotNull(diagnosticsExported.diag.bundlePath, "diag.export was not applied")
+
+        val diagnosticsClean = diagnosticsPage.copy(
+            diag = diagnosticsPage.diag.copy(
+                analysis = diagnosticsPage.diag.analysis?.copy(
+                    findings = emptyList(),
+                    severity = null,
+                    summary = "没有匹配到已知问题。如果游戏仍然无法启动，请查看日志末尾的异常堆栈。",
+                ),
+            ),
+        )
+
+        val modpackSheet = base.copy(
+            destination = AppDestination.LIBRARY,
+            modpack = ModpackUiState(
+                pack = CoreModpack(
+                    kind = "modrinth",
+                    name = "Calm Pack",
+                    version = "1.2.0",
+                    minecraft = "1.21.4",
+                    loaderKind = "fabric",
+                    loaderVersion = "0.16.9",
+                    summary = "A quiet Fabric pack for building.",
+                    files = listOf(
+                        CorePackFile("mods/sodium.jar", 1306799, sha1 = "aa"),
+                        CorePackFile("mods/lithium.jar", 920000, sha1 = "cc"),
+                    ),
+                    sourcePath = "/tmp/Calm Pack.mrpack",
+                ),
+                name = "Calm Pack",
+            ),
+        )
+        val instanceDetailEmpty = instanceDetail.copy(
+            content = com.fograin.launcher.app.ContentManagerUiState(
+                instanceId = instanceDetail.content.instanceId,
+            ),
+        )
+
         val pages = listOf(
             "home" to base.copy(destination = AppDestination.HOME),
             "library" to base.copy(destination = AppDestination.LIBRARY),
             "downloads" to base.copy(destination = AppDestination.DOWNLOADS),
+            "download-queue" to base.copy(downloadQueueOpen = true),
             "settings" to base.copy(destination = AppDestination.SETTINGS),
             "java-page" to javaPage.copy(
                 destination = AppDestination.SETTINGS,
                 settingsStage = com.fograin.launcher.app.SettingsStage.JAVA,
             ),
-            "preview-sheet" to base.copy(
-                destination = AppDestination.LIBRARY,
-                previewInstanceId = "fog-forest",
+            "instance-detail" to instanceDetail,
+            "instance-detail-updates" to instanceDetailUpdates,
+            "instance-detail-worlds" to instanceDetailWorlds,
+            "instance-detail-datapacks" to instanceDetailDatapacks,
+            "diagnostics" to diagnosticsPage,
+            "diagnostics-clean" to diagnosticsClean,
+            "diagnostics-exported" to diagnosticsExported,
+            "modpack-import-sheet" to modpackSheet,
+            "instance-detail-empty" to instanceDetailEmpty,
+            "instance-settings-page" to instanceDetail.copy(
+                libraryStage = LibraryStage.SETTINGS,
             ),
-            "instance-settings-sheet" to base.copy(instanceSettingsId = "fog-forest"),
             "global-search-sheet" to base.copy(
                 globalSearchOpen = true,
                 globalSearchQuery = "1.21",
@@ -107,6 +208,24 @@ class ScreensRenderTest {
                     ),
                 ),
             ),
+            "content-browser" to contentBrowser.copy(
+                destination = AppDestination.DOWNLOADS,
+            ),
+            "content-project-sheet" to contentProjectState.copy(
+                destination = AppDestination.DOWNLOADS,
+            ),
+            "downloads-modpack" to modpackCategory.copy(destination = AppDestination.DOWNLOADS),
+            "downloads-modpack-sheet" to modpackProjectSheet.copy(
+                destination = AppDestination.DOWNLOADS,
+            ),
+            "downloads-datapack" to datapackCategory.copy(destination = AppDestination.DOWNLOADS),
+            "downloads-resourcepack" to resourcepackCategory.copy(
+                destination = AppDestination.DOWNLOADS,
+            ),
+            "modpack-drop-overlay" to base.copy(
+                destination = AppDestination.HOME,
+                modpack = ModpackUiState(dragActive = true),
+            ),
         )
 
         pages.forEach { (name, state) ->
@@ -128,6 +247,10 @@ class ScreensRenderTest {
         )
         model.loadDownloadVersions()
         val base = model.state.value.copy(theme = ThemeMode.LIGHT)
+        model.openInstanceDetail(base.instances.first())
+        val instanceDetail = model.state.value.copy(theme = ThemeMode.LIGHT)
+        model.openDiagnostics(base.instances.first())
+        val lightDiagnostics = model.state.value.copy(theme = ThemeMode.LIGHT)
 
         val installPage = base.copy(
             destination = AppDestination.DOWNLOADS,
@@ -143,13 +266,25 @@ class ScreensRenderTest {
             "home" to base.copy(destination = AppDestination.HOME),
             "library" to base.copy(destination = AppDestination.LIBRARY),
             "downloads" to base.copy(destination = AppDestination.DOWNLOADS),
+            "download-queue" to base.copy(downloadQueueOpen = true),
             "settings" to base.copy(destination = AppDestination.SETTINGS),
             "java-page" to base.copy(
                 destination = AppDestination.SETTINGS,
                 settingsStage = com.fograin.launcher.app.SettingsStage.JAVA,
             ),
-            "instance-settings-sheet" to base.copy(instanceSettingsId = "fog-forest"),
+            "instance-detail" to instanceDetail,
+            "instance-settings-page" to instanceDetail.copy(
+                libraryStage = LibraryStage.SETTINGS,
+            ),
+            "diagnostics" to lightDiagnostics,
             "account-sheet" to base.copy(account = base.account.copy(open = true)),
+            "content-browser" to base.copy(
+                destination = AppDestination.DOWNLOADS,
+                download = base.download.copy(category = DownloadsCategory.MOD),
+                contentBrowser = base.contentBrowser.copy(
+                    projects = base.contentBrowser.projects,
+                ),
+            ),
             "install-page" to installPage,
         )
 
@@ -177,11 +312,34 @@ class ScreensRenderTest {
         val installDownload = model.state.value.download
         assertNotNull(installDownload.plan, "version.plan was not applied")
 
+        model.setDownloadCategory(DownloadsCategory.MOD)
+        val compactContentBrowser = model.state.value
+        model.openInstanceDetail(base.instances.first(), ContentManagerTab.MODS)
+        val compactInstanceDetail = model.state.value
+        model.openInstanceDetail(base.instances.first(), ContentManagerTab.DATAPACKS)
+        val compactDatapacks = model.state.value
+        model.setDownloadCategory(DownloadsCategory.MODPACK)
+        val compactModpack = model.state.value.copy(destination = AppDestination.DOWNLOADS)
+        model.setDownloadCategory(DownloadsCategory.DATAPACK)
+        val compactDatapackBrowser = model.state.value.copy(destination = AppDestination.DOWNLOADS)
+        model.openDiagnostics(base.instances.first())
+        val compactDiagnostics = model.state.value
+
         val pages = listOf(
             "home" to base.copy(destination = AppDestination.HOME),
             "library" to base.copy(destination = AppDestination.LIBRARY),
             "settings" to base.copy(destination = AppDestination.SETTINGS),
             "downloads" to base.copy(destination = AppDestination.DOWNLOADS),
+            "download-queue" to base.copy(downloadQueueOpen = true),
+            "content-browser" to compactContentBrowser.copy(
+                destination = AppDestination.DOWNLOADS,
+            ),
+            "downloads-modpack" to compactModpack,
+            "downloads-datapack" to compactDatapackBrowser,
+            "instance-detail" to compactInstanceDetail,
+            "instance-settings-page" to compactInstanceDetail.copy(
+                libraryStage = LibraryStage.SETTINGS,
+            ),
             "install-page" to base.copy(
                 destination = AppDestination.DOWNLOADS,
                 download = installDownload,
@@ -190,6 +348,8 @@ class ScreensRenderTest {
                 destination = AppDestination.DOWNLOADS,
                 download = installDownload.copy(stage = DownloadStage.LOADER_VERSIONS),
             ),
+            "diagnostics" to compactDiagnostics,
+            "instance-detail-datapacks" to compactDatapacks,
         )
 
         pages.forEach { (name, state) ->
@@ -199,6 +359,14 @@ class ScreensRenderTest {
             println("FOGRAIN_COMPACT_PNG_$name=$output")
             assertTrue(bytes.size > 6_000, "$name rendered suspiciously small (${bytes.size} bytes)")
         }
+
+        // Landscape phones are too short for the summary card; the detail page
+        // must still leave usable room for the content list.
+        val landscape = render(model, compactInstanceDetail, width = 900, height = 420)
+        val landscapeOutput = Files.createTempFile("fograin-compact-landscape-instance-detail-", ".png")
+        landscapeOutput.toFile().writeBytes(landscape)
+        println("FOGRAIN_COMPACT_PNG_landscape-instance-detail=$landscapeOutput")
+        assertTrue(landscape.size > 6_000, "landscape instance detail rendered too small")
     }
 
     private fun render(

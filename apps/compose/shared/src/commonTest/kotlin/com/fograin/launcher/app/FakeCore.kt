@@ -11,6 +11,8 @@ import com.fograin.launcher.platform.CoreSettings
 import com.fograin.launcher.platform.DirectoryBrowser
 import com.fograin.launcher.platform.DirectoryEntry
 import com.fograin.launcher.platform.DirectoryPick
+import com.fograin.launcher.platform.FileBrowser
+import com.fograin.launcher.platform.FilePick
 import com.fograin.launcher.platform.DeviceInfoProvider
 import com.fograin.launcher.platform.LocalPreferences
 import com.fograin.launcher.platform.NativeLibrary
@@ -38,6 +40,12 @@ internal class FakeCore : CoreClient {
     var javaAutoDownload = true
     var javaRemovedIds = mutableListOf<String>()
     val launchRequests = mutableListOf<JsonObject>()
+    val contentSearchRequests = mutableListOf<JsonObject>()
+    val contentInstallRequests = mutableListOf<JsonObject>()
+    val modpackInstallRequests = mutableListOf<JsonObject>()
+    val taskControlRequests = mutableListOf<Pair<String, String>>()
+    var taskRows = """{"ok":true,"result":[]}"""
+    var resumeTaskId = "task-resumed"
     val accountLoginRequests = mutableListOf<JsonObject>()
     var yggdrasilNeedsProfile = false
     var accountRows = mutableListOf(
@@ -133,7 +141,21 @@ internal class FakeCore : CoreClient {
                 addYggdrasilAccount(profileId, name)
             }
 
-            "tasks.list" -> json("""{"ok":true,"result":[]}""")
+            "tasks.list" -> json(taskRows)
+
+            "tasks.pause", "tasks.resume", "tasks.cancel" -> {
+                val id = params.stringOrNull("taskId").orEmpty()
+                taskControlRequests += method to id
+                when (method) {
+                    "tasks.pause" ->
+                        json("""{"ok":true,"taskId":"$id","state":"paused"}""")
+
+                    "tasks.resume" ->
+                        json("""{"ok":true,"taskId":"$resumeTaskId","oldTaskId":"$id"}""")
+
+                    else -> json("""{"ok":true,"taskId":"$id","state":"cancelled"}""")
+                }
+            }
 
             "loaders.versions" -> json(
                 """{"ok":true,"versions":[
@@ -209,6 +231,89 @@ internal class FakeCore : CoreClient {
                 json("""{"ok":true,"id":"${params.stringOrNull("id").orEmpty()}"}""")
             }
 
+            "content.local" -> json(
+                """{"ok":true,"counts":{"mod":1,"resourcepack":1,"shaderpack":0,"enabled":2},"items":[
+                  {"kind":"mod","fileName":"sodium.jar","displayName":"sodium.jar","enabled":true,"sizeBytes":100,"title":"Sodium","version":"0.6.13","loader":"fabric","source":"modrinth","projectId":"AANobbMI","projectName":"Sodium","versionId":"c3YkZvne"},
+                  {"kind":"resourcepack","fileName":"fograin-ui.zip","displayName":"fograin-ui.zip","enabled":true,"sizeBytes":200,"title":"Fograin UI","packFormat":34}
+                ]}""",
+            )
+
+            "worlds.list" -> json(
+                """{"ok":true,"worlds":[{"name":"New World","sizeBytes":1000,"modifiedMs":1793000000000,"hasIcon":true}],"backups":[]}""",
+            )
+
+            "content.search" -> {
+                contentSearchRequests += params
+                json(
+                """{"ok":true,"source":"modrinth","total":1,"offset":0,"limit":50,"projects":[
+                  {"source":"modrinth","projectId":"AANobbMI","slug":"sodium","title":"Sodium","description":"Faster rendering","downloads":100,"categories":["fabric"]}
+                ]}""",
+                )
+            }
+
+            "content.versions" -> json(
+                """{"ok":true,"source":"modrinth","versions":[
+                  {"source":"modrinth","projectId":"AANobbMI","versionId":"c3YkZvne","name":"Sodium 0.6.13","versionNumber":"0.6.13","gameVersions":["1.21.4"],"loaders":["fabric"],"versionType":"release","file":{"fileName":"sodium.jar","size":100}}
+                ]}""",
+            )
+
+            "content.updates" -> json(
+                """{"ok":true,"checked":2,"unknown":0,"warnings":[],"updates":[
+                  {"kind":"mod","fileName":"sodium.jar","displayName":"sodium.jar","source":"modrinth","projectId":"AANobbMI","projectName":"Sodium","currentVersion":"0.6.12","latestVersion":"0.6.13","latestVersionId":"c3YkZvne"}
+                ]}""",
+            )
+
+            "content.toggle", "content.delete" -> json("""{"ok":true}""")
+            "content.install" -> {
+                contentInstallRequests += params
+                json(
+                    """{"ok":true,"taskId":"content-task-1","source":"modrinth","projectId":"AANobbMI","projectName":"Sodium","versionId":"c3YkZvne","versionNumber":"0.6.13","kind":"mod","files":1,"totalBytes":100,"items":[]}""",
+                )
+            }
+            "worlds.backup" -> json(
+                """{"ok":true,"backup":{"name":"20261115-180000.zip","sizeBytes":10},"backups":[{"name":"20261115-180000.zip","sizeBytes":10}]}""",
+            )
+            "worlds.delete" -> json("""{"ok":true,"worlds":[]}""")
+            "worlds.backup.delete" -> json("""{"ok":true,"backups":[]}""")
+
+            "datapacks.list", "datapacks.toggle", "datapacks.delete", "datapacks.import" -> json(
+                """{"ok":true,"count":1,"items":[
+                  {"fileName":"terralith.zip","title":"Terralith","enabled":true,"sizeBytes":100,"modifiedMs":1793000000000,"packFormat":48}
+                ]}""",
+            )
+
+            "diag.logs" -> json(
+                """{"ok":true,"rules":15,"sources":[{"kind":"log","name":"latest.log","path":"/tmp/logs/latest.log","exists":true,"sizeBytes":42,"lines":1}],
+                "crash":null,"texts":{"log":"java.lang.OutOfMemoryError: Java heap space"}}""",
+            )
+
+            "diag.analyze" -> json(
+                """{"ok":true,"findings":[{"id":"java.memory","severity":"error","confidence":0.75,"title":"内存不足","body":"提高内存","excerpt":"OutOfMemoryError","line":1,"source":"latest.log","sourceKind":"log","fix":"openJavaSettings"}],"severity":"error","summary":"找到 1 个可能原因","scannedLines":1,"rules":15,"analyzedAtMs":1}""",
+            )
+
+            "diag.export" -> json(
+                """{"ok":true,"bundle":{"path":"/tmp/diag.zip","sizeBytes":100,"files":["report.md"]},"analysis":{"findings":[],"summary":"","scannedLines":0,"rules":15}}""",
+            )
+
+            "modpack.inspect" -> json(
+                """{"ok":true,"kind":"modrinth","name":"Calm","version":"1.0","minecraft":"1.21.4","loaderKind":"fabric","loaderVersion":"0.16.9","files":[{"path":"mods/a.jar","size":10,"url":"https://example/a.jar"}],"sourcePath":"/tmp/calm.mrpack","external":false,"skipped":0}""",
+            )
+
+            "modpack.install" -> {
+                modpackInstallRequests += params
+                json(
+                    """{"ok":true,"taskId":"modpack-task-1","name":"Calm","versionId":"calm-v1","versionNumber":"1.0","source":"modrinth"}""",
+                )
+            }
+
+            "modpack.import" -> json(
+                """{"ok":true,"instanceId":"calm","taskId":"task-modpack","external":false}""",
+            )
+
+            "modpack.export" -> json(
+                """{"ok":true,"path":"/tmp/exports/calm.mrpack","sizeBytes":100,"files":2}""",
+            )
+
             else -> json("""{"ok":true}""")
         }
     }
@@ -251,6 +356,9 @@ internal class FakeCore : CoreClient {
 internal class FakePlatform(
     private val clipboardSink: MutableList<String> = mutableListOf(),
 ) {
+    /** Next single-file pick; `null` behaves like a dismissed picker. */
+    var nextFilePick: String? = null
+
     private val preferences = object : LocalPreferences {
         override var dynamicColor: Boolean = false
         override fun supportsDynamicColor(): Boolean = false
@@ -265,6 +373,13 @@ internal class FakePlatform(
         override fun listDirectories(path: String): List<DirectoryEntry> = emptyList()
 
         override fun parentDirectory(path: String): String? = null
+    }
+
+    private val files = object : FileBrowser {
+        override val isAvailable: Boolean = true
+
+        override suspend fun pick(title: String, extensions: List<String>): FilePick =
+            nextFilePick?.let { FilePick.Picked(it) } ?: FilePick.Cancelled
     }
 
     val services: PlatformServices = PlatformServices(
@@ -287,6 +402,7 @@ internal class FakePlatform(
         },
         preferences = preferences,
         directories = directories,
+        files = files,
         logger = object : AppLogger {
             override fun debug(tag: String, message: String) = Unit
             override fun warn(tag: String, message: String, error: Throwable?) = Unit

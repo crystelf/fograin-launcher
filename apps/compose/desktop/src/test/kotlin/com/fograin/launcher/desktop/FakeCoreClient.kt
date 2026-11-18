@@ -5,16 +5,31 @@ import com.fograin.launcher.platform.CoreJson
 import com.fograin.launcher.platform.CoreSettings
 import com.fograin.launcher.settings.ThemeMode
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 
 /**
  * Deterministic in-memory core for off-screen rendering tests.
  *
  * The real JNI core is exercised by [CoreClientSmokeTest]; this fake exists so
- * the four pages and three sheets can be rendered with known data on CI
+ * the pages and remaining sheets can be rendered with known data on CI
  * machines without a launcher data root or network access.
  */
 class FakeCoreClient : CoreClient {
+    private data class FakeTask(
+        val id: String,
+        val name: String,
+        var state: String,
+        var fraction: Double,
+        var speed: Double,
+    )
+
+    private val tasks = mutableListOf(
+        FakeTask("task-1", "install:1.21.5", "running", 0.42, 12_300_000.0),
+        FakeTask("task-2", "整合包下载:Calm Pack", "paused", 0.71, 0.0),
+        FakeTask("task-3", "content:Sodium", "succeeded", 1.0, 0.0),
+    )
+
     override val initError: String? = null
     override val abiVersion: Int = 1
     override val isAvailable: Boolean = true
@@ -64,10 +79,41 @@ class FakeCoreClient : CoreClient {
         "launch.start" -> json("""{"ok":true,"pid":4242}""")
 
         "tasks.list" -> json(
-            """{"ok":true,"result":[
-              {"id":"task-1","name":"install:1.21.5","state":"running","fraction":0.42,"speed":12300000.0}
-            ]}""",
+            tasks.joinToString(
+                prefix = """{"ok":true,"result":[""",
+                postfix = "]}",
+                separator = ",",
+            ) { task ->
+                """{"id":"${task.id}","name":"${task.name}","state":"${task.state}","fraction":${task.fraction},"speed":${task.speed}}"""
+            },
         )
+
+        "tasks.pause" -> {
+            val id = (params["taskId"] as? JsonPrimitive)?.content.orEmpty()
+            tasks.firstOrNull { it.id == id }?.let {
+                it.state = "paused"
+                it.speed = 0.0
+            }
+            json("""{"ok":true,"taskId":"$id","state":"paused"}""")
+        }
+
+        "tasks.resume" -> {
+            val id = (params["taskId"] as? JsonPrimitive)?.content.orEmpty()
+            tasks.firstOrNull { it.id == id }?.let {
+                it.state = "running"
+                it.speed = 8_400_000.0
+            }
+            json("""{"ok":true,"taskId":"$id","oldTaskId":"$id"}""")
+        }
+
+        "tasks.cancel" -> {
+            val id = (params["taskId"] as? JsonPrimitive)?.content.orEmpty()
+            tasks.firstOrNull { it.id == id }?.let {
+                it.state = "cancelled"
+                it.speed = 0.0
+            }
+            json("""{"ok":true,"taskId":"$id","state":"cancelled"}""")
+        }
 
         "versions.list" -> json(
             """{"ok":true,"versions":[
@@ -115,6 +161,100 @@ class FakeCoreClient : CoreClient {
         )
 
         "java.policy.set" -> json("""{"ok":true,"autoDownload":false}""")
+
+        "content.local" -> json(
+            """
+            {"ok":true,"indexPath":"/tmp/fograin-test/instances/fog-forest/content.json",
+             "counts":{"mod":2,"resourcepack":1,"shaderpack":1,"enabled":3},
+             "items":[
+               {"kind":"mod","fileName":"sodium-fabric-0.6.13.jar","displayName":"sodium-fabric-0.6.13.jar","enabled":true,"sizeBytes":1306799,"title":"Sodium","version":"0.6.13","loader":"fabric","description":"Modern rendering engine for Minecraft.","source":"modrinth","projectId":"AANobbMI","projectName":"Sodium","versionId":"c3YkZvne"},
+               {"kind":"mod","fileName":"fabric-api-0.115.0.jar.disabled","displayName":"fabric-api-0.115.0.jar","enabled":false,"sizeBytes":2200000,"title":"Fabric API","version":"0.115.0","loader":"fabric","description":"Core API for Fabric mods.","source":"modrinth","projectId":"P7dR8mSH","projectName":"Fabric API","versionId":"api-v"},
+               {"kind":"resourcepack","fileName":"fograin-ui.zip","displayName":"fograin-ui.zip","enabled":true,"sizeBytes":5400000,"title":"Fograin UI","packFormat":34,"description":"A calm, forest-toned interface pack."},
+               {"kind":"shaderpack","fileName":"bsl-shaders.zip","displayName":"bsl-shaders.zip","enabled":true,"sizeBytes":3800000,"title":"BSL Shaders","description":"Warm lighting with soft shadows."}
+             ]}
+            """.trimIndent(),
+        )
+
+        "worlds.list" -> json(
+            """
+            {"ok":true,
+             "worlds":[
+               {"name":"New World","path":"/tmp/fograin-test/instances/fog-forest/.minecraft/saves/New World","sizeBytes":18400000,"modifiedMs":1793000000000,"hasIcon":true,"levelName":"雾林世界","gameMode":"survival","version":"1.21.4","lastPlayedMs":1793000000000,"seed":-42},
+               {"name":"Create Test","path":"/tmp/fograin-test/instances/fog-forest/.minecraft/saves/Create Test","sizeBytes":9200000,"modifiedMs":1780000000000,"hasIcon":false,"levelName":"机械测试","gameMode":"creative","version":"1.20.1","lastPlayedMs":1780000000000,"seed":7}
+             ],
+             "backups":[
+               {"name":"20261115-120000.zip","path":"/tmp/fograin-test/backups/fog-forest/20261115-120000.zip","sizeBytes":7400000,"modifiedMs":1793000000000}
+             ]}
+            """.trimIndent(),
+        )
+
+        "content.search" -> {
+            val kind = (params["kind"] as? kotlinx.serialization.json.JsonPrimitive)
+                ?.content
+                .orEmpty()
+            json(
+                when (kind) {
+                    "modpack" -> MODPACK_SEARCH_JSON
+                    "datapack" -> DATAPACK_SEARCH_JSON
+                    "resourcepack" -> RESOURCEPACK_SEARCH_JSON
+                    else -> MOD_SEARCH_JSON
+                },
+            )
+        }
+
+        "content.versions" -> {
+            val projectId = (params["projectId"] as? kotlinx.serialization.json.JsonPrimitive)
+                ?.content
+                .orEmpty()
+            json(
+                when (projectId) {
+                    "calm-pack", "create-pack" -> MODPACK_VERSIONS_JSON
+                    "terralith", "incendium" -> DATAPACK_VERSIONS_JSON
+                    "fresh-animations", "better-leaves" -> RESOURCEPACK_VERSIONS_JSON
+                    else -> MOD_VERSIONS_JSON
+                },
+            )
+        }
+
+        "content.updates" -> json(
+            """
+            {"ok":true,"checked":4,"unknown":0,"warnings":[],
+             "updates":[{"kind":"mod","fileName":"sodium-fabric-0.6.13.jar","displayName":"sodium-fabric-0.6.13.jar","source":"modrinth","projectId":"AANobbMI","projectName":"Sodium","currentVersion":"0.6.12","latestVersion":"0.6.13","latestVersionId":"c3YkZvne","latestFileName":"sodium-fabric-0.6.13+mc1.21.4.jar","latestSize":1306799}]}
+            """.trimIndent(),
+        )
+
+        "content.toggle", "content.delete", "content.install" -> json(
+            """{"ok":true,"taskId":"content-task-1","projectName":"Sodium","versionNumber":"0.6.13","files":1,"totalBytes":1306799,"items":[]}""",
+        )
+
+        "worlds.backup" -> json(
+            """{"ok":true,"backup":{"name":"20261115-180000.zip","path":"/tmp/fograin-test/backups/fog-forest/20261115-180000.zip","sizeBytes":7400000,"modifiedMs":1793000000000},"backups":[{"name":"20261115-180000.zip","path":"/tmp/fograin-test/backups/fog-forest/20261115-180000.zip","sizeBytes":7400000,"modifiedMs":1793000000000}]}""",
+        )
+        "worlds.restore" -> json(
+            """{"ok":true,"path":"/tmp/fograin-test/instances/fog-forest/.minecraft/saves/New World-restored","worlds":[{"name":"New World","sizeBytes":18400000,"modifiedMs":1793000000000,"hasIcon":true}],"backups":[]}""",
+        )
+        "worlds.delete" -> json("""{"ok":true,"worlds":[]}""")
+        "worlds.backup.delete" -> json("""{"ok":true,"backups":[]}""")
+        "datapacks.list", "datapacks.toggle", "datapacks.delete", "datapacks.import" ->
+            json(DATAPACKS_JSON)
+
+        "diag.logs" -> json(DIAG_LOGS_JSON)
+        "diag.analyze" -> json(DIAG_ANALYSIS_JSON)
+        "diag.export" -> json(
+            """{"ok":true,"bundle":{"path":"/tmp/fograin-test/diagnostics/雾林生存-20261117-133000.zip","sizeBytes":184320,"files":["report.md","manifest.json","instance.json","logs/latest.log","crash-reports/crash-2026-11-17.txt"]},"analysis":$DIAG_ANALYSIS_JSON_BODY}""",
+        )
+
+        "modpack.inspect" -> json(MODPACK_JSON)
+        "modpack.install" -> json(
+            """{"ok":true,"taskId":"modpack-task-1","name":"Calm Pack","versionId":"calm-v1","versionNumber":"1.2.0","source":"modrinth"}""",
+        )
+        "modpack.import" -> json(
+            """{"ok":true,"instanceId":"calmpack","taskId":"task-modpack","external":false,"pack":$MODPACK_JSON_BODY}""",
+        )
+        "modpack.export" -> json(
+            """{"ok":true,"path":"/tmp/fograin-test/exports/雾林生存-20261117-133100.mrpack","sizeBytes":24117248,"files":37}""",
+        )
+
         "java.install" -> json("""{"ok":true,"taskId":"java-task-1","runtimeId":"mojang-java-runtime-delta-21.0.7-arm64"}""")
         "java.remove" -> json("""{"ok":true}""")
 
@@ -130,4 +270,135 @@ class FakeCoreClient : CoreClient {
 
     private fun json(raw: String): JsonObject =
         CoreJson.parseToJsonElement(raw).jsonObject
+
+    private companion object {
+        const val DATAPACKS_JSON: String =
+            """{"ok":true,"count":2,"items":[
+              {"fileName":"terralith.zip","title":"Terralith 地形","enabled":true,"sizeBytes":8420000,"modifiedMs":1793000000000,"packFormat":48,"description":"让主世界生成全新的地形。"},
+              {"fileName":"fog-recipes.zip","title":"雾雨配方","enabled":false,"sizeBytes":184000,"modifiedMs":1792000000000,"packFormat":48,"description":"一组更安静的合成配方。"}
+            ]}"""
+
+        const val DIAG_LOGS_JSON: String =
+            """{"ok":true,"rules":15,
+              "sources":[
+                {"kind":"log","name":"latest.log","path":"/tmp/fograin-test/instances/fog-forest/.minecraft/logs/latest.log","exists":true,"sizeBytes":184320,"modifiedMs":1793000000000,"lines":9},
+                {"kind":"crash","name":"crash-2026-11-17_13.20.00-client.txt","path":"/tmp/fograin-test/instances/fog-forest/.minecraft/crash-reports/crash-2026-11-17_13.20.00-client.txt","exists":true,"sizeBytes":48120,"modifiedMs":1793000000000,"lines":4},
+                {"kind":"hsErr","name":"JVM 崩溃日志","path":"/tmp/fograin-test/instances/fog-forest/.minecraft","exists":false,"sizeBytes":0,"lines":0}
+              ],
+              "crash":{"description":"Rendering screen","minecraft":"1.21.4","java":"21.0.7","file":"crash-reports/crash-2026-11-17_13.20.00-client.txt","modifiedMs":1793000000000},
+              "texts":{
+                "log":"[13:20:00] [main/INFO]: Loading Minecraft 1.21.4 with Fabric Loader 0.16.9
+[13:20:01] [main/INFO]: Loading 128 mods
+[13:20:03] [main/WARN]: Mod 'sodium' is missing dependency 'fabric-api'
+[13:20:04] [main/INFO]: Preparing spawn area
+[13:20:06] [Render thread/INFO]: OpenGL 4.6 provided by Apple M3
+[13:20:07] [Render thread/ERROR]: java.lang.OutOfMemoryError: Java heap space
+[13:20:07] [Render thread/ERROR]: \tat net.minecraft.client.renderer.chunk.RenderChunk.rebuild(RenderChunk.java:412)
+[13:20:08] [Render thread/ERROR]: Failed to allocate 2 GiB vertex buffer
+[13:20:09] [main/INFO]: Stopping!",
+                "crash":"---- Minecraft Crash Report ----
+Description: Rendering screen
+
+Minecraft Version: 1.21.4
+Java Version: 21.0.7, Mojang
+Caused by: java.lang.OutOfMemoryError: Java heap space
+\tat net.minecraft.client.renderer.chunk.RenderChunk.rebuild(RenderChunk.java:412)",
+                "stdout":"[13:19:58] [main/INFO]: Fograin launcher session
+[13:20:00] [main/INFO]: Loading Minecraft 1.21.4"
+              }}"""
+
+        const val DIAG_ANALYSIS_JSON_BODY: String =
+            """{"findings":[
+              {"id":"java.memory","severity":"error","confidence":0.92,"title":"内存不足","body":"分配的内存不足以加载这个实例。请在实例设置里提高最大内存，或减少同时启用的模组。","excerpt":"java.lang.OutOfMemoryError: Java heap space","line":4,"source":"崩溃报告","sourceKind":"crash","fix":"openJavaSettings"},
+              {"id":"mod.dependency","severity":"warning","confidence":0.75,"title":"缺少模组前置","body":"有模组缺少必需的前置或依赖了不存在的类。请在模组页检查依赖。","excerpt":"[13:20:03] [main/WARN]: Mod 'sodium' is missing dependency 'fabric-api'","line":3,"source":"最新日志","sourceKind":"log","fix":"openContent"}
+            ],"severity":"error","summary":"崩溃报告：Rendering screen。找到 2 个可能原因，请先看第一条。","scannedLines":13,"rules":15,"analyzedAtMs":1793000000000}"""
+
+        val DIAG_ANALYSIS_JSON: String =
+            """{"ok":true,""" + DIAG_ANALYSIS_JSON_BODY.removePrefix("{")
+
+        val MOD_VERSIONS_JSON: String =
+            """
+            {"ok":true,"source":"modrinth",
+             "project":{"source":"modrinth","projectId":"AANobbMI","slug":"sodium","title":"Sodium","description":"A modern rendering engine.","downloads":252637937,"categories":["fabric"]},
+             "versions":[
+               {"source":"modrinth","projectId":"AANobbMI","versionId":"c3YkZvne","name":"Sodium 0.6.13 for Fabric 1.21.4","versionNumber":"mc1.21.4-0.6.13-fabric","gameVersions":["1.21.4"],"loaders":["fabric"],"downloads":5761310,"versionType":"release","published":"2025-04-04T00:00:00Z","file":{"fileName":"sodium-fabric-0.6.13+mc1.21.4.jar","size":1306799},"dependencies":[]},
+               {"source":"modrinth","projectId":"AANobbMI","versionId":"old-v","name":"Sodium 0.6.12","versionNumber":"mc1.21.4-0.6.12-fabric","gameVersions":["1.21.4"],"loaders":["fabric"],"versionType":"beta","file":{"fileName":"sodium-0.6.12.jar","size":1290000},"dependencies":[{"projectId":"P7dR8mSH","kind":"required"}]}
+             ]}
+            """.trimIndent()
+
+        val MODPACK_VERSIONS_JSON: String =
+            """
+            {"ok":true,"source":"modrinth",
+             "project":{"source":"modrinth","projectId":"calm-pack","slug":"calm-pack","title":"Calm Pack","description":"A quiet Fabric pack for building and exploring.","downloads":182000,"categories":["fabric","adventure"]},
+             "versions":[
+               {"source":"modrinth","projectId":"calm-pack","versionId":"calm-v1","name":"Calm Pack 1.2.0","versionNumber":"1.2.0","gameVersions":["1.21.4"],"loaders":["fabric"],"downloads":12000,"versionType":"release","published":"2026-11-01T00:00:00Z","file":{"fileName":"calm-pack-1.2.0.mrpack","size":18400000},"dependencies":[]},
+               {"source":"modrinth","projectId":"calm-pack","versionId":"calm-v0","name":"Calm Pack 1.1.0","versionNumber":"1.1.0","gameVersions":["1.21.4"],"loaders":["fabric"],"downloads":4200,"versionType":"beta","file":{"fileName":"calm-pack-1.1.0.mrpack","size":17800000},"dependencies":[]}
+             ]}
+            """.trimIndent()
+
+        val DATAPACK_VERSIONS_JSON: String =
+            """
+            {"ok":true,"source":"modrinth",
+             "project":{"source":"modrinth","projectId":"terralith","slug":"terralith","title":"Terralith","description":"New overworld terrain generation.","downloads":4200000,"categories":["datapack"]},
+             "versions":[
+               {"source":"modrinth","projectId":"terralith","versionId":"terra-26","name":"Terralith 2.6","versionNumber":"2.6","gameVersions":["1.21.4"],"loaders":[],"downloads":920000,"versionType":"release","published":"2026-11-01T00:00:00Z","file":{"fileName":"terralith-2.6.zip","size":8400000},"dependencies":[]},
+               {"source":"modrinth","projectId":"terralith","versionId":"terra-25","name":"Terralith 2.5","versionNumber":"2.5","gameVersions":["1.20.4"],"loaders":[],"downloads":610000,"versionType":"release","file":{"fileName":"terralith-2.5.zip","size":8100000},"dependencies":[]}
+             ]}
+            """.trimIndent()
+
+        val RESOURCEPACK_VERSIONS_JSON: String =
+            """
+            {"ok":true,"source":"modrinth",
+             "project":{"source":"modrinth","projectId":"fresh-animations","slug":"fresh-animations","title":"Fresh Animations","description":"Dynamic animated entities.","downloads":52000000,"categories":["resourcepack"]},
+             "versions":[
+               {"source":"modrinth","projectId":"fresh-animations","versionId":"fresh-1","name":"Fresh Animations 1.9","versionNumber":"1.9","gameVersions":["1.21.4"],"loaders":[],"downloads":8200000,"versionType":"release","published":"2026-11-01T00:00:00Z","file":{"fileName":"FreshAnimations_v1.9.zip","size":5400000},"dependencies":[]}
+             ]}
+            """.trimIndent()
+
+        val MOD_SEARCH_JSON: String =
+            """
+            {"ok":true,"source":"modrinth","total":3,"offset":0,"limit":50,
+             "projects":[
+               {"source":"modrinth","projectId":"AANobbMI","slug":"sodium","title":"Sodium","description":"A modern rendering engine that greatly improves frame rates.","downloads":252637937,"follows":42812,"categories":["fabric","optimization"],"updated":"2026-11-12T00:00:00Z"},
+               {"source":"modrinth","projectId":"P7dR8mSH","slug":"fabric-api","title":"Fabric API","description":"Lightweight and modular API for Fabric mods.","downloads":180000000,"follows":12000,"categories":["fabric","library"],"updated":"2026-11-01T00:00:00Z"},
+               {"source":"modrinth","projectId":"YL57xq9U","slug":"iris","title":"Iris Shaders","description":"Modern shader pack loader for Minecraft.","downloads":90000000,"follows":8000,"categories":["fabric","neoforge"],"updated":"2026-10-20T00:00:00Z"}
+             ]}
+            """.trimIndent()
+
+        val MODPACK_SEARCH_JSON: String =
+            """
+            {"ok":true,"source":"modrinth","total":2,"offset":0,"limit":50,
+             "projects":[
+               {"source":"modrinth","projectId":"calm-pack","slug":"calm-pack","title":"Calm Pack","description":"A quiet Fabric pack for building and exploring.","downloads":182000,"follows":1200,"categories":["fabric","adventure"],"updated":"2026-11-10T00:00:00Z"},
+               {"source":"modrinth","projectId":"create-pack","slug":"create-above-beyond","title":"Create: Above and Beyond","description":"Automation-focused modpack with quests.","downloads":960000,"follows":5400,"categories":["forge","technology"],"updated":"2026-10-22T00:00:00Z"}
+             ]}
+            """.trimIndent()
+
+        val DATAPACK_SEARCH_JSON: String =
+            """
+            {"ok":true,"source":"modrinth","total":2,"offset":0,"limit":50,
+             "projects":[
+               {"source":"modrinth","projectId":"terralith","slug":"terralith","title":"Terralith","description":"New overworld terrain generation with caves, peaks and islands.","downloads":4200000,"follows":22000,"categories":["datapack","worldgen"],"updated":"2026-11-12T00:00:00Z"},
+               {"source":"modrinth","projectId":"incendium","slug":"incendium","title":"Incendium","description":"Nether generation overhaul with new biomes and structures.","downloads":2100000,"follows":11000,"categories":["datapack","worldgen"],"updated":"2026-10-30T00:00:00Z"}
+             ]}
+            """.trimIndent()
+
+        val RESOURCEPACK_SEARCH_JSON: String =
+            """
+            {"ok":true,"source":"modrinth","total":2,"offset":0,"limit":50,
+             "projects":[
+               {"source":"modrinth","projectId":"fresh-animations","slug":"fresh-animations","title":"Fresh Animations","description":"Dynamic animated entities that bring the world to life.","downloads":52000000,"follows":18000,"categories":["resourcepack","entities"],"updated":"2026-11-14T00:00:00Z"},
+               {"source":"modrinth","projectId":"better-leaves","slug":"better-leaves","title":"Motschen's Better Leaves","description":"Improved leaf shapes with high mod compatibility.","downloads":21000000,"follows":6000,"categories":["resourcepack","decoration"],"updated":"2026-11-05T00:00:00Z"}
+             ]}
+            """.trimIndent()
+
+        const val MODPACK_JSON_BODY: String =
+            """{"kind":"modrinth","name":"Calm Pack","version":"1.2.0","minecraft":"1.21.4","loaderKind":"fabric","loaderVersion":"0.16.9","summary":"A quiet Fabric pack for building.","files":[
+              {"path":"mods/sodium.jar","size":1306799,"sha1":"aa","sha512":"bb","url":"https://cdn.example/sodium.jar"},
+              {"path":"mods/lithium.jar","size":920000,"sha1":"cc","url":"https://cdn.example/lithium.jar"}
+            ],"overrides":"overrides","sourcePath":"/tmp/Calm Pack.mrpack","external":false,"skipped":0}"""
+
+        val MODPACK_JSON: String =
+            """{"ok":true,""" + MODPACK_JSON_BODY.removePrefix("{")
+    }
 }

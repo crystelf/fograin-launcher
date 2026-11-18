@@ -75,6 +75,15 @@ object InstanceFormat {
         if (graphName.startsWith("java:")) {
             return "Java ${graphName.removePrefix("java:")}"
         }
+        if (graphName.startsWith("content:")) {
+            return "安装 ${graphName.removePrefix("content:")}"
+        }
+        if (graphName.startsWith("整合包下载:")) {
+            return "下载整合包 ${graphName.removePrefix("整合包下载:")}"
+        }
+        if (graphName.startsWith("整合包:")) {
+            return "导入整合包 ${graphName.removePrefix("整合包:")}"
+        }
         return graphName
     }
 

@@ -1,6 +1,6 @@
 # 雾雨启动器（Fograin Launcher）设计文档
 
-> 状态：v1.2 · 2026-11-15 · 单 UI（Compose Multiplatform）架构
+> 状态：v1.3 · 2026-11-15 · 单 UI（Compose Multiplatform）架构
 > 范围：Minecraft Java 版启动器。一套 Rust 核心（`fg-*`），一套 Compose Multiplatform UI（Android / Windows / macOS / Linux），平台外壳按平台适配；Android 的游戏运行时（内置 JRE + LWJGL 移植）仍是第二阶段。
 > 架构决策：[ADR 0004](adr/0004-compose-multiplatform-ui.md)。早期四端原生 UI 的决策记录已随重构删除，内容保留在 §1。
 
@@ -10,11 +10,10 @@
 
 - 安装、管理、启动 Minecraft Java 版的全部版本（含快照、远古版本）。
 - 加载器：Fabric、Quilt、Forge、NeoForge、OptiFine（LiteLoader、LegacyFabric、Cleanroom 视需求再加）。
-- 实例（版本隔离）管理：模组、资源包、光影、世界、原理图、日志与崩溃报告、导出与备份。
+- 实例（版本隔离）管理：模组、资源包、光影、世界、日志与崩溃报告、导出与备份。
 - Modrinth / CurseForge 资源浏览与安装，整合包导入导出。
 - Java 运行时自动匹配与下载。
 - 账户：离线、LittleSkin、authlib-injector（Yggdrasil 外置登录）；M7 交付，不含皮肤管理与正版登录。
-- 服务器列表（收藏、局域网发现、状态 Ping）。
 - 国内网络友好：BMCLAPI 等镜像源、自动回退。
 - 以 `fograin.pen` 的布局、信息架构和视觉语言为参考，用**一套 Compose Multiplatform UI** 覆盖四个平台；平台外壳（窗口、菜单、文件选择、标题栏）按平台适配；**不做 WebView + CSS 皮肤**。控件使用 Material 3，页面层级、信息密度和操作路径保持一致。
 
@@ -42,6 +41,8 @@
 | M5 | Fabric/Quilt/Forge/NeoForge/OptiFine 安装器与启动接线 | 完成（2026-11-14） |
 | M6 | Java 运行时自动下载、自动补全与管理页 | 完成（2026-11-15） |
 | M7 | 离线与第三方 Yggdrasil / authlib-injector 账户、账户页与启动接线（不含皮肤、不含正版） | 完成（2026-11-15） |
+| M8 | 模组、资源包、光影、世界管理，Modrinth / CurseForge 内容下载页与更新检查 | 完成（2026-11-15） |
+| M9 | 崩溃分析与诊断包、按世界的数据包、整合包导入/导出与在线浏览、拖放导入 | 完成（2026-11-17）；服务器功能同日移除 |
 
 ### 1.2 为什么重构
 
@@ -159,15 +160,20 @@ commonTest
 
 `fg-ffi` 暴露一个异步服务：`fg_service_current` + `fg_rpc_call` + `fg_events_next`。所有命令是 `{"method": "...", "params": {...}}`，返回 `{"ok": true, ...}` 或 `{"ok": false, "error": {kind, messageKey, detail}}`。完整方法表见 [bindings/README.md](../bindings/README.md)。
 
-已实现的方法（M4/M5）：
+已实现的方法（M4–M8）：
 
 - 应用：`app.snapshot`
 - 实例：`instances.list` / `.summary` / `.create` / `.import` / `.rename` / `.favorite` / `.delete` / `.settings.get` / `.settings.set` / `.verify` / `.dir`
 - 版本与安装：`versions.list` / `versions.news` / `version.plan` / `install.start`
 - 加载器：`loaders.versions`；`install.start` 与 `version.plan` 接受 `loaderKind` / `loaderVersion`，安装结果把实际子版本写入 `[loader] version_id`
-- 任务：`tasks.list` / `tasks.cancel`
+- 任务：`tasks.list` / `tasks.pause` / `tasks.resume` / `tasks.cancel`；暂停保留已下载字节，继续通过重放原 RPC 恢复
 - 启动：`launch.start` / `launch.status` / `session.wait` / `session.stop`
 - 日志与设置：`game.log.recent` / `gameConfig.get` / `gameConfig.set`
+- 账户（M7）：`accounts.list` / `.addOffline` / `.select` / `.remove` / `.refresh`；
+  `accounts.yggdrasil.discover` / `.login` / `.selectProfile`
+- Java（M6）：`java.list` / `java.catalog` / `java.install` / `java.remove` / `java.policy.set`
+- 内容（M8）：`content.local` / `.toggle` / `.delete` / `.search` / `.versions` / `.install` / `.updates`
+- 世界（M8）：`worlds.list` / `.backups` / `.backup` / `.restore` / `.delete` / `.backup.delete`
 
 约定：
 
@@ -192,7 +198,7 @@ commonTest
 `commonMain` 包含：
 
 - 四个目的地：主页、实例库、下载、设置（Android 现有底栏结构）。
-- 实例预览 sheet、实例设置 sheet、下载页内的安装流程（版本列表 → 安装页 → 加载器版本页）、目录导入对话框、提示与告警。
+- 实例详情页（精简操作栏 + 模组 / 资源包 / 光影 / 世界管理）、实例设置页、下载页内的安装流程（版本列表 → 安装页 → 加载器版本页）、项目详情 sheet、目录导入对话框、提示与告警。
 - 主题（颜色/字体/圆角/间距）、通用组件（状态胶囊、进度条、实例封面、下拉框、账户头像）。
 - 模型与格式化：`Instance`、`LibraryQuery`、`DownloadFilters`、`InstanceFormat`（kotlinx-datetime）。
 - `AppModel` / `AppState`：实例 CRUD、安装、启动、任务、事件、notice/alert。
@@ -248,6 +254,7 @@ commonTest
   随之下移，Settings 仍固定在底部。
 - `ModalBottomSheet` 的拖拽与滚动回弹在桌面上按桌面习惯调优属于 v2；当前由共享的 `AnimatedSheetHost` 负责保持内容到退场动画结束。
 - 下载页的版本列表在宽窗口采用自适应双列网格，窄窗口为单列；点击版本进入安装页（版本固定、加载器与实例名称同页），加载器版本再从安装页进入独立列表页选择。版本筛选位于页头搜索入口左侧。
+- 实例库与下载页使用同一套子页面模型：实例列表 → 实例详情 → 实例设置；三个页面共用页头、返回手势和 `fograinPageTransition`。详情页的内容分页复用下载页的分类栏与 `fograinTabTransition`，不再使用底部 sheet 管理实例内容。
 - 桌面端不做像素级复刻；以页面结构、信息密度和操作路径一致为准。
 
 ## 4. 数据目录与配置
@@ -267,7 +274,6 @@ commonTest
 ├─ launcher.toml              # 全局设置
 ├─ accounts.json              # 账户元数据（不含令牌/密码）
 ├─ credentials.json           # 第三方令牌（Unix 0600）
-├─ servers.json               # 启动器级服务器收藏
 ├─ shared/
 │  ├─ versions/<id>/
 │  ├─ libraries/
@@ -275,6 +281,7 @@ commonTest
 │  └─ natives/<instance-hash>/
 ├─ instances/<id>/
 │  ├─ instance.toml
+│  ├─ content.json            # M8 内容索引：来源、项目、版本、SHA-1
 │  ├─ .minecraft/             # mods / resourcepacks / shaderpacks / saves / logs / crash-reports …
 │  └─ icon.png
 ├─ runtimes/<vendor>-<component>-<version>-<arch>/
@@ -363,7 +370,7 @@ favorite = true
 | NeoForge | `maven.neoforged.net` maven metadata | installer jar + processors |
 | Forge 1.13+ | BMCLAPI / promotions | installer、`install_profile.json`、processors |
 | Forge 1.5–1.12 | 同上 | 旧 installer 的 `versionInfo` + universal jar |
-| OptiFine | BMCLAPI `/optifine/<mc>` | 自带 Patcher/LaunchWrapper；M5 为独立安装，与 Forge 共存待 M8 |
+| OptiFine | BMCLAPI `/optifine/<mc>` | 自带 Patcher/LaunchWrapper；M5 为独立安装，与 Forge 共存待后续（backlog） |
 
 M5 已实现（细节与验收见 [m5.md](m5.md)）：
 
@@ -420,27 +427,63 @@ M7 只交付离线账户与第三方服务器登录；皮肤管理和微软正�
 
 ### 5.8 内容与实例（`fg-content` / `fg-world`）
 
-- 模组解析：Fabric/Quilt/Forge/NeoForge/旧 Forge/LiteLoader 元数据，只读 jar 内条目；图标缓存。
-- 启用/禁用：`*.jar.disabled`（与 HMCL/PCL/Prism 兼容）。
-- 更新检查：Modrinth `version_files/update`（sha1）、CurseForge fingerprints（murmur2），缓存 6 小时。
-- 资源包/光影：`pack.mcmeta`、`options.txt`、`iris.properties`。
-- 世界：`level.dat`、`icon.png`、`session.lock`、zip 备份与保留策略。
-- 原理图：`.litematic` / `.schem` / `.nbt` 元数据。
-- 文件监听：`notify` + 500ms 去抖。
-- Modrinth / CurseForge：只走 MCIM 镜像访问 CurseForge；镜像不可用时置灰并提示；murmur2 指纹；依赖解析与安装计划。
+M8 已实现实例内容管理、内容下载页与世界备份；细节与验收见 [m8.md](m8.md)。
+
+- 本地内容：`mods/`、`resourcepacks/`、`shaderpacks/` 扫描；Fabric/Quilt/Forge/NeoForge/旧 Forge
+  元数据只读 jar 条目；资源包读取 `pack.mcmeta`；标题、版本、加载器、简介与格式进入实例详情页的内容分页。
+- 启用/禁用：`.disabled` 后缀（与 HMCL/PCL/Prism 兼容），开关即重命名；删除同步清理内容索引。
+- 内容索引：`instances/<id>/content.json` 记录来源、项目、版本与 SHA-1；索引可选，手动放入的文件
+  仍会显示，只是更新来源未知。
+- 更新检查：已索引文件按项目查询最新兼容版本；未索引 Modrinth 文件按 SHA-1 批量查询；
+  CurseForge 未索引文件无法识别指纹，计为未知。
+- 资源包/光影：`pack.mcmeta`、`shaders/` 识别、启用/禁用与在线安装；不解析 `options.txt` /
+  `iris.properties` 的启用顺序。
+- 世界：`saves/` 列表（大小、修改时间、图标标记、`level.dat` 名称/版本/种子/最后游玩）、zip 备份到
+  `backups/<instance>/`、恢复为新世界、删除世界与备份；M9 起解析 `level.dat` 的常用字段。
+- 数据包：`saves/<world>/datapacks/*.zip`，按世界启用/禁用（`.disabled`）、删除、从本地 `.zip` 导入；
+  `pack.mcmeta` 只读 `pack_format` 与文本组件描述。
+- 整合包：Modrinth `.mrpack`、CurseForge `manifest.json`、HMCL `modpack.json` 与 MultiMC/Prism
+  `mmc-pack.json`；zip 包走「基础安装 → 文件图 → overrides → `modpack.json`」，外部目录原地注册；
+  导出把实例内容写进 `overrides/` 生成 `.mrpack`（`<data root>/exports/`）。下载页「整合包」分类
+  复用它：先下载归档（`modpack.install`），再调用同一导入流程；拖放与主页菜单也走这个入口。
+  增量更新留给 M9.1。
+- 数据包：下载页「数据包」分类复用内容浏览器与安装计划，`ContentPlan` 增加 world 目标目录；
+  安装写 `saves/<world>/datapacks`，不写实例内容索引。
+- 在线内容：Modrinth 官方 API 与镜像；CurseForge 只走 MCIM（`official = false`）；必需前置递归
+  解析并作为独立任务节点下载；文件名清理与同批重名处理。
+- 下载任务：`content:<项目>` 任务图，每个文件一个节点，末尾索引节点只在全部成功后写入；
+  SHA-1/SHA-512 校验、内容寻址缓存与镜像回退复用 `fg-net`。
+- 原理图：已从计划移除，不扫描、不下载、不备份、不展示；实例目录不再创建 `schematics/`。
+- 文件监听：`notify` + 500ms 去抖仍为后续项；当前手动刷新内容列表。
 
 ### 5.9 日志与崩溃（`fg-diag`）
 
-- 数据源：最近 stdout、`logs/latest.log`、`crash-reports/*.txt`、`hs_err_pid*.log`。
-- 规则：`fg-diag/rules/*.toml`，字段 `id` / `pattern` / `source` / `captures` / `message_key` / `fix`。
-- 首批规则：Java 版本、内存、显卡/OpenGL、文件损坏、模组缺依赖/重复/冲突、Mixin、OptiFine 冲突、加载器重复、ID 超限、tick 崩溃。
-- 输出：按置信度排序，附模组与一键修复动作。
+M9 已实现规则引擎与诊断包（细节见 [m9.md](m9.md)）。
 
-### 5.10 整合包与服务器
+- 数据源：最近 stdout（事件队列环形缓冲）、`logs/latest.log`、`crash-reports/*.txt`、`hs_err_pid*.log`；
+  日志从文件尾部读取，单源上限 8 MiB / 2000 行。
+- 规则：内嵌 `fg-diag/rules/default.toml`，用户可在 `<data root>/diag/rules/*.toml` 覆盖同 id 规则或
+  用 `disabled = true` 关闭；字段 `id` / `severity` / `source` / `pattern` / `title` / `body` / `fix`。
+- 首批规则：Java 版本/架构、内存、显卡/OpenGL、文件损坏、模组缺依赖/重复/冲突、Mixin、OptiFine 冲突、
+  光影编译、加载器重复、tick 崩溃、世界不兼容。
+- 输出：按 severity → 置信度（崩溃报告 0.92、hs_err 0.86、日志 0.75、stdout 0.6）排序，附命中行、
+  原文片段与修复按钮（`installJava` / `openJavaSettings` / `openContent` / `disableMod` / `openGraphics` / `openLogs`）。
+- 诊断包：`<data root>/diagnostics/<instance>-<时间>.zip`，含 `report.md`、`manifest.json`、
+  `instance.json`（不含账户与令牌）、日志与崩溃报告原文。
 
-- 导入：Modrinth `.mrpack`、CurseForge `.zip`、MultiMC/Prism、HMCL、直接拖入 `.minecraft`。
-- 导出：`.mrpack` 优先，可选目录；更新整合包做增量。
-- 服务器：`servers.json` + `servers.dat` 双向同步；SLP Ping（1.7+ 与旧协议）、SRV、局域网组播发现、Quick Play。
+### 5.10 整合包与数据包
+
+M9 已实现整合包导入/导出/在线浏览与数据包安装（细节见 [m9.md](m9.md)）。服务器列表、Ping、
+SRV、局域网与快速加入已于 2026-11-17 从产品范围移除。
+
+- 导入：Modrinth `.mrpack`、CurseForge `.zip`、HMCL `.zip`、MultiMC/Prism 目录（原地注册）；
+  直接 `.minecraft` 目录仍走 `instances.import`。
+- 导入流程：创建实例（id 去重）→ `install.start` 排队基础游戏与加载器 → 等待完成后排队
+  `整合包:<名称>` 文件图（逐文件下载、`overrides/` 解压、写 `modpack.json`）；CurseForge 文件在节点内
+  解析 MCIM 下载地址。
+- 导出：`.mrpack`（`modrinth.index.json` + `overrides/`）到 `<data root>/exports/`；当前把本地内容全部
+  放进 overrides。
+- 浏览：下载页「整合包」分类接 Modrinth / CurseForge；安装到新实例，下载归档后自动导入。
 - 联机：M12+（EasyTier 类方案）。
 
 ## 6. Android
@@ -475,7 +518,7 @@ Android 上跑 Java 版需要：内置交叉编译的 OpenJDK（Pojav/Amethyst �
 | A5 | 触控层 | 能玩生存 |
 | A6 | Fabric/Quilt 优先，Forge/NeoForge 后台安装 | Sodium 包可运行 |
 | A7 | GPU 适配表与回退 | 设置页可选渲染器 |
-| A8 | 账户、整合包、世界备份、服务器 | 与桌面对齐（除 Java 管理） |
+| A8 | 账户、整合包、世界备份 | 与桌面对齐（除 Java 管理） |
 | A9 | 性能与发热 | 30 分钟稳定 |
 | A10 | 签名与分发 | Android 预览版 |
 
@@ -483,7 +526,7 @@ Android 上跑 Java 版需要：内置交叉编译的 OpenJDK（Pojav/Amethyst �
 
 ### 7.1 已完成
 
-M0–M7 见 §1.1。M4 的实例管理、安装、启动链路已经在 macOS / Windows（代码级）/ Linux / Android 上验证或接线；M5 在 Rust 核心与共享 UI 内完成加载器安装，M6 完成 Java 运行时下载与管理，M7 完成离线与第三方账户登录，均不改变四端外壳契约。
+M0–M9 见 §1.1。M4 的实例管理、安装、启动链路已经在 macOS / Windows（代码级）/ Linux / Android 上验证或接线；M5 在 Rust 核心与共享 UI 内完成加载器安装，M6 完成 Java 运行时下载与管理，M7 完成离线与第三方账户登录，M8 完成实例内容、世界备份与内容下载页，M9 完成诊断、数据包、整合包导入/导出与在线浏览（服务器功能已于同日移除），均不改变四端外壳契约。
 
 ### 7.2 重构阶段（R0–R6）
 
@@ -508,8 +551,8 @@ M0–M7 见 §1.1。M4 的实例管理、安装、启动链路已经在 macOS / 
 | M5 ✅ | Fabric/Quilt/NeoForge/Forge/OptiFine 安装器 | 完成 2026-11-14 |
 | M6 ✅ | Java 运行时自动下载与管理页 | 完成 2026-11-15 |
 | M7 ✅ | 离线账户、Yggdrasil / authlib-injector、账户页与启动接线；皮肤管理移出计划，微软正版留 M11 | 完成 2026-11-15 |
-| M8 | 模组、资源包、光影、世界、原理图、下载页六类资源 | 3 周 |
-| M9 | 整合包、服务器、崩溃分析 | 2 周 |
+| M8 ✅ | 模组、资源包、光影、世界管理，Modrinth / CurseForge 内容下载页与更新检查 | 完成 2026-11-15 |
+| M9 ✅ | 崩溃分析与诊断包、数据包、整合包导入/导出与在线浏览、拖放导入 | 完成 2026-11-17；服务器已移除 |
 | M10 | 设置、i18n、自动更新、签名、发布打磨 | 2 周 |
 | M11 | 微软正版登录（审核通过后） | 1 周 |
 | M12+ | Android 游戏运行时（A0–A10）、联机、更多加载器 | 3–4 个月 / 待定 |
@@ -554,11 +597,20 @@ M6+ 只改 Rust 核心与共享 UI，不再有"每端各接一次"的工作。
 - 账户：`fg-auth` 覆盖 ALI 发现、登录/多角色/刷新/验证、injector 下载校验；`fg-ffi` 覆盖账户
   CRUD 与 Yggdrasil 登录（wiremock，确认令牌不进入 `accounts.json`）；Compose 覆盖账户面板
   状态机与四张离屏截图。
+- 内容：`fg-content` 覆盖本地元数据/索引/启用禁用/删除与 wiremock 的搜索、版本、依赖解析、
+  下载图和索引写入；`fg-ffi` 覆盖 `content.local/toggle/delete` 与 `worlds.*`；Compose 覆盖
+  内容浏览器、项目详情、实例详情页内容分页与离屏截图。
+- 世界：`fg-world` 覆盖世界列表、`level.dat` 解析、zip 备份、`session.lock` 跳过、恢复冲突与备份删除。
+- 诊断：`fg-diag` 覆盖规则加载/覆盖/禁用、来源收集、置信度排序与诊断包内容；`fg-ffi` 覆盖
+  `diag.logs/analyze/export`。
+- 数据包与整合包：`fg-world` 覆盖数据包启停/导入；`fg-content` 覆盖 `.mrpack`/CurseForge/HMCL/MultiMC
+  识别、路径安全与导出、数据包 world 目标目录；Compose 覆盖三个内容分类、拖放遮罩、诊断页、
+  数据包分页、实例页头与整合包确认 sheet 的离屏截图。
 - 端到端：`fg-cli` 在 CI 三平台安装并启动（Linux 用 `xvfb-run`），检查日志关键行。
 - FFI 契约：C ABI 与 JNI 各一套最小调用测试；JSON 字段名与 `bindings/README.md` 对齐，防止漂移。
 - Compose 测试：
   - `commonTest`：`CoreWire`、`InstanceFormat`、`LibraryQuery`、`AppModel` 状态机。
-  - `desktopTest`：Compose UI test（四条导航、打开 sheet、主题切换）。
+  - `desktopTest`：Compose UI test（四条导航、实例详情/设置页、剩余 sheet、主题切换）。
   - Android：Compose UI test + 启动冒烟（无 Java 时验证错误分支）。
 - 视觉：每个平台截关键页面；与 `design/screens`/pen 对照，不要求像素一致。
 - 打包：三 OS 干净机器（或 CI 容器/VM）安装、启动、卸载；签名与公证单独验收。
@@ -567,16 +619,17 @@ M6+ 只改 Rust 核心与共享 UI，不再有"每端各接一次"的工作。
 
 | 页面 | 主要 FFI 操作 / 事件 | 依赖模块 |
 | --- | --- | --- |
-| 主页 | `app.snapshot`、`instances.summary`、`launch.start`、`tasks.list`、`versions.news` | fg-game、fg-net |
+| 主页 | `instances.list`、`launch.start` / `launch.status`、`tasks.list`、`tasks.pause/resume/cancel` | fg-game、fg-net |
 | 实例库 | `instances.list`、`instances.create`、`instances.import`、`instances.favorite` | fg-game |
 | 实例设置 | `instances.settings.get/set`、`instances.verify`、`instances.dir` | fg-core、fg-java |
-| 下载 / 安装 | `versions.list`、`loaders.versions`、`version.plan`、`install.start`、`tasks.cancel`、`task.progress` | fg-net、fg-task、fg-game、fg-loader |
+| 下载 / 安装 / 队列 | `versions.list`、`loaders.versions`、`version.plan`、`install.start`、`tasks.*`、`task.progress` | fg-net、fg-task、fg-game、fg-loader |
 | 游戏会话 | `launch.start`、`launch.status`、`session.wait/stop`、`game.line` | fg-game |
 | 设置 / Java | `gameConfig.get/set`、`java.list/catalog/install/remove/policy.set`、`tasks.*`、`app.snapshot` | fg-core、fg-java |
-| 服务器（M9） | `servers_list`、`server_ping`、`lan_discover` | fg-world |
 | 账户（M7） | `accounts.list/addOffline/select/remove/refresh`、`accounts.yggdrasil.discover/login/selectProfile`、`launch.start` 的 `accountId` | fg-auth |
-| 内容（M8） | `content_search`、`content_versions`、`content_install` | fg-content |
-| 诊断（M9） | `game.log.recent`、`crash_analyze`、`instance_export` | fg-diag |
+| 内容 / 下载页（M8） | `content.local/toggle/delete/search/versions/install/updates` | fg-content |
+| 世界（M8） | `worlds.list/backups/backup/restore/delete/backup.delete` | fg-world |
+| 诊断（M9） | `diag.logs/analyze/export`、`game.log.recent` | fg-diag |
+| 数据包 / 整合包（M9） | `datapacks.*`、`modpack.inspect/import/export` | fg-world、fg-content |
 
 ## 11. 许可与参考边界
 

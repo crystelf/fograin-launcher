@@ -134,7 +134,7 @@ internal class DownloadsActions(private val model: AppModel) {
     fun setCategory(category: DownloadsCategory) {
         if (category == model.state.value.download.category) return
         model.setState {
-            val download = it.download.copy(category = category)
+            val download = it.download.copy(category = category, query = "")
             it.copy(
                 download = if (category == DownloadsCategory.GAME) {
                     download
@@ -143,8 +143,9 @@ internal class DownloadsActions(private val model: AppModel) {
                 },
             )
         }
-        if (category == DownloadsCategory.GAME) {
-            model.scope.launch { loadVersions() }
+        when {
+            category == DownloadsCategory.GAME -> model.scope.launch { loadVersions() }
+            category.isContent -> model.content.openCategory(category)
         }
     }
 
@@ -159,11 +160,18 @@ internal class DownloadsActions(private val model: AppModel) {
     }
 
     fun setContentLoader(loader: ContentLoaderFilter) {
+        if (loader.name == model.state.value.download.contentLoader) return
         model.setState { it.copy(download = it.download.copy(contentLoader = loader.name)) }
+        if (model.state.value.download.category == DownloadsCategory.MODPACK) {
+            model.content.search()
+        }
     }
 
     fun setQuery(query: String) {
         model.setState { it.copy(download = it.download.copy(query = query)) }
+        if (model.state.value.download.category.isContent) {
+            model.content.scheduleSearch()
+        }
     }
 
     // ------------------------------------------------------------------
@@ -527,6 +535,74 @@ internal class DownloadsActions(private val model: AppModel) {
     fun isDownloading(instance: Instance): Boolean =
         pendingDownloadInstanceId == instance.id || model.state.value.isDownloading(instance)
 
+    // ------------------------------------------------------------------
+    // Download queue: one independent page plus inline task controls.
+    // ------------------------------------------------------------------
+
+    fun openQueue() {
+        model.setState { it.copy(downloadQueueOpen = true) }
+        model.scope.launch { model.refreshTaskList() }
+    }
+
+    fun closeQueue() {
+        model.setState { it.copy(downloadQueueOpen = false) }
+    }
+
+    fun pause(taskId: String) {
+        if (taskId.isBlank()) return
+        controlTask("tasks.pause", taskId)
+    }
+
+    fun cancel(taskId: String) {
+        if (taskId.isBlank()) return
+        controlTask("tasks.cancel", taskId)
+    }
+
+    fun resume(taskId: String) {
+        if (taskId.isBlank()) return
+        model.scope.launch {
+            try {
+                val payload = model.core.rpc(
+                    "tasks.resume",
+                    buildJsonObject { put("taskId", taskId) },
+                )
+                val newTaskId = payload.stringOrNull("taskId")
+                if (newTaskId != null) {
+                    if (pendingDownloadTaskId == taskId) {
+                        pendingDownloadTaskId = newTaskId
+                        model.setState {
+                            it.copy(download = it.download.copy(isGameDownloadRunning = true))
+                        }
+                    }
+                }
+                model.showNotice("已继续下载", Notice.Tone.SUCCESS)
+                model.refreshTaskList()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                model.showError("无法继续下载", error)
+                model.scope.launch { model.refreshTaskList() }
+            }
+        }
+    }
+
+    private fun controlTask(method: String, taskId: String) {
+        model.scope.launch {
+            try {
+                model.core.rpc(method, buildJsonObject { put("taskId", taskId) })
+                model.refreshTaskList()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                model.showError(
+                    if (method == "tasks.pause") "无法暂停下载" else "无法停止下载",
+                    error,
+                )
+                model.refreshTaskList()
+            }
+        }
+    }
+
     /** `task.finished` for any task; only ours drives the post-install jump. */
     fun onTaskFinished(event: CoreEvent.TaskFinished) {
         // Java runtime downloads own their notices and reload path in
@@ -560,6 +636,17 @@ internal class DownloadsActions(private val model: AppModel) {
                 model.scope.launch { model.refreshCoreData() }
             }
 
+            "paused" -> {
+                model.showNotice("$title 已暂停")
+                // Keep the pending task id so resuming from the queue still
+                // opens the new instance once the replayed graph finishes.
+                if (isOurDownload) {
+                    model.setState {
+                        it.copy(download = it.download.copy(isGameDownloadRunning = false))
+                    }
+                }
+            }
+
             else -> Unit
         }
     }
@@ -570,15 +657,8 @@ internal class DownloadsActions(private val model: AppModel) {
         val instanceId = pendingDownloadInstanceId ?: return
         pendingDownloadInstanceId = null
         model.refreshCoreData()
-        if (model.state.value.instances.none { it.id == instanceId }) return
-        model.setState {
-            it.copy(
-                currentInstanceId = instanceId,
-                librarySelection = instanceId,
-                destination = AppDestination.LIBRARY,
-                instanceSettingsId = instanceId,
-            )
-        }
+        val instance = model.state.value.instances.firstOrNull { it.id == instanceId } ?: return
+        model.openInstanceDetail(instance)
     }
 
     private fun clearPendingDownload() {
