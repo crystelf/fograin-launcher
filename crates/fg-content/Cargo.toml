@@ -1,6 +1,6 @@
 [package]
 name = "fg-content"
-description = "Modrinth and CurseForge content, local mod parsing and modpacks"
+description = "Local mods/resource packs/shaders, content index and Modrinth/CurseForge downloads"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,3 +9,20 @@ authors.workspace = true
 publish.workspace = true
 
 [dependencies]
+fg-core.workspace = true
+fg-net.workspace = true
+fg-task.workspace = true
+
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha1.workspace = true
+tokio.workspace = true
+time.workspace = true
+toml.workspace = true
+tracing.workspace = true
+zip.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+wiremock.workspace = true

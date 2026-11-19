@@ -36,8 +36,13 @@ import com.fograin.launcher.ui.home.homeDownloadResumeTag
 import com.fograin.launcher.ui.NavBarTag
 import com.fograin.launcher.ui.NavRailTag
 import com.fograin.launcher.ui.content.ContentCheckUpdatesTag
+import com.fograin.launcher.ui.content.ContentDependencyAutoTag
+import com.fograin.launcher.ui.content.ContentDependencyDialogTag
 import com.fograin.launcher.ui.content.ContentInstallTag
+import com.fograin.launcher.ui.content.ContentVersionChannelTag
 import com.fograin.launcher.ui.content.contentProjectTag
+import com.fograin.launcher.ui.content.contentDependencyItemTag
+import com.fograin.launcher.ui.content.contentVersionTag
 import com.fograin.launcher.ui.content.contentTabTag
 import com.fograin.launcher.ui.downloads.ContentTargetTag
 import com.fograin.launcher.ui.downloads.DownloadQueueTag
@@ -214,7 +219,7 @@ class FograinAppUiTest {
     }
 
     @Test
-    fun downloadQueueOpensFromHomeMenuAndHidesNavigation() =
+    fun downloadQueueOpensInsideTheNavigationShell() =
         runDesktopComposeUiTest(width = 1280, height = 900) {
             val appModel = model()
             setContent { App(appModel) }
@@ -228,12 +233,53 @@ class FograinAppUiTest {
             assertTrue(appModel.state.value.downloadQueueOpen)
             onNodeWithTag(DownloadQueueTag).assertIsDisplayed()
             onNodeWithTag(downloadQueueRowTag("task-1")).assertIsDisplayed()
-            onNodeWithTag(NavRailTag).assertDoesNotExist()
+            // The queue shares the instance-detail chrome: rail on the left,
+            // so the back button lines up with every other page.
+            onNodeWithTag(NavRailTag).assertIsDisplayed()
 
             onNodeWithTag(PageHeaderBackTag).performClick()
             waitForIdle()
             assertEquals(false, appModel.state.value.downloadQueueOpen)
-            onNodeWithTag(NavRailTag).assertIsDisplayed()
+            onNodeWithTag(DownloadQueueTag).assertDoesNotExist()
+        }
+
+    @Test
+    fun downloadQueueRailSwitchesDestination() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val appModel = model()
+            setContent { App(appModel) }
+            waitForIdle()
+
+            onNodeWithTag(HomeOverflowTag).performClick()
+            waitForIdle()
+            onNodeWithTag(HomeDownloadQueueTag).performClick()
+            waitForIdle()
+
+            onNodeWithTag(navItemTag(AppDestination.LIBRARY)).performClick()
+            waitForIdle()
+
+            assertEquals(false, appModel.state.value.downloadQueueOpen)
+            assertEquals(AppDestination.LIBRARY, appModel.state.value.destination)
+        }
+
+    @Test
+    fun compactDownloadQueueKeepsTheBottomBar() =
+        runDesktopComposeUiTest(width = 720, height = 900) {
+            val appModel = model()
+            setContent { App(appModel) }
+            waitForIdle()
+
+            onNodeWithTag(HomeOverflowTag).performClick()
+            waitForIdle()
+            onNodeWithTag(HomeDownloadQueueTag).performClick()
+            waitForIdle()
+
+            onNodeWithTag(DownloadQueueTag).assertIsDisplayed()
+            onNodeWithTag(NavBarTag).assertIsDisplayed()
+
+            onNodeWithTag(PageHeaderBackTag).performClick()
+            waitForIdle()
+            assertEquals(false, appModel.state.value.downloadQueueOpen)
         }
 
     @Test
@@ -365,6 +411,21 @@ class FograinAppUiTest {
         }
 
     @Test
+    fun modpackHeaderShowsAllLoadersInsteadOfNewInstance() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val appModel = model()
+            appModel.navigate(AppDestination.DOWNLOADS)
+            setContent { App(appModel) }
+            waitForIdle()
+
+            onNodeWithTag(downloadsCategoryTag(DownloadsCategory.MODPACK)).performClick()
+            waitForIdle()
+
+            onNodeWithText("新实例").assertDoesNotExist()
+            onNodeWithText("全部加载器").assertIsDisplayed()
+        }
+
+    @Test
     fun datapackCategoryPicksAWorldAndInstalls() =
         runDesktopComposeUiTest(width = 1280, height = 900) {
             val appModel = model()
@@ -427,6 +488,42 @@ class FograinAppUiTest {
             onNodeWithTag(contentProjectTag(browser.projects.first())).performClick()
             waitForIdle()
             onNodeWithTag(ContentInstallTag).assertIsDisplayed().performClick()
+            waitForIdle()
+
+            assertEquals("content-task-1", appModel.state.value.contentBrowser.installTaskId)
+            assertEquals(null, appModel.state.value.contentBrowser.selectedProject)
+        }
+
+    @Test
+    fun versionFilterAndDependencyPromptDriveTheInstall() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val appModel = model()
+            appModel.navigate(AppDestination.DOWNLOADS)
+            setContent { App(appModel) }
+            waitForIdle()
+
+            onNodeWithTag(downloadsCategoryTag(DownloadsCategory.MOD)).performClick()
+            waitForIdle()
+
+            val browser = appModel.state.value.contentBrowser
+            onNodeWithTag(contentProjectTag(browser.projects.first())).performClick()
+            waitForIdle()
+
+            // The version dropdown defaults to 正式版; switching to 全部版本
+            // exposes the beta row that carries the required dependency.
+            onNodeWithTag(ContentVersionChannelTag).assertIsDisplayed().performClick()
+            waitForIdle()
+            onNodeWithText("全部版本 (2)").performClick()
+            waitForIdle()
+            onNodeWithTag(contentVersionTag("old-v")).performClick()
+            waitForIdle()
+
+            onNodeWithTag(ContentInstallTag).performClick()
+            waitForIdle()
+
+            onNodeWithTag(ContentDependencyDialogTag).assertIsDisplayed()
+            onNodeWithTag(contentDependencyItemTag("P7dR8mSH")).assertIsDisplayed()
+            onNodeWithTag(ContentDependencyAutoTag).performClick()
             waitForIdle()
 
             assertEquals("content-task-1", appModel.state.value.contentBrowser.installTaskId)

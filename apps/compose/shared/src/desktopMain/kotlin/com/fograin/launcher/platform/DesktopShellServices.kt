@@ -226,3 +226,143 @@ internal object DesktopBackDispatcher : BackDispatcher {
         }
     }
 }
+
+/**
+ * Desktop file picker for `.mrpack` / `.zip` imports and data packs.
+ *
+ * Mirrors [DesktopDirectoryPicker]: the native panel is the primary path
+ * (Finder's `choose file`, Explorer's `OpenFileDialog`, `zenity`), and a Swing
+ * chooser with the system look and feel is the fallback on headless or minimal
+ * Linux installs.
+ */
+internal object DesktopFilePicker : FileBrowser {
+    override val isAvailable: Boolean
+        get() = !GraphicsEnvironment.isHeadless()
+
+    override suspend fun pick(title: String, extensions: List<String>): FilePick {
+        if (!isAvailable) return FilePick.Unavailable("headless")
+        return withContext(Dispatchers.IO) {
+            nativePickFile(title, extensions) ?: swingPickFile(title, extensions)
+        }
+    }
+}
+
+private fun nativePickFile(title: String, extensions: List<String>): FilePick? {
+    val os = System.getProperty("os.name").orEmpty().lowercase()
+    return when {
+        os.contains("mac") -> macPickFile(title, extensions)
+        os.contains("win") -> windowsPickFile(title, extensions)
+        else -> linuxPickFile(title, extensions)
+    }
+}
+
+private fun macPickFile(title: String, extensions: List<String>): FilePick? {
+    val types = extensions
+        .filter { it.isNotBlank() }
+        .joinToString(", ") { "\"${appleScriptQuote(it)}\"" }
+    val script = buildString {
+        append("POSIX path of (choose file with prompt \"")
+        append(appleScriptQuote(title))
+        append('"')
+        if (types.isNotEmpty()) {
+            append(" of type {")
+            append(types)
+            append('}')
+        }
+        append(")")
+    }
+    val result = runCommand(listOf("osascript", "-e", script)) ?: return null
+    if (result.exitCode != 0) {
+        return if (result.output.contains("User canceled", ignoreCase = true) ||
+            result.output.contains("-128")
+        ) {
+            FilePick.Cancelled
+        } else {
+            null
+        }
+    }
+    return pickedFile(result.output.trim())
+}
+
+private fun windowsPickFile(title: String, extensions: List<String>): FilePick? {
+    val filter = if (extensions.isEmpty()) {
+        "*.*"
+    } else {
+        extensions.joinToString(";") { "*.$it" }
+    }
+    val command = buildString {
+        append("Add-Type -AssemblyName System.Windows.Forms; ")
+        append("\$d = New-Object System.Windows.Forms.OpenFileDialog; ")
+        append("\$d.Title = '")
+        append(powershellQuote(title))
+        append("'; ")
+        append("\$d.Filter = '支持的文件|")
+        append(filter)
+        append("'; ")
+        append("if (\$d.ShowDialog() -eq 'OK') { Write-Output \$d.FileName }")
+    }
+    val result = runCommand(
+        listOf("powershell", "-NoProfile", "-STA", "-Command", command),
+    ) ?: return null
+    if (result.exitCode != 0) return FilePick.Unavailable("powershell")
+    val path = result.output.trim()
+    return if (path.isEmpty()) FilePick.Cancelled else pickedFile(path)
+}
+
+private fun linuxPickFile(title: String, extensions: List<String>): FilePick? {
+    val filters = extensions
+        .filter { it.isNotBlank() }
+        .joinToString(" ") { "*.$it" }
+    val zenityCommand = buildList {
+        add("zenity")
+        add("--file-selection")
+        add("--title=$title")
+        if (filters.isNotEmpty()) add("--file-filter=支持的文件 | $filters")
+    }
+    val result = runCommand(zenityCommand) ?: return null
+    if (result.exitCode == 1) {
+        // zenity's documented "cancel" code; do not reopen a Swing dialog.
+        return FilePick.Cancelled
+    }
+    if (result.exitCode != 0) return null
+    return pickedFile(result.output.trim())
+}
+
+private fun pickedFile(path: String): FilePick {
+    val file = File(path)
+    return if (file.isFile && file.canRead()) {
+        FilePick.Picked(file.absolutePath)
+    } else {
+        FilePick.Unavailable("not a file: $path")
+    }
+}
+
+private suspend fun swingPickFile(title: String, extensions: List<String>): FilePick =
+    suspendCancellableCoroutine { continuation ->
+        SwingUtilities.invokeLater {
+            if (!systemLookAndFeelReady) {
+                runCatching { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()) }
+                systemLookAndFeelReady = true
+            }
+            val chooser = JFileChooser().apply {
+                dialogTitle = title
+                fileSelectionMode = JFileChooser.FILES_ONLY
+                isAcceptAllFileFilterUsed = extensions.isEmpty()
+                if (extensions.isNotEmpty()) {
+                    fileFilter = javax.swing.filechooser.FileNameExtensionFilter(
+                        extensions.joinToString(", "),
+                        *extensions.toTypedArray(),
+                    )
+                }
+            }
+            val result = chooser.showOpenDialog(null)
+            val choice = if (result == JFileChooser.APPROVE_OPTION) {
+                chooser.selectedFile?.absolutePath
+            } else {
+                null
+            }
+            if (continuation.isActive) {
+                continuation.resume(choice?.let(::pickedFile) ?: FilePick.Cancelled)
+            }
+        }
+    }

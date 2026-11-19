@@ -130,11 +130,6 @@ internal fun LoaderVersionsPage(
                             )
                         }
                     }
-                    Text(
-                        text = stringResource(Res.string.install_loader_picker_hint, minecraft),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
             }
 

@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.dp
  * Keeps a modal sheet composed while it slides out.
  *
  * The app state drops the sheet's payload the moment the user closes it
- * (`instanceSettingsId = null`, …), so a naive `if (payload != null)` removes
+ * (`account.open = false`, …), so a naive `if (payload != null)` removes
  * the `ModalBottomSheet` before Material can run its exit animation. This host
  * retains the last payload, plays [SheetState.hide], and only then lets the
  * sheet leave the composition. Opening, closing and Esc/back all animate.

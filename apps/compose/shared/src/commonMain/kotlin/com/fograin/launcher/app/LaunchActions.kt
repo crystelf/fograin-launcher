@@ -126,11 +126,24 @@ internal class LaunchActions(private val model: AppModel) {
                         Notice.Tone.SUCCESS,
                     )
                 } else {
-                    model.showError(
-                        "游戏异常退出",
-                        "游戏进程以代码 ${event.exitCode ?: "signal"} 结束。",
-                        "请查看实例目录 logs/ 下的最新日志。",
-                    )
+                    // M9: analyze the crash before showing the alert so the
+                    // message names a likely cause instead of only a path.
+                    model.scope.launch {
+                        val analysis = model.diagnoseCrash(event.instanceId)
+                        val finding = analysis?.findings?.firstOrNull()
+                        val detail = if (finding != null) {
+                            "${finding.title}：${finding.body}\n\n" +
+                                "打开实例设置 → 日志与诊断 查看完整分析与日志。"
+                        } else {
+                            analysis?.summary
+                                ?: "请查看实例目录 logs/ 下的最新日志。"
+                        }
+                        model.showError(
+                            "游戏异常退出",
+                            "游戏进程以代码 ${event.exitCode ?: "signal"} 结束。",
+                            detail,
+                        )
+                    }
                 }
                 model.scope.launch { model.refreshCoreData() }
             }

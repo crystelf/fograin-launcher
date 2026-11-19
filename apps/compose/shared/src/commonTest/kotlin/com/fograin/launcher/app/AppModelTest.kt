@@ -1,5 +1,6 @@
 package com.fograin.launcher.app
 
+import com.fograin.launcher.model.ContentVersionChannel
 import com.fograin.launcher.model.DownloadsCategory
 import com.fograin.launcher.model.GameLoaderKind
 import com.fograin.launcher.model.Instance
@@ -383,6 +384,82 @@ class AppModelTest {
         runCurrent()
         assertEquals("content-task-1", model.state.value.contentBrowser.installTaskId)
         assertNull(model.state.value.contentBrowser.selectedProject)
+    }
+
+    @Test
+    fun contentVersionChannelFiltersTheListAndDefaultsToRelease() = runTest {
+        val model = model(backgroundScope)
+        runCurrent()
+
+        model.setDownloadCategory(DownloadsCategory.MOD)
+        runCurrent()
+
+        model.openContentProject(model.state.value.contentBrowser.projects.first())
+        runCurrent()
+
+        val release = model.state.value.contentBrowser
+        assertEquals(ContentVersionChannel.RELEASE, release.versionChannel)
+        assertEquals(listOf("c3YkZvne"), release.visibleVersions.map { it.versionId })
+        assertEquals("c3YkZvne", release.selectedVersion?.versionId)
+
+        model.setContentVersionChannel(ContentVersionChannel.ALL)
+        runCurrent()
+        assertEquals(3, model.state.value.contentBrowser.visibleVersions.size)
+
+        model.setContentVersionChannel(ContentVersionChannel.BETA)
+        runCurrent()
+        val beta = model.state.value.contentBrowser
+        assertEquals(listOf("beta-v"), beta.visibleVersions.map { it.versionId })
+        assertEquals("beta-v", beta.selectedVersion?.versionId)
+    }
+
+    @Test
+    fun requiredDependenciesPromptBeforeInstalling() = runTest {
+        val core = FakeCore()
+        val model = model(backgroundScope, core)
+        runCurrent()
+
+        model.setDownloadCategory(DownloadsCategory.MOD)
+        runCurrent()
+        model.openContentProject(model.state.value.contentBrowser.projects.first())
+        runCurrent()
+        model.setContentVersionChannel(ContentVersionChannel.BETA)
+        runCurrent()
+
+        model.installSelectedContent()
+        runCurrent()
+
+        val prompt = model.state.value.contentBrowser.dependencyPrompt
+        assertNotNull(prompt, "missing prerequisites should open the dialog")
+        assertEquals("Sodium", prompt.projectName)
+        assertEquals(listOf("Fabric API"), prompt.items.map { it.projectName })
+        assertTrue(core.contentInstallRequests.isEmpty(), "nothing may download before the choice")
+
+        // "仅安装本体" installs the mod without touching the prerequisites.
+        model.confirmContentDependencyPrompt(autoDownload = false)
+        runCurrent()
+        assertEquals("content-task-1", model.state.value.contentBrowser.installTaskId)
+        assertEquals(
+            "false",
+            (core.contentInstallRequests.last()["installDependencies"] as JsonPrimitive).content,
+        )
+        assertNull(model.state.value.contentBrowser.dependencyPrompt)
+
+        // Reopen the beta version and let the launcher pull the prerequisites.
+        model.openContentProject(model.state.value.contentBrowser.projects.first())
+        runCurrent()
+        model.setContentVersionChannel(ContentVersionChannel.BETA)
+        runCurrent()
+        model.installSelectedContent()
+        runCurrent()
+        assertNotNull(model.state.value.contentBrowser.dependencyPrompt)
+
+        model.confirmContentDependencyPrompt(autoDownload = true)
+        runCurrent()
+        assertEquals(
+            "true",
+            (core.contentInstallRequests.last()["installDependencies"] as JsonPrimitive).content,
+        )
     }
 
     @Test

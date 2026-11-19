@@ -34,7 +34,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -79,9 +78,6 @@ internal fun GameInstallPage(
     val version = download.installVersionEntry ?: return
     val loader = download.installLoader
     val loaderVersion = download.installLoaderVersion
-    val needsJava = loader == GameLoaderKind.FORGE ||
-        loader == GameLoaderKind.NEOFORGE ||
-        loader == GameLoaderKind.OPTIFINE
 
     Column(
         modifier = modifier
@@ -113,7 +109,6 @@ internal fun GameInstallPage(
                     model = model,
                     loader = loader,
                     loaderVersion = loaderVersion,
-                    needsJava = needsJava,
                     state = download,
                 )
 
@@ -142,23 +137,6 @@ internal fun GameInstallPage(
                     }
                 }
 
-                Row(
-                    modifier = Modifier.padding(bottom = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.Top,
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Info,
-                        contentDescription = null,
-                        modifier = Modifier.size(15.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        text = stringResource(Res.string.downloads_install_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
             }
         }
 
@@ -355,7 +333,6 @@ private fun LoaderSection(
     model: AppModel,
     loader: GameLoaderKind,
     loaderVersion: String,
-    needsJava: Boolean,
     state: com.fograin.launcher.app.DownloadUiState,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -363,12 +340,6 @@ private fun LoaderSection(
             text = stringResource(Res.string.install_loader),
             style = MaterialTheme.typography.titleMedium,
         )
-        Text(
-            text = stringResource(Res.string.install_loader_hint),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             GameLoaderKind.entries.chunked(2).forEach { row ->
                 Row(
@@ -415,13 +386,6 @@ private fun LoaderSection(
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
-                if (needsJava && state.loaderVersionsError == null) {
-                    Text(
-                        text = stringResource(Res.string.install_loader_java_note),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
             }
         }
     }
@@ -450,11 +414,6 @@ private fun InstanceSection(
             keyboardActions = KeyboardActions(
                 onDone = { focusManager.clearFocus(force = true) },
             ),
-        )
-        Text(
-            text = stringResource(Res.string.install_instance_name_hint),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

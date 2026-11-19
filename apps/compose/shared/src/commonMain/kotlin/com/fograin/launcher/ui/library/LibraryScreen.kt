@@ -1,5 +1,6 @@
 package com.fograin.launcher.ui.library
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,7 +12,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -20,6 +23,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.outlined.Inbox
+import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -45,34 +49,139 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
+import com.fograin.launcher.app.LibraryStage
+import com.fograin.launcher.model.Instance
 import com.fograin.launcher.model.InstanceFormat
 import com.fograin.launcher.model.LibraryQuery
 import com.fograin.launcher.model.LibraryScope
 import com.fograin.launcher.model.LibrarySort
 import com.fograin.launcher.platform.DirectoryPick
 import com.fograin.launcher.platform.platformServices
-import kotlinx.coroutines.launch
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.components.EmptyState
 import com.fograin.launcher.ui.components.PageHeader
 import com.fograin.launcher.ui.components.SectionHeader
+import com.fograin.launcher.ui.components.fograinPageTransition
+import com.fograin.launcher.ui.diagnostics.DiagnosticsPage
+import com.fograin.launcher.ui.instances.InstanceDetailPage
+import com.fograin.launcher.ui.instances.InstanceSettingsPage
 import com.fograin.launcher.ui.title
+import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * Instance library: search, loader filters, sort, grouped table and the
- * inspector sheet. Matches the pen library layout on a single column.
+ * Instance library destination: the grouped list, the instance detail page and
+ * the per-instance settings page.
+ *
+ * The three pages share one `AnimatedContent` stage, exactly like the downloads
+ * destination shares its list / install / loader pages. Clicking a row never
+ * opens an inspector sheet any more; it enters [InstanceDetailPage], where the
+ * content manager lives inline.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(model: AppModel, state: AppUiState) {
-    var searchExpanded by rememberSaveable { mutableStateOf(false) }
+    var listSearchExpanded by rememberSaveable { mutableStateOf(false) }
+    var detailSearchExpanded by rememberSaveable { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    val backDispatcher = remember { platformServices().backDispatcher }
+    val listState = rememberLazyListState()
+    val stage = state.libraryStage
+
+    val closeListSearch: () -> Unit = {
+        listSearchExpanded = false
+        model.setLibraryQuery("")
+        focusManager.clearFocus(force = true)
+    }
+    val closeDetailSearch: () -> Unit = {
+        detailSearchExpanded = false
+        model.setContentQuery("")
+        focusManager.clearFocus(force = true)
+    }
+
+    backDispatcher.handleBack(
+        enabled = (stage == LibraryStage.LIST && listSearchExpanded) ||
+            (stage == LibraryStage.DETAIL && detailSearchExpanded),
+    ) {
+        if (stage == LibraryStage.LIST) closeListSearch() else closeDetailSearch()
+    }
+
+    // Desktop menu / Cmd-F: reveal the list search field.
+    LaunchedEffect(state.librarySearchRequest) {
+        if (state.librarySearchRequest > 0 && stage == LibraryStage.LIST) {
+            listSearchExpanded = true
+        }
+    }
+    // Reopen the content search if a query survived a recomposition; collapse
+    // it when returning to the list.
+    LaunchedEffect(stage) {
+        when (stage) {
+            LibraryStage.DETAIL -> detailSearchExpanded = state.content.query.isNotEmpty()
+            LibraryStage.LIST -> detailSearchExpanded = false
+            LibraryStage.SETTINGS, LibraryStage.DIAGNOSTICS -> Unit
+        }
+    }
+    // A deleted or externally removed instance must not leave a blank page.
+    LaunchedEffect(stage, state.libraryDetailInstance?.id, state.isInitialLoading) {
+        if (stage != LibraryStage.LIST &&
+            state.libraryDetailInstance == null &&
+            !state.isInitialLoading
+        ) {
+            model.closeInstanceDetail()
+        }
+    }
+
+    AnimatedContent(
+        targetState = stage,
+        modifier = Modifier.fillMaxSize(),
+        transitionSpec = {
+            fograinPageTransition(forward = targetState.ordinal > initialState.ordinal)
+        },
+        label = "library-stage",
+    ) { current ->
+        when (current) {
+            LibraryStage.LIST -> LibraryListPage(
+                model = model,
+                state = state,
+                listState = listState,
+                searchExpanded = listSearchExpanded,
+                onSearchExpandedChange = { expanded ->
+                    if (expanded) listSearchExpanded = true else closeListSearch()
+                },
+                onOpenInstance = { instance ->
+                    closeListSearch()
+                    model.openInstanceDetail(instance)
+                },
+            )
+
+            LibraryStage.DETAIL -> InstanceDetailPage(
+                model = model,
+                state = state,
+                searchExpanded = detailSearchExpanded,
+                onSearchExpandedChange = { expanded ->
+                    if (expanded) detailSearchExpanded = true else closeDetailSearch()
+                },
+            )
+
+            LibraryStage.SETTINGS -> InstanceSettingsRoute(model = model, state = state)
+
+            LibraryStage.DIAGNOSTICS -> DiagnosticsPage(model = model, state = state)
+        }
+    }
+}
+
+@Composable
+private fun LibraryListPage(
+    model: AppModel,
+    state: AppUiState,
+    listState: LazyListState,
+    searchExpanded: Boolean,
+    onSearchExpandedChange: (Boolean) -> Unit,
+    onOpenInstance: (Instance) -> Unit,
+) {
     var menuExpanded by remember { mutableStateOf(false) }
     var showDirectoryPicker by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val focusManager = LocalFocusManager.current
     val nowMillis = remember { InstanceFormat.nowMillis() }
-    val backDispatcher = remember { platformServices().backDispatcher }
 
     val sections = remember(
         state.instances,
@@ -88,18 +197,6 @@ fun LibraryScreen(model: AppModel, state: AppUiState) {
         )
     }
 
-    val closeSearch: () -> Unit = {
-        searchExpanded = false
-        model.setLibraryQuery("")
-        focusManager.clearFocus(force = true)
-    }
-
-    backDispatcher.handleBack(enabled = searchExpanded, onBack = closeSearch)
-    // Desktop menu / Cmd-F: the model asks the page to reveal its search field.
-    LaunchedEffect(state.librarySearchRequest) {
-        if (state.librarySearchRequest > 0) searchExpanded = true
-    }
-
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
             PageHeader(
@@ -108,9 +205,7 @@ fun LibraryScreen(model: AppModel, state: AppUiState) {
                 searchQuery = state.libraryQuery,
                 onSearchQueryChange = model::setLibraryQuery,
                 searchExpanded = searchExpanded,
-                onSearchExpandedChange = { expanded ->
-                    if (expanded) searchExpanded = true else closeSearch()
-                },
+                onSearchExpandedChange = onSearchExpandedChange,
                 focusRequest = state.librarySearchRequest,
                 actions = {
                     Box {
@@ -143,6 +238,16 @@ fun LibraryScreen(model: AppModel, state: AppUiState) {
                                 },
                             )
                             DropdownMenuItem(
+                                text = { Text(stringResource(Res.string.modpack_import)) },
+                                leadingIcon = {
+                                    Icon(Icons.Outlined.Inventory2, contentDescription = null)
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    model.startModpackImport()
+                                },
+                            )
+                            DropdownMenuItem(
                                 text = { Text(stringResource(Res.string.library_new_instance)) },
                                 onClick = {
                                     menuExpanded = false
@@ -155,6 +260,7 @@ fun LibraryScreen(model: AppModel, state: AppUiState) {
             )
 
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
@@ -224,10 +330,10 @@ fun LibraryScreen(model: AppModel, state: AppUiState) {
                         }
                         items(items = section.instances, key = { it.id }) { instance ->
                             LibraryRow(
-                                model = model,
                                 instance = instance,
                                 isSelected = state.librarySelection == instance.id,
                                 nowMillis = nowMillis,
+                                onClick = { onOpenInstance(instance) },
                                 modifier = Modifier.animateItem(),
                             )
                         }
@@ -259,6 +365,28 @@ fun LibraryScreen(model: AppModel, state: AppUiState) {
                 showDirectoryPicker = false
                 model.importMinecraftDirectory(directory)
             },
+        )
+    }
+}
+
+/** Header + settings body for the third library stage. */
+@Composable
+private fun InstanceSettingsRoute(model: AppModel, state: AppUiState) {
+    val current = state.libraryDetailInstance
+    var retained by remember { mutableStateOf(current) }
+    LaunchedEffect(current) {
+        if (current != null) retained = current
+    }
+    val instance = current ?: retained ?: return
+    Column(modifier = Modifier.fillMaxSize()) {
+        PageHeader(
+            title = stringResource(Res.string.action_game_settings),
+            onBack = model::closeInstanceSettings,
+        )
+        InstanceSettingsPage(
+            model = model,
+            instance = instance,
+            modifier = Modifier.weight(1f),
         )
     }
 }

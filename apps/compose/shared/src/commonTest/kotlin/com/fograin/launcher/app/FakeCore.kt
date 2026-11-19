@@ -253,7 +253,16 @@ internal class FakeCore : CoreClient {
 
             "content.versions" -> json(
                 """{"ok":true,"source":"modrinth","versions":[
-                  {"source":"modrinth","projectId":"AANobbMI","versionId":"c3YkZvne","name":"Sodium 0.6.13","versionNumber":"0.6.13","gameVersions":["1.21.4"],"loaders":["fabric"],"versionType":"release","file":{"fileName":"sodium.jar","size":100}}
+                  {"source":"modrinth","projectId":"AANobbMI","versionId":"c3YkZvne","name":"Sodium 0.6.13","versionNumber":"0.6.13","gameVersions":["1.21.4"],"loaders":["fabric"],"versionType":"release","published":"2026-11-01T00:00:00Z","file":{"fileName":"sodium.jar","size":100},"dependencies":[]},
+                  {"source":"modrinth","projectId":"AANobbMI","versionId":"beta-v","name":"Sodium 0.7.0-beta","versionNumber":"0.7.0-beta","gameVersions":["1.21.4"],"loaders":["fabric"],"versionType":"beta","published":"2026-11-10T00:00:00Z","file":{"fileName":"sodium-beta.jar","size":120},"dependencies":[{"projectId":"P7dR8mSH","versionId":null,"kind":"required","name":"Fabric API"}]},
+                  {"source":"modrinth","projectId":"AANobbMI","versionId":"alpha-v","name":"Sodium 0.8.0-alpha","versionNumber":"0.8.0-alpha","gameVersions":["1.21.4"],"loaders":["fabric"],"versionType":"alpha","published":"2026-11-15T00:00:00Z","file":{"fileName":"sodium-alpha.jar","size":140},"dependencies":[]}
+                ]}""",
+            )
+
+            "content.plan" -> json(
+                """{"ok":true,"source":"modrinth","projectId":"AANobbMI","projectName":"Sodium","versionId":"beta-v","versionNumber":"0.7.0-beta","kind":"mod","files":2,"totalBytes":220,"warnings":[],"items":[
+                  {"fileName":"sodium-beta.jar","projectId":"AANobbMI","projectName":"Sodium","versionId":"beta-v","versionNumber":"0.7.0-beta","dependency":false,"size":120},
+                  {"fileName":"fabric-api.jar","projectId":"P7dR8mSH","projectName":"Fabric API","versionId":"api-v","versionNumber":"0.119.4","dependency":true,"size":100}
                 ]}""",
             )
 

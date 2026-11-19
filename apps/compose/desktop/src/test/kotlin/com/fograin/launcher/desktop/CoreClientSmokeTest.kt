@@ -2,7 +2,13 @@ package com.fograin.launcher.desktop
 
 import com.fograin.launcher.platform.AppRuntime
 import com.fograin.launcher.platform.CoreAccount
+import com.fograin.launcher.platform.CoreContentLocal
 import com.fograin.launcher.platform.CoreInstanceRow
+import com.fograin.launcher.platform.CoreDatapacks
+import com.fograin.launcher.platform.CoreDiagExport
+import com.fograin.launcher.platform.CoreDiagnostics
+import com.fograin.launcher.platform.CoreModpack
+import com.fograin.launcher.platform.CoreWorlds
 import com.fograin.launcher.platform.decode
 import com.fograin.launcher.platform.createCoreClient
 import com.fograin.launcher.platform.resultRows
@@ -14,6 +20,9 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import java.io.File
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import kotlin.test.Test
 import kotlin.test.assertNotNull
 import kotlin.test.assertEquals
@@ -59,6 +68,146 @@ class CoreClientSmokeTest {
             "java.list must return a runtimes array",
         )
         Unit
+    }
+
+
+    @Test
+    fun contentAndWorldsRoundTripThroughJni() = runBlocking {
+        AppRuntime.dataRoot = TestDataRoot.path
+        val core = createCoreClient()
+        val id = "m8-jni-${System.nanoTime()}"
+        core.rpc(
+            "instances.create",
+            buildJsonObject {
+                put("id", id)
+                put("name", "M8 JNI")
+                put("minecraft", "1.21.4")
+                put("loaderKind", "fabric")
+            },
+        )
+
+        val gameDir = File(TestDataRoot.path, "instances/$id/.minecraft")
+        val pack = File(gameDir, "resourcepacks/M8 Pack")
+        assertTrue(pack.mkdirs())
+        File(pack, "pack.mcmeta").writeText(
+            """{"pack":{"pack_format":34,"description":"JNI pack"}}""",
+        )
+
+        val local = core.rpc(
+            "content.local",
+            buildJsonObject { put("instanceId", id) },
+        ).decode<CoreContentLocal>()
+        assertEquals(1, local.counts.resourcepack)
+        assertEquals("M8 Pack", local.items.first().title)
+        assertEquals(34, local.items.first().packFormat)
+
+        val toggled = core.rpc(
+            "content.toggle",
+            buildJsonObject {
+                put("instanceId", id)
+                put("kind", "resourcepack")
+                put("fileName", "M8 Pack")
+                put("enabled", false)
+            },
+        )
+        assertEquals("M8 Pack.disabled", toggled["fileName"]?.jsonPrimitive?.contentOrNull)
+        assertTrue(File(gameDir, "resourcepacks/M8 Pack.disabled").isDirectory)
+
+        val world = File(gameDir, "saves/New World")
+        assertTrue(world.mkdirs())
+        File(world, "level.dat").writeText("level")
+        val worlds = core.rpc(
+            "worlds.list",
+            buildJsonObject { put("instanceId", id) },
+        ).decode<CoreWorlds>()
+        assertEquals("New World", worlds.worlds.first().name)
+
+        val backup = core.rpc(
+            "worlds.backup",
+            buildJsonObject {
+                put("instanceId", id)
+                put("name", "New World")
+            },
+        )
+        assertNotNull(backup["backup"]?.jsonObject, "worlds.backup must return a backup row")
+        assertEquals(1, backup["backups"]?.jsonArray?.size)
+    }
+
+    @Test
+    fun m9RpcSurfaceRoundTripsThroughJni() = runBlocking {
+        AppRuntime.dataRoot = TestDataRoot.path
+        val core = createCoreClient()
+        val id = "m9-jni-${System.nanoTime()}"
+        core.rpc(
+            "instances.create",
+            buildJsonObject {
+                put("id", id)
+                put("name", "M9 JNI")
+                put("minecraft", "1.21.4")
+                put("loaderKind", "fabric")
+            },
+        )
+        val gameDir = File(TestDataRoot.path, "instances/$id/.minecraft")
+
+        // Data packs: a real zip with pack.mcmeta.
+        val datapacks = File(gameDir, "saves/World/datapacks")
+        assertTrue(datapacks.mkdirs())
+        ZipOutputStream(File(datapacks, "terralith.zip").outputStream()).use { zip ->
+            zip.putNextEntry(ZipEntry("pack.mcmeta"))
+            zip.write("""{"pack":{"pack_format":48,"description":"Terralith"}}""".toByteArray())
+            zip.closeEntry()
+        }
+        val packs = core.rpc(
+            "datapacks.list",
+            buildJsonObject {
+                put("instanceId", id)
+                put("world", "World")
+            },
+        ).decode<CoreDatapacks>()
+        assertEquals(1, packs.items.size)
+        assertEquals("Terralith", packs.items.first().title)
+
+        // Diagnostics: analysis finds the memory crash and export writes a zip.
+        File(gameDir, "logs").mkdirs()
+        File(gameDir, "logs/latest.log").writeText(
+            "[13:20:07] [Render thread/ERROR]: java.lang.OutOfMemoryError: Java heap space\n",
+        )
+        val analysis = core.rpc(
+            "diag.analyze",
+            buildJsonObject { put("instanceId", id) },
+        ).decode<CoreDiagnostics>()
+        assertTrue(
+            analysis.findings.any { it.id == "java.memory" },
+            "diag.analyze did not match the heap error: ${analysis.summary}",
+        )
+        val exported = core.rpc(
+            "diag.export",
+            buildJsonObject { put("instanceId", id) },
+        ).decode<CoreDiagExport>()
+        assertTrue(File(exported.bundle.path).isFile, "diagnostic bundle was not written")
+
+        // Modpacks: inspect a minimal .mrpack.
+        val mrpack = File(TestDataRoot.path, "$id.mrpack")
+        ZipOutputStream(mrpack.outputStream()).use { zip ->
+            zip.putNextEntry(ZipEntry("modrinth.index.json"))
+            zip.write(
+                """
+                {"formatVersion":1,"name":"Calm","versionId":"1.0",
+                 "files":[{"path":"mods/a.jar","fileSize":10,
+                           "hashes":{"sha1":"aa"},"downloads":["https://example.invalid/a.jar"]}],
+                 "dependencies":{"minecraft":"1.21.4","fabric-loader":"0.16.9"}}
+                """.trimIndent().toByteArray(),
+            )
+            zip.closeEntry()
+        }
+        val pack = core.rpc(
+            "modpack.inspect",
+            buildJsonObject { put("path", mrpack.absolutePath) },
+        ).decode<CoreModpack>()
+        assertEquals("modrinth", pack.kind)
+        assertEquals("Calm", pack.name)
+        assertEquals("fabric", pack.loaderKind)
+        assertEquals(1, pack.files.size)
     }
 
     @Test

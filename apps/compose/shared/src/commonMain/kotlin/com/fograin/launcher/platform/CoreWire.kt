@@ -565,6 +565,24 @@ data class CoreContentInstall(
     val items: List<CoreContentInstallItem> = emptyList(),
 )
 
+/** `content.plan` result: the files an install would fetch, without a task. */
+@Serializable
+data class CoreContentPlan(
+    val source: String = "modrinth",
+    val projectId: String = "",
+    val projectName: String = "",
+    val versionId: String = "",
+    val versionNumber: String = "",
+    val kind: String = "mod",
+    val files: Int = 0,
+    val totalBytes: Long = 0,
+    val warnings: List<String> = emptyList(),
+    val items: List<CoreContentInstallItem> = emptyList(),
+) {
+    val dependencies: List<CoreContentInstallItem>
+        get() = items.filter { it.dependency }
+}
+
 /** One available content update. */
 @Serializable
 data class CoreContentUpdate(

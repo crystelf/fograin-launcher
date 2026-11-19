@@ -1,6 +1,7 @@
 package com.fograin.launcher.app
 
 import com.fograin.launcher.model.ContentLoaderFilter
+import com.fograin.launcher.model.ContentVersionChannel
 import com.fograin.launcher.model.DownloadVersionChannel
 import com.fograin.launcher.model.DownloadsCategory
 import com.fograin.launcher.model.GameLoaderKind
@@ -316,6 +317,9 @@ class AppModel internal constructor(
         _state.update {
             it.copy(
                 destination = destination,
+                // The queue behaves like any other in-shell page: picking a
+                // destination leaves it before the page transition runs.
+                downloadQueueOpen = false,
                 // Entering Settings always lands on the main page; leaving a
                 // Java sub-page also resets it so back cannot dismiss an
                 // invisible page later.
@@ -747,6 +751,14 @@ class AppModel internal constructor(
     fun closeContentProject() = content.closeProject()
 
     fun selectContentVersion(versionId: String) = content.selectVersion(versionId)
+
+    fun setContentVersionChannel(channel: ContentVersionChannel) =
+        content.setVersionChannel(channel)
+
+    fun confirmContentDependencyPrompt(autoDownload: Boolean) =
+        content.confirmDependencyPrompt(autoDownload)
+
+    fun dismissContentDependencyPrompt() = content.dismissDependencyPrompt()
 
     fun installSelectedContent() = content.installSelected()
 

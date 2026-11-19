@@ -1,39 +1,35 @@
 package com.fograin.launcher.ui.downloads
 
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.Cancel
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -44,7 +40,6 @@ import com.fograin.launcher.model.InstanceFormat
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.components.EmptyState
 import com.fograin.launcher.ui.components.PageHeader
-import com.fograin.launcher.ui.components.SectionHeader
 import com.fograin.launcher.ui.components.ThinProgressBar
 import com.fograin.launcher.ui.downloadSpeedText
 import com.fograin.launcher.ui.stateText
@@ -61,12 +56,13 @@ fun downloadQueueResumeTag(taskId: String): String = "download-queue-resume-$tas
 fun downloadQueueStopTag(taskId: String): String = "download-queue-stop-$taskId"
 
 /**
- * Full-window download queue.
+ * Full-height download queue page.
  *
- * It is deliberately not a fifth destination: the page opens over the shell
- * from Home or the downloads card, hides the navigation bar, and returns to
- * wherever the user came from. The list is split into live tasks (running or
- * paused) and a short recent history so stopping a task still leaves a trace.
+ * It follows the same shell as the instance detail page: the shared page
+ * header, the navigation rail/bottom bar, and a flat content list with thin
+ * dividers. The previous framed overview card and bordered task cards were
+ * removed so the queue reads as one continuous page instead of a dashboard of
+ * boxes.
  */
 @Composable
 fun DownloadQueueScreen(model: AppModel, state: AppUiState) {
@@ -83,46 +79,44 @@ fun DownloadQueueScreen(model: AppModel, state: AppUiState) {
             title = stringResource(Res.string.download_queue_title),
             onBack = model::closeDownloadQueue,
         )
-        Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+        ) {
+            if (active.isNotEmpty()) {
+                QueueSummary(
+                    runningCount = runningCount,
+                    pausedCount = pausedCount,
+                    speedText = downloadSpeedText(state),
+                )
+            }
+
             LazyColumn(
                 modifier = Modifier
-                    .widthIn(max = 900.dp)
-                    .fillMaxWidth()
-                    .fillMaxHeight(),
-                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 28.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentPadding = PaddingValues(bottom = 28.dp),
             ) {
-                item {
-                    QueueOverview(
-                        runningCount = runningCount,
-                        pausedCount = pausedCount,
-                        speedText = downloadSpeedText(state),
-                    )
-                }
-
-                item {
-                    SectionHeader(
-                        title = stringResource(Res.string.download_queue_active),
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
-
                 if (active.isEmpty()) {
                     item {
-                        Surface(
-                            shape = RoundedCornerShape(18.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerLow,
-                        ) {
-                            EmptyState(
-                                icon = Icons.Outlined.FileDownload,
-                                title = stringResource(Res.string.download_queue_empty_title),
-                                body = stringResource(Res.string.download_queue_empty_body),
-                            )
-                        }
+                        EmptyState(
+                            icon = Icons.Outlined.FileDownload,
+                            title = stringResource(Res.string.download_queue_empty_title),
+                            body = stringResource(Res.string.download_queue_empty_body),
+                        )
                     }
                 } else {
+                    item {
+                        QueueSectionHeader(
+                            title = stringResource(Res.string.download_queue_active),
+                            count = active.size,
+                            modifier = Modifier.padding(top = 12.dp, bottom = 2.dp),
+                        )
+                    }
                     items(items = active, key = { it.id }) { row ->
-                        QueueTaskCard(
+                        QueueTaskRow(
                             row = row,
                             onPause = { model.pauseDownload(row.id) },
                             onResume = { model.resumeDownload(row.id) },
@@ -134,9 +128,10 @@ fun DownloadQueueScreen(model: AppModel, state: AppUiState) {
 
                 if (finished.isNotEmpty()) {
                     item {
-                        SectionHeader(
+                        QueueSectionHeader(
                             title = stringResource(Res.string.download_queue_history),
-                            modifier = Modifier.padding(top = 8.dp),
+                            count = finished.size,
+                            modifier = Modifier.padding(top = 18.dp, bottom = 2.dp),
                         )
                     }
                     items(items = finished, key = { "history-${it.id}" }) { row ->
@@ -148,71 +143,72 @@ fun DownloadQueueScreen(model: AppModel, state: AppUiState) {
     }
 }
 
+/**
+ * One-line status row, deliberately unframed. It mirrors the compact toolbar
+ * row used by the instance content manager.
+ */
 @Composable
-private fun QueueOverview(
+private fun QueueSummary(
     runningCount: Int,
     pausedCount: Int,
     speedText: String,
 ) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(
-            1.dp,
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
-        ),
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.FileDownload,
-                    contentDescription = null,
-                    modifier = Modifier.size(24.dp),
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
-            }
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
-                Text(
-                    text = stringResource(Res.string.download_queue_active),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    text = stringResource(
-                        Res.string.download_queue_summary,
-                        runningCount,
-                        pausedCount,
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Text(
-                text = stringResource(Res.string.download_queue_speed, speedText),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 1,
-            )
-        }
+        Text(
+            text = stringResource(
+                Res.string.download_queue_summary,
+                runningCount,
+                pausedCount,
+            ),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = stringResource(Res.string.download_queue_speed, speedText),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+        )
+    }
+}
+
+/** Compact section title with the row count on the right. */
+@Composable
+private fun QueueSectionHeader(
+    title: String,
+    count: Int,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = count.toString(),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
 @Composable
-private fun QueueTaskCard(
+private fun QueueTaskRow(
     row: DownloadRow,
     onPause: () -> Unit,
     onResume: () -> Unit,
@@ -223,131 +219,96 @@ private fun QueueTaskCard(
     val statusColor = if (paused) {
         MaterialTheme.colorScheme.tertiary
     } else {
-        MaterialTheme.colorScheme.primary
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val percent = "${(row.fraction * 100).toInt().coerceIn(0, 100)}%"
+    val meta = if (paused) {
+        "${stringResource(Res.string.status_paused)} · $percent"
+    } else {
+        stringResource(
+            Res.string.download_queue_speed_value,
+            InstanceFormat.byteRate(row.speed),
+        ) + " · $percent"
     }
 
-    Surface(
+    Column(
         modifier = modifier
             .fillMaxWidth()
             .testTag(downloadQueueRowTag(row.id)),
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        border = BorderStroke(
-            1.dp,
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-        ),
     ) {
-        Column(
-            modifier = Modifier.padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(9.dp),
+        Row(
+            modifier = Modifier.padding(top = 10.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .background(
-                            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
-                            RoundedCornerShape(12.dp),
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.FileDownload,
-                        contentDescription = null,
-                        modifier = Modifier.size(19.dp),
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                    )
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = row.title,
-                        style = MaterialTheme.typography.titleSmall,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = if (paused) {
-                            stringResource(Res.string.status_paused)
-                        } else {
-                            stringResource(
-                                Res.string.download_queue_speed_value,
-                                InstanceFormat.byteRate(row.speed),
-                            )
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = statusColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
                 Text(
-                    text = stringResource(
-                        Res.string.download_queue_percent,
-                        "${(row.fraction * 100).toInt().coerceIn(0, 100)}%",
-                    ),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    text = row.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = meta,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = statusColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-
-            ThinProgressBar(
-                progress = row.fraction,
-                modifier = Modifier.padding(end = 4.dp),
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (paused) {
-                    TextButton(
-                        onClick = onResume,
-                        modifier = Modifier.testTag(downloadQueueResumeTag(row.id)),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.PlayArrow,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.size(5.dp))
-                        Text(stringResource(Res.string.download_queue_resume))
-                    }
-                } else {
-                    TextButton(
-                        onClick = onPause,
-                        modifier = Modifier.testTag(downloadQueuePauseTag(row.id)),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Pause,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.size(5.dp))
-                        Text(stringResource(Res.string.download_queue_pause))
-                    }
-                }
-                TextButton(
-                    onClick = onStop,
-                    modifier = Modifier.testTag(downloadQueueStopTag(row.id)),
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Stop,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.error,
-                    )
-                    Spacer(Modifier.size(5.dp))
-                    Text(
-                        text = stringResource(Res.string.download_queue_stop),
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
+            if (paused) {
+                QueueAction(
+                    icon = Icons.Filled.PlayArrow,
+                    contentDescription = stringResource(Res.string.download_queue_resume),
+                    onClick = onResume,
+                    modifier = Modifier.testTag(downloadQueueResumeTag(row.id)),
+                )
+            } else {
+                QueueAction(
+                    icon = Icons.Filled.Pause,
+                    contentDescription = stringResource(Res.string.download_queue_pause),
+                    onClick = onPause,
+                    modifier = Modifier.testTag(downloadQueuePauseTag(row.id)),
+                )
             }
+            QueueAction(
+                icon = Icons.Filled.Stop,
+                contentDescription = stringResource(Res.string.download_queue_stop),
+                onClick = onStop,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.testTag(downloadQueueStopTag(row.id)),
+            )
         }
+
+        ThinProgressBar(progress = row.fraction)
+        Spacer(Modifier.height(8.dp))
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+        )
+    }
+}
+
+@Composable
+private fun QueueAction(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = modifier.size(40.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            modifier = Modifier.size(18.dp),
+            tint = tint,
+        )
     }
 }
 
@@ -358,22 +319,22 @@ private fun FinishedTaskRow(row: DownloadRow) {
         "failed" -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    val icon = if (row.state == "failed") Icons.Outlined.ErrorOutline else Icons.Outlined.CheckCircle
+    val icon = when (row.state) {
+        "failed" -> Icons.Outlined.ErrorOutline
+        "cancelled" -> Icons.Outlined.Cancel
+        else -> Icons.Outlined.CheckCircle
+    }
 
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-    ) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            modifier = Modifier.padding(vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(17.dp),
                 tint = tone,
             )
             Text(
@@ -385,9 +346,12 @@ private fun FinishedTaskRow(row: DownloadRow) {
             )
             Text(
                 text = row.stateText(),
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.labelSmall,
                 color = tone,
             )
         }
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+        )
     }
 }

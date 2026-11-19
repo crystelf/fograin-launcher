@@ -253,7 +253,6 @@ impl Instance {
             self.game_dir(layout).join("resourcepacks"),
             self.game_dir(layout).join("shaderpacks"),
             self.game_dir(layout).join("saves"),
-            self.game_dir(layout).join("schematics"),
             self.game_dir(layout).join("config"),
             self.game_dir(layout).join("logs"),
             self.game_dir(layout).join("crash-reports"),

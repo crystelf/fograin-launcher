@@ -1,5 +1,6 @@
 package com.fograin.launcher.app
 
+import com.fograin.launcher.model.ContentVersionChannel
 import com.fograin.launcher.model.DownloadVersionChannel
 import com.fograin.launcher.model.DownloadsCategory
 import com.fograin.launcher.model.GameLoaderKind
@@ -10,6 +11,7 @@ import com.fograin.launcher.platform.CoreAccount
 import com.fograin.launcher.platform.CoreAppSnapshot
 import com.fograin.launcher.platform.CoreGameConfig
 import com.fograin.launcher.platform.CoreContentCounts
+import com.fograin.launcher.platform.CoreContentInstallItem
 import com.fograin.launcher.platform.CoreContentProject
 import com.fograin.launcher.platform.CoreContentUpdate
 import com.fograin.launcher.platform.CoreContentVersion
@@ -358,6 +360,14 @@ data class ModpackUiState(
         get() = pack != null && name.isNotBlank() && !isImporting
 }
 
+/** Missing prerequisites shown before a mod install is queued. */
+data class ContentDependencyPrompt(
+    val projectName: String,
+    val items: List<CoreContentInstallItem> = emptyList(),
+    /** Core warnings such as a prerequisite that could not be resolved. */
+    val warnings: List<String> = emptyList(),
+)
+
 /** Downloads page content browser state (M8). */
 data class ContentBrowserUiState(
     val source: ContentSourceOption = ContentSourceOption.MODRINTH,
@@ -375,16 +385,30 @@ data class ContentBrowserUiState(
     val isLoadingVersions: Boolean = false,
     val versionsError: String? = null,
     val selectedVersionId: String? = null,
+    /** Release channel picked in the sheet's 版本 dropdown. */
+    val versionChannel: ContentVersionChannel = ContentVersionChannel.RELEASE,
+    val isCheckingDependencies: Boolean = false,
+    val dependencyPrompt: ContentDependencyPrompt? = null,
     val isInstalling: Boolean = false,
     val installTaskId: String? = null,
 ) {
+    /** Versions matching the selected channel; the list row shows all of them. */
+    val visibleVersions: List<CoreContentVersion>
+        get() = versions.filter { versionChannel.matches(it.versionType) }
+
     val selectedVersion: CoreContentVersion?
-        get() = versions.firstOrNull { it.versionId == selectedVersionId } ?: versions.firstOrNull()
+        get() = visibleVersions.firstOrNull { it.versionId == selectedVersionId }
+            ?: visibleVersions.firstOrNull()
+
+    fun versionCount(channel: ContentVersionChannel): Int =
+        versions.count { channel.matches(it.versionType) }
 
     val canInstall: Boolean
         get() = selectedProject != null &&
             selectedVersion != null &&
-            !isInstalling
+            !isInstalling &&
+            !isCheckingDependencies &&
+            dependencyPrompt == null
 }
 
 /** Everything the Compose shell renders. */

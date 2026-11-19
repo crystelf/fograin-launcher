@@ -27,7 +27,7 @@ data class WindowFrame(
 )
 
 // ---------------------------------------------------------------------------
-// The nine platform interfaces the shared UI depends on. `commonMain` never
+// The platform interfaces the shared UI depends on. `commonMain` never
 // references Android or `java.*` types directly; every capability below has an
 // `androidMain` and a `desktopMain` implementation.
 // ---------------------------------------------------------------------------
@@ -90,6 +90,32 @@ interface DirectoryBrowser {
     fun parentDirectory(path: String): String?
 }
 
+/** Outcome of [FileBrowser.pick]. */
+sealed interface FilePick {
+    /** Absolute path of a readable file. */
+    data class Picked(val path: String) : FilePick
+
+    /** The user dismissed the picker; nothing should happen. */
+    data object Cancelled : FilePick
+
+    /** No native picker, or a document the platform cannot copy to a path. */
+    data class Unavailable(val reason: String) : FilePick
+}
+
+/**
+ * 6b. Single-file picking for `.mrpack`/`.zip` imports and data packs.
+ *
+ * The Rust core only reads filesystem paths, so Android copies the selected
+ * document into the app cache before returning it; desktop returns the native
+ * path untouched. [extensions] are lower-case without the dot and only drive
+ * the filter, never validation.
+ */
+interface FileBrowser {
+    val isAvailable: Boolean
+
+    suspend fun pick(title: String, extensions: List<String>): FilePick
+}
+
 /** Outcome of [DirectoryPicker.pick]. */
 sealed interface DirectoryPick {
     /** Absolute path of a readable directory. */
@@ -140,6 +166,7 @@ data class PlatformServices(
     val clipboard: ClipboardService,
     val preferences: LocalPreferences,
     val directories: DirectoryBrowser,
+    val files: FileBrowser,
     val logger: AppLogger,
     val appearance: SystemAppearance,
     val backDispatcher: BackDispatcher,

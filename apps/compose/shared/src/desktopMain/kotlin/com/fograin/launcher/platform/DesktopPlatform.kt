@@ -79,6 +79,7 @@ private val desktopServices: PlatformServices by lazy {
                 }
         },
         directories = DesktopDirectoryPicker,
+        files = DesktopFilePicker,
         logger = JvmLogger,
         appearance = object : SystemAppearance {
             override val supportsDynamicColor: Boolean = false

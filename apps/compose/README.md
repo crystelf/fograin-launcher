@@ -3,12 +3,18 @@
 One Compose Multiplatform UI for Android, Windows, macOS and Linux. The Rust
 core and the JSON RPC contract are unchanged; this project owns the UI and the
 platform shells. R1/R2 moved the complete M4 surface (home, library, downloads,
-settings, instance settings, the two-page game install flow and the two
-inspector sheets) into `shared/src/commonMain`. M6 adds the Java runtime
+settings, instance settings, the two-page game install flow and the inspector sheets) into
+`shared/src/commonMain`. The instance library is a stage stack now
+(list → instance detail → instance settings / diagnostics), with the content
+manager inline on the detail page. M6 adds the Java runtime
 management page under Settings (inventory, catalog downloads, progress and
-deletion) without adding a fifth navigation destination. The rail also carries
-the global search entry; macOS uses full-window content so the native traffic
-lights sit inside the rail instead of a separate title bar.
+deletion). M9 adds the instance diagnostics page, the data pack tab, real
+download categories for modpacks / data packs / resource packs, a desktop
+drag-and-drop import overlay and the modpack import/export surfaces. The four
+top-level destinations stay home / library / downloads / settings; the instance
+detail header now holds the launch, favourite and overflow actions in one row.
+The rail also carries the global search entry; macOS uses full-window content so
+the native traffic lights sit inside the rail instead of a separate title bar.
 
 ## Layout
 
@@ -36,7 +42,8 @@ expressed through the nine interfaces in
 | 3 | `DeviceInfoProvider` | `ActivityManager` / `Build` | OS bean / `os.arch` |
 | 4 | `ClipboardService` | `ClipboardManager` | AWT clipboard |
 | 5 | `LocalPreferences` | `SharedPreferences` | `java.util.prefs` |
-| 6 | `DirectoryBrowser` | `java.io.File` over the data root | `java.io.File` |
+| 6 | `DirectoryBrowser` | SAF tree picker, mapped back to a path | native panel + `JFileChooser` fallback |
+| 6b | `FileBrowser` | SAF `OpenDocument`, copied into the cache | native panel + `JFileChooser` fallback |
 | 7 | `AppLogger` | `android.util.Log` | stdout |
 | 8 | `SystemAppearance` | Material You + bar icon contrast | Fograin palette, no-op bars |
 | 9 | `BackDispatcher` | `androidx.activity.compose.BackHandler` | no-op until R4 |
@@ -71,14 +78,19 @@ needed.
 # Pure commonMain tests (models, formatting, wire parsing)
 ./apps/compose/gradlew -p apps/compose :shared:desktopTest
 
-# JNI smoke tests + off-screen render of all four pages and three sheets
+# JNI smoke tests + off-screen render of all pages and remaining sheets
 ./apps/compose/gradlew -p apps/compose :desktop:test
 ```
 
 `CoreClientSmokeTest` creates an instance in a temporary data root through the
 real JNI service and asserts `instances.list` returns it. `ScreensRenderTest`
-renders the four destinations and the three sheets with a deterministic fake
-core and writes the PNGs to the temp directory (paths are printed).
+renders the four destinations, the instance detail/settings/diagnostics pages,
+the three content categories, the drag overlay and the remaining sheets with a
+deterministic fake core and writes the PNGs to the temp directory (paths are
+printed). `FograinAppUiTest` covers the home overflow import entry, the instance
+header actions, the modpack/data-pack categories, the diagnostics route and the
+data pack tab. The desktop shell installs an AWT `DropTarget` for `.mrpack` /
+`.zip` / MultiMC folders; the shared UI draws the drop overlay.
 
 ## Android
 

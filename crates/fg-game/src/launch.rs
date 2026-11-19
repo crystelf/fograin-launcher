@@ -326,7 +326,6 @@ impl LaunchPlan {
         {
             game_args.push("--fullscreen".to_string());
         }
-
         let main_class = resolved.main_class()?.to_string();
         let mut args = jvm_args;
         args.push(main_class.clone());

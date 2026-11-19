@@ -26,6 +26,12 @@ class MainActivity : ComponentActivity() {
             AndroidPlatform.onTreePicked(uri)
         }
 
+    /** SAF file picker for modpack / data pack zips (`.mrpack` included). */
+    private val filePicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            AndroidPlatform.onFilePicked(uri)
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -34,6 +40,7 @@ class MainActivity : ComponentActivity() {
         // application context for clipboard, device info and preferences.
         AndroidPlatform.install(this)
         AndroidPlatform.attachTreePicker { treePicker.launch(null) }
+        AndroidPlatform.attachFilePicker { types -> filePicker.launch(types) }
         AppRuntime.dataRoot = (getExternalFilesDir(null) ?: filesDir).absolutePath
         val core = createCoreClient()
 

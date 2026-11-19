@@ -890,9 +890,9 @@ impl Service {
     /// this to list missing prerequisites before the user starts a download.
     async fn content_plan(&self, params: &Value) -> Result<Value> {
         let request: ContentInstallRequest = from_value(params)?;
-        // Always resolve dependencies for the preview; the follow-up
-        // `content.install` decides whether they are downloaded.
-        let plan = self.build_content_plan(&request, true).await?;
+        let plan = self
+            .build_content_plan(&request, request.install_dependencies)
+            .await?;
         Ok(content_plan_summary(&plan))
     }
 
@@ -3777,6 +3777,42 @@ mod tests {
             let summary = service.rpc("instances.summary", json!({})).await.expect("summary");
             assert_eq!(summary["recent"].as_array().expect("recent").len(), 1);
         });
+    }
+
+    #[test]
+    fn content_context_follows_the_instance_version_and_loader() {
+        let (_dir, service) = fixture();
+        service.block_on(async {
+            service
+                .rpc(
+                    "instances.create",
+                    json!({ "id": "forge", "name": "Forge", "minecraft": "1.20.1", "loaderKind": "forge" }),
+                )
+                .await
+                .expect("create");
+        });
+        let instance = service.manager().load("forge").expect("instance");
+
+        // A Forge instance searches Forge mods for its own Minecraft version.
+        assert_eq!(
+            content_context(Some(&instance), ContentKind::Mod, None, None),
+            (Some("1.20.1".to_string()), Some("forge".to_string()))
+        );
+        // Resource packs are version-scoped but loader-agnostic.
+        assert_eq!(
+            content_context(Some(&instance), ContentKind::ResourcePack, None, None),
+            (Some("1.20.1".to_string()), None)
+        );
+        // Explicit callers (the modpack tab) may override the instance context.
+        assert_eq!(
+            content_context(
+                Some(&instance),
+                ContentKind::Modpack,
+                Some("1.21.4"),
+                Some("fabric"),
+            ),
+            (Some("1.21.4".to_string()), Some("fabric".to_string()))
+        );
     }
 
     #[test]

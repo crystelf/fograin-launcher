@@ -9,12 +9,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
@@ -44,6 +38,7 @@ import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.settings.ThemeMode
 import com.fograin.launcher.ui.components.KeyValueRow
+import com.fograin.launcher.ui.components.fograinPageTransition
 import com.fograin.launcher.ui.components.MilestoneChip
 import com.fograin.launcher.ui.components.PageHeader
 import com.fograin.launcher.ui.javaSummary
@@ -69,12 +64,7 @@ fun SettingsScreen(
         targetState = state.settingsStage,
         modifier = Modifier.fillMaxSize(),
         transitionSpec = {
-            val forward = targetState.ordinal > initialState.ordinal
-            val enter = fadeIn(tween(200)) +
-                slideInHorizontally(tween(240)) { if (forward) it / 12 else -it / 12 }
-            val exit = fadeOut(tween(120)) +
-                slideOutHorizontally(tween(180)) { if (forward) -it / 12 else it / 12 }
-            enter togetherWith exit
+            fograinPageTransition(forward = targetState.ordinal > initialState.ordinal)
         },
         label = "settings-stage",
     ) { stage ->

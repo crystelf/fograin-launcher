@@ -1,9 +1,12 @@
 package com.fograin.launcher.ui.components
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -15,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
@@ -25,13 +29,27 @@ fun DropdownField(
     options: List<Pair<String, () -> Unit>>,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    fillWidth: Boolean = false,
+    testTag: String? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box(modifier = modifier) {
         OutlinedButton(
             onClick = { expanded = true },
             enabled = enabled,
-            modifier = Modifier.widthIn(max = 240.dp),
+            modifier = (if (fillWidth) {
+                Modifier.fillMaxWidth()
+            } else {
+                Modifier.widthIn(max = 240.dp)
+            }).then(if (testTag != null) Modifier.testTag(testTag) else Modifier),
+            // Two dropdowns share one row in the content sheet, so the wide
+            // variant trims the default 24 dp side padding to stay legible on
+            // 360 dp phones.
+            contentPadding = if (fillWidth) {
+                PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+            } else {
+                ButtonDefaults.ContentPadding
+            },
         ) {
             Text(
                 text = value,

@@ -67,6 +67,31 @@ object AndroidPlatform {
         pendingPick = sink
     }
 
+    // ---------------------------------------------------------------------
+    // SAF single-file picker (`.mrpack`, `.zip`). The shared layer copies the
+    // document into the cache so the Rust core gets a real path.
+    // ---------------------------------------------------------------------
+
+    @Volatile
+    internal var filePickerLauncher: ((Array<String>) -> Unit)? = null
+
+    @Volatile
+    private var pendingFilePick: ((Uri?) -> Unit)? = null
+
+    fun attachFilePicker(launch: (Array<String>) -> Unit) {
+        filePickerLauncher = launch
+    }
+
+    fun onFilePicked(uri: Uri?) {
+        val sink = pendingFilePick
+        pendingFilePick = null
+        sink?.invoke(uri)
+    }
+
+    internal fun setPendingFilePick(sink: (Uri?) -> Unit) {
+        pendingFilePick = sink
+    }
+
     internal fun contextOrNull(): Context? = appContext
 
     internal fun sharedPreferences(): android.content.SharedPreferences? {
@@ -135,6 +160,7 @@ private val androidServices: PlatformServices by lazy {
                 set(_) = Unit
         },
         directories = AndroidDirectoryPicker,
+        files = AndroidFilePicker,
         logger = object : AppLogger {
             override fun debug(tag: String, message: String) {
                 android.util.Log.d(tag, message)

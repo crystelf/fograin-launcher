@@ -103,6 +103,10 @@ fun DownloadsScreen(model: AppModel, state: AppUiState) {
     // the list scrolled where the user left it.
     val listState = rememberLazyListState()
     val gridState = rememberLazyGridState()
+    val selectedLoader = ContentLoaderFilter.entries
+        .firstOrNull { it.name == state.download.contentLoader }
+        ?: ContentLoaderFilter.ALL
+    var loaderExpanded by remember { mutableStateOf(false) }
 
     val closeSearch: () -> Unit = {
         searchExpanded = false
@@ -178,7 +182,23 @@ fun DownloadsScreen(model: AppModel, state: AppUiState) {
                                 )
                             }
 
-                            category.installsToNewInstance -> NewInstanceChip()
+                            // Modpacks install into a new instance, so the
+                            // "新实例" chip is redundant; the loader filter
+                            // takes its place in the header.
+                            category.installsToNewInstance -> FilterMenuChip(
+                                label = selectedLoader.title(),
+                                expanded = loaderExpanded,
+                                onExpandedChange = { loaderExpanded = it },
+                                options = ContentLoaderFilter.entries.map { loader ->
+                                    MenuOption(
+                                        label = loader.title(),
+                                        selected = loader == selectedLoader,
+                                        onClick = {
+                                            model.setDownloadContentLoader(loader)
+                                        },
+                                    )
+                                },
+                            )
 
                             category.isContent -> {
                                 ContentTargetChip(
@@ -280,33 +300,6 @@ const val DownloadsQueueMenuTag: String = "downloads-queue-menu"
 const val ContentTargetTag: String = "content-target-menu"
 
 fun contentTargetOptionTag(instanceId: String): String = "content-target-option-$instanceId"
-
-/** Static replacement for the target chip on the modpack category. */
-@Composable
-private fun NewInstanceChip() {
-    AssistChip(
-        onClick = {},
-        enabled = false,
-        label = {
-            Text(
-                text = stringResource(Res.string.downloads_content_target_new_instance),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        },
-        shape = CircleShape,
-        colors = AssistChipDefaults.assistChipColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            labelColor = MaterialTheme.colorScheme.onSurface,
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        ),
-        border = BorderStroke(
-            1.dp,
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
-        ),
-    )
-}
 
 /**
  * Target instance selector for the content categories. It lives in the page
@@ -458,9 +451,6 @@ private fun DownloadsBody(
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val wide = maxWidth >= 880.dp
         val scope = rememberCoroutineScope()
-        val selectedLoader = ContentLoaderFilter.entries
-            .firstOrNull { it.name == download.contentLoader }
-            ?: ContentLoaderFilter.ALL
 
         Column(
             modifier = Modifier
@@ -471,9 +461,7 @@ private fun DownloadsBody(
 
             DownloadToolbar(
                 category = category,
-                selectedLoader = selectedLoader,
                 onCategoryChange = model::setDownloadCategory,
-                onLoaderChange = model::setDownloadContentLoader,
             )
 
             Spacer(Modifier.height(14.dp))
@@ -529,43 +517,16 @@ private fun DownloadsBody(
 @Composable
 private fun DownloadToolbar(
     category: DownloadsCategory,
-    selectedLoader: ContentLoaderFilter,
     onCategoryChange: (DownloadsCategory) -> Unit,
-    onLoaderChange: (ContentLoaderFilter) -> Unit,
 ) {
-    var loaderExpanded by remember { mutableStateOf(false) }
-
-    Row(
+    SegmentedTabRail(
+        options = DownloadsCategory.entries,
+        selected = category,
+        onSelect = onCategoryChange,
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        SegmentedTabRail(
-            options = DownloadsCategory.entries,
-            selected = category,
-            onSelect = onCategoryChange,
-            modifier = Modifier.weight(1f),
-            tabModifier = { option -> Modifier.testTag(downloadsCategoryTag(option)) },
-            label = { option -> option.title() },
-        )
-
-        when (category) {
-            DownloadsCategory.MODPACK -> FilterMenuChip(
-                label = selectedLoader.title(),
-                expanded = loaderExpanded,
-                onExpandedChange = { loaderExpanded = it },
-                options = ContentLoaderFilter.entries.map { loader ->
-                    MenuOption(
-                        label = loader.title(),
-                        selected = loader == selectedLoader,
-                        onClick = { onLoaderChange(loader) },
-                    )
-                },
-            )
-
-            else -> Unit
-        }
-    }
+        tabModifier = { option -> Modifier.testTag(downloadsCategoryTag(option)) },
+        label = { option -> option.title() },
+    )
 }
 
 private data class MenuOption(

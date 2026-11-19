@@ -99,6 +99,36 @@ class CoreWireTest {
     }
 
     @Test
+    fun diagnosticsAndModpackPayloadsDecode() {
+        val logs = json(
+            """{"ok":true,"rules":15,"crash":{"description":"Rendering screen","minecraft":"1.21.4","java":"21"},
+              "sources":[{"kind":"crash","name":"crash.txt","path":"/tmp/crash.txt","exists":true,"sizeBytes":12,"lines":2}],
+              "texts":{"log":"a\nb","crash":"c"}}""",
+        ).decode<CoreDiagLogs>()
+        assertEquals(15, logs.rules)
+        assertEquals("c", logs.texts.crash)
+        assertEquals(2, logs.sources[0].lines)
+
+        val analysis = json(
+            """{"ok":true,"findings":[{"id":"java.memory","severity":"error","confidence":0.92,"title":"内存不足","body":"b","excerpt":"e","line":4,"source":"崩溃报告","sourceKind":"crash","fix":"openJavaSettings"}],
+              "severity":"error","summary":"s","scannedLines":13,"rules":15,"analyzedAtMs":1}""",
+        ).decode<CoreDiagnostics>()
+        assertEquals("java.memory", analysis.findings[0].id)
+        assertEquals("openJavaSettings", analysis.findings[0].fix)
+        assertEquals(0.92f, analysis.findings[0].confidence)
+
+        val pack = json(
+            """{"ok":true,"kind":"curseForge","name":"Pack","version":"2.0","minecraft":"1.20.1","loaderKind":"forge","loaderVersion":"47.2.0",
+              "files":[{"path":"mods/curseforge-1-2.jar","size":100,"projectId":"1","fileId":2}],
+              "overrides":"overrides","sourcePath":"/tmp/pack.zip","external":false,"skipped":1}""",
+        ).decode<CoreModpack>()
+        assertEquals("curseForge", pack.kind)
+        assertEquals(100, pack.totalBytes)
+        assertEquals(1, pack.fileCount)
+        assertEquals(1, pack.skipped)
+    }
+
+    @Test
     fun eventParserHandlesEveryQueueType() {
         val progress = CoreEvent.parse(
             json("""{"type":"task.progress","taskId":"task-1","name":"install:1.21.4","fraction":0.5,"speed":123.0}"""),

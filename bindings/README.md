@@ -81,7 +81,8 @@ owns the boundary between them.
 | `content.delete` | `{instanceId, kind, fileName}` → `{ok}`; also removes the content index entry |
 | `content.search` | `{source?, kind, query, instanceId?, gameVersion?, loader?, offset?, limit?}` → `{source, projects, total, offset, limit}`; `source` is `modrinth` (default) or `curseforge` |
 | `content.versions` | `{source?, projectId, kind, instanceId?, gameVersion?, loader?}` → `{source, project, versions}` |
-| `content.install` | `{source?, projectId, versionId?, instanceId, kind, world?, replaceFiles?}` → `{taskId, projectName, versionId, files, totalBytes, items, warnings}`; queues a `content:<project>` task and resolves required dependencies. `kind` may be `datapack`, which requires `world` |
+| `content.plan` | `{source?, projectId, versionId?, instanceId, kind, world?}` → `{source, projectName, versionId, files, totalBytes, items, warnings}`; resolves required dependencies without queueing a task, used to list missing prerequisites |
+| `content.install` | `{source?, projectId, versionId?, instanceId, kind, world?, replaceFiles?, installDependencies?}` → `{taskId, projectName, versionId, files, totalBytes, items, warnings}`; queues a `content:<project>` task and resolves required dependencies. `installDependencies` defaults to `true`; `false` installs only the requested project. `kind` may be `datapack`, which requires `world` |
 | `content.updates` | `{instanceId, kind?}` → `{checked, updates, unknown, warnings}`; indexed projects plus Modrinth SHA-1 lookups |
 | `worlds.list` | `{instanceId}` → `{worlds:[World], backups:[Backup]}` |
 | `worlds.backups` | `{instanceId}` → `{backups:[Backup]}` |

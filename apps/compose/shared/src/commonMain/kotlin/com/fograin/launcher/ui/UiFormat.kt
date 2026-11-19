@@ -2,9 +2,11 @@ package com.fograin.launcher.ui
 
 import androidx.compose.runtime.Composable
 import com.fograin.launcher.app.AppUiState
+import com.fograin.launcher.app.ContentManagerTab
 import com.fograin.launcher.app.DownloadRow
 import com.fograin.launcher.app.HomeFilter
 import com.fograin.launcher.model.ContentLoaderFilter
+import com.fograin.launcher.model.ContentVersionChannel
 import com.fograin.launcher.model.DownloadVersionChannel
 import com.fograin.launcher.model.DownloadsCategory
 import com.fograin.launcher.model.InstanceFormat
@@ -101,7 +103,34 @@ fun ContentLoaderFilter.title(): String = when (this) {
     ContentLoaderFilter.NEOFORGE -> "NeoForge"
     ContentLoaderFilter.FABRIC -> "Fabric"
     ContentLoaderFilter.QUILT -> "Quilt"
-    ContentLoaderFilter.OPTIFINE -> "OptiFine"
+}
+
+@Composable
+fun ContentVersionChannel.title(): String = stringResource(
+    when (this) {
+        ContentVersionChannel.RELEASE -> Res.string.content_version_release
+        ContentVersionChannel.BETA -> Res.string.content_version_beta
+        ContentVersionChannel.ALPHA -> Res.string.content_version_alpha
+        ContentVersionChannel.ALL -> Res.string.content_version_all
+    },
+)
+
+@Composable
+fun ContentManagerTab.title(): String = when (this) {
+    ContentManagerTab.MODS -> stringResource(Res.string.content_tab_mods)
+    ContentManagerTab.RESOURCE_PACKS -> stringResource(Res.string.content_tab_resourcepacks)
+    ContentManagerTab.SHADER_PACKS -> stringResource(Res.string.content_tab_shaderpacks)
+    ContentManagerTab.WORLDS -> stringResource(Res.string.content_tab_worlds)
+    ContentManagerTab.DATAPACKS -> stringResource(Res.string.content_tab_datapacks)
+}
+
+@Composable
+fun ContentManagerTab.emptyTitle(): String = when (this) {
+    ContentManagerTab.MODS -> stringResource(Res.string.content_empty_mods)
+    ContentManagerTab.RESOURCE_PACKS -> stringResource(Res.string.content_empty_resourcepacks)
+    ContentManagerTab.SHADER_PACKS -> stringResource(Res.string.content_empty_shaderpacks)
+    ContentManagerTab.WORLDS -> stringResource(Res.string.content_empty_worlds)
+    ContentManagerTab.DATAPACKS -> stringResource(Res.string.datapack_empty_title)
 }
 
 @Composable

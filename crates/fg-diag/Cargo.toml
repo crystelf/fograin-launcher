@@ -9,3 +9,18 @@ authors.workspace = true
 publish.workspace = true
 
 [dependencies]
+fg-core.workspace = true
+
+# `zip`'s deflate feature only selects flate2; one crate in the graph must
+# enable a flate2 backend. fg-world does the same.
+flate2 = "1.1.10"
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+time.workspace = true
+toml.workspace = true
+tracing.workspace = true
+zip.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -81,4 +81,9 @@ class InstanceFormatTest {
         assertEquals("1.21.4 · Fabric · 42 模组", instance.meta)
         assertEquals("1.21.4 · Fabric 0.16.9", instance.versionLine)
     }
+
+    @Test
+    fun contentTasksReadAsInstallNotRawGraphNames() {
+        assertEquals("安装 Sodium", InstanceFormat.taskTitle("content:Sodium"))
+    }
 }

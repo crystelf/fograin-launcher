@@ -91,10 +91,11 @@ internal class LibraryActions(private val model: AppModel) {
         model.scope.launch {
             try {
                 model.core.rpc("instances.delete", buildJsonObject { put("id", instance.id) })
+                model.content.clear(instance.id)
                 model.setState {
                     it.copy(
-                        instanceSettingsId = null,
-                        previewInstanceId = null,
+                        libraryStage = LibraryStage.LIST,
+                        libraryDetailId = null,
                         librarySelection = null,
                     )
                 }

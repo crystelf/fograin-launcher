@@ -1,0 +1,145 @@
+# Built-in M9 crash-analysis rules.
+#
+# Every rule matches one or more log lines; the analysis keeps the first match
+# with the highest source confidence. `source` is one of `log`, `crash`,
+# `hsErr`, `any`. `fix` drives the repair button on the finding card:
+# `installJava`, `openJavaSettings`, `openContent`, `disableMod`,
+# `openGraphics`, `openLogs` or `none`.
+#
+# Users can override any rule, or turn it off with `disabled = true`, from
+# `<data root>/diag/rules/*.toml`.
+
+[[rule]]
+id = "java.version"
+severity = "error"
+source = "any"
+pattern = 'UnsupportedClassVersionError|has been compiled by a more recent version of the Java Runtime|class file version \d+\.\d+'
+title = "Java 版本不匹配"
+body = "游戏或模组需要更高版本的 Java。请在实例设置里换用更新的 Java 运行时，或开启自动下载。"
+fix = "installJava"
+
+[[rule]]
+id = "java.memory"
+severity = "error"
+source = "any"
+pattern = 'OutOfMemoryError|Java heap space|GC overhead limit exceeded|Could not reserve enough space for object heap'
+title = "内存不足"
+body = "分配的内存不足以加载这个实例。请在实例设置里提高最大内存，或减少同时启用的模组。"
+fix = "openJavaSettings"
+
+[[rule]]
+id = "java.architecture"
+severity = "error"
+source = "any"
+pattern = 'mismatched architecture|no ig4icd64 in java\.library\.path|Unable to load library.*(64|32)-bit|incompatible architecture'
+title = "Java 架构不匹配"
+body = "原生库与当前 Java 的架构不一致。Apple 芯片上的旧版本需要 x86_64 Java 8（Rosetta），或改用在 arm64 Java 下运行的版本。"
+fix = "openJavaSettings"
+
+[[rule]]
+id = "graphics.driver"
+severity = "error"
+source = "any"
+pattern = 'Pixel format not accelerated|The driver does not appear to support OpenGL|Failed to create (the )?window|OpenGLException|Incompatible graphics driver|GLFW error'
+title = "显卡驱动或 OpenGL 不可用"
+body = "游戏无法创建 OpenGL 上下文。请更新显卡驱动，或确认远程桌面/虚拟机允许硬件加速。"
+fix = "openGraphics"
+
+[[rule]]
+id = "graphics.opengl"
+severity = "warning"
+source = "any"
+pattern = 'Requires OpenGL [0-9]|OpenGL [0-9]\.[0-9].*not supported|unsupported OpenGL version|OpenGL profile not available'
+title = "OpenGL 版本过低"
+body = "这个版本需要更新的 OpenGL。请更新显卡驱动；旧显卡可改用在 OpenGL 2.1 下运行的版本或光影。"
+fix = "openGraphics"
+
+[[rule]]
+id = "file.corrupt"
+severity = "error"
+source = "any"
+pattern = 'ZipException|invalid LOC header|zip END header not found|Invalid or corrupt jarfile|Corrupted (zip|jar)|unexpected end of (stream|ZIP)'
+title = "游戏文件损坏"
+body = "某个 jar 或下载文件不完整。请在下载页重新安装这个版本，或删除损坏的文件后刷新。"
+fix = "openContent"
+
+[[rule]]
+id = "mod.dependency"
+severity = "error"
+source = "any"
+pattern = 'Missing or unsupported mandatory dependencies|requires .* which is missing|NoClassDefFoundError|ClassNotFoundException|ModResolutionException|Incompatible mod set'
+title = "缺少模组前置"
+body = "有模组缺少必需的前置或依赖了不存在的类。请在模组页检查依赖，或重新安装缺前置的模组。"
+fix = "openContent"
+
+[[rule]]
+id = "mod.duplicate"
+severity = "warning"
+source = "any"
+pattern = 'Duplicate mod|duplicate mods|already registered by|Duplicate fabric mod|two mods with the same id'
+title = "重复安装同名模组"
+body = "同一个模组被放入了多个版本。请只保留一个版本，再重新启动游戏。"
+fix = "openContent"
+
+[[rule]]
+id = "mod.conflict"
+severity = "warning"
+source = "any"
+pattern = 'Conflicting mods|mod conflict|incompatible with|is not compatible with'
+title = "模组互相冲突"
+body = "两个模组提供了相同的功能或依赖了冲突的版本。请逐个禁用最近加入的模组来定位。"
+fix = "openContent"
+
+[[rule]]
+id = "mixin.failure"
+severity = "error"
+source = "any"
+pattern = 'Mixin (apply|transformer).*failed|MixinTransformerError|InvalidMixinException|MixinException|Unable to apply mixin'
+title = "Mixin 注入失败"
+body = "模组注入失败通常由模组版本与游戏版本不匹配引起。请更新或临时禁用最近安装的模组。"
+fix = "disableMod"
+
+[[rule]]
+id = "optifine.conflict"
+severity = "warning"
+source = "any"
+pattern = 'OptiFine.*(conflict|incompatible)|[Oo]pti[Ff]ine.*(sodium|iris)|(sodium|iris).*optifine|OptiFine is not compatible'
+title = "OptiFine 与其它渲染模组冲突"
+body = "OptiFine 不能与 Sodium / Iris 同时使用。请只保留一种渲染方案。"
+fix = "disableMod"
+
+[[rule]]
+id = "shader.compile"
+severity = "warning"
+source = "log"
+pattern = 'Shader compilation failed|Failed to compile (vertex|fragment|geometry) shader|shader.*link.*error'
+title = "光影编译失败"
+body = "这个光影与当前显卡或光影加载器不兼容。请换一个光影，或更新 Iris / OptiFine。"
+fix = "openContent"
+
+[[rule]]
+id = "loader.duplicate"
+severity = "warning"
+source = "any"
+pattern = 'Found duplicate (loader|version)|duplicate (fabric|forge|neoforge|quilt)-loader|loader .* already installed'
+title = "加载器重复"
+body = "实例里出现了多份加载器配置。请重新安装这个版本，让启动器整理版本文件。"
+fix = "openLogs"
+
+[[rule]]
+id = "tick.crash"
+severity = "error"
+source = "any"
+pattern = 'Exception in server tick loop|Exception ticking (world|entity)|Ticking (entity|block)|Exception in thread "Server thread"'
+title = "游戏逻辑崩溃"
+body = "某个实体、方块或模组在游戏主循环里抛出了异常。请查看日志里的第一段 at 堆栈，禁用相关模组后重试。"
+fix = "openLogs"
+
+[[rule]]
+id = "world.incompatible"
+severity = "warning"
+source = "any"
+pattern = 'Unable to load world|Unsupported level version|level\.dat.*(corrupt|invalid)|Failed to load (chunk|world)'
+title = "世界存档无法加载"
+body = "存档版本或数据与当前实例不匹配。可以用备份恢复为新世界，或换回创建存档时的版本。"
+fix = "openLogs"

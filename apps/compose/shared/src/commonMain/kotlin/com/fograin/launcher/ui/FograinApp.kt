@@ -138,11 +138,7 @@ fun FograinApp(
         // so move the whole header below them. The body then behaves like a
         // phone layout instead of being squeezed to the right.
         val pageHeaderTopInset =
-            if (services.platformName == "macos" &&
-                (!expanded || state.downloadQueueOpen)
-            ) {
-                // Without the rail the queue header owns the top-left corner;
-                // keep its back button clear of the native traffic lights.
+            if (services.platformName == "macos" && !expanded) {
                 40.dp
             } else {
                 0.dp
@@ -162,20 +158,21 @@ fun FograinApp(
                 }
             },
             bottomBar = {
-                if (!expanded && !state.downloadQueueOpen) {
+                if (!expanded) {
                     NavigationBar(
                         modifier = Modifier.testTag(NavBarTag),
                         containerColor = MaterialTheme.colorScheme.surfaceContainer,
                     ) {
                         AppDestination.entries.forEach { item ->
+                            val selected = !state.downloadQueueOpen && item == state.destination
                             NavigationBarItem(
                                 modifier = Modifier.testTag(navItemTag(item)),
-                                selected = item == state.destination,
+                                selected = selected,
                                 onClick = { model.navigate(item) },
                                 icon = {
                                     DestinationIcon(
                                         destination = item,
-                                        selected = item == state.destination,
+                                        selected = selected,
                                         activeDownloads = state.activeDownloadCount,
                                     )
                                 },
@@ -194,87 +191,91 @@ fun FograinApp(
                 CompositionLocalProvider(
                     LocalPageHeaderTopInset provides pageHeaderTopInset,
                 ) {
-                    AnimatedContent(
-                        targetState = state.downloadQueueOpen,
-                        modifier = Modifier.fillMaxSize(),
-                        transitionSpec = {
-                            fograinPageTransition(forward = targetState)
-                        },
-                        label = "queue-page",
-                    ) { queueOpen ->
-                        if (queueOpen) {
-                            DownloadQueueScreen(model = model, state = state)
-                        } else {
-                            Row(modifier = Modifier.fillMaxSize()) {
-                                if (expanded) {
-                                    NavigationRail(
-                                        modifier = Modifier.testTag(NavRailTag),
-                                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.fillMaxHeight(),
-                                            verticalArrangement = Arrangement.SpaceBetween,
-                                        ) {
-                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                // Align the search button with the first
-                                                // content card (the home hero image).
-                                                Spacer(
-                                                    Modifier.height(
-                                                        headerHeight + PageHeaderMetrics.ContentGap,
-                                                    ),
-                                                )
-                                                RailSearchButton(onClick = model::openGlobalSearch)
-                                                Spacer(Modifier.height(24.dp))
-                                                AppDestination.entries
-                                                    .filter { it != AppDestination.SETTINGS }
-                                                    .forEachIndexed { index, item ->
-                                                        if (index > 0) Spacer(Modifier.height(18.dp))
-                                                        NavigationRailItem(
-                                                            modifier = Modifier.testTag(navItemTag(item)),
-                                                            selected = item == state.destination,
-                                                            onClick = { model.navigate(item) },
-                                                            icon = {
-                                                                DestinationIcon(
-                                                                    destination = item,
-                                                                    selected = item == state.destination,
-                                                                    activeDownloads = state.activeDownloadCount,
-                                                                )
-                                                            },
-                                                            label = { Text(stringResource(item.label)) },
-                                                        )
-                                                    }
-                                            }
-                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                HorizontalDivider(
-                                                    modifier = Modifier.width(36.dp),
-                                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
-                                                )
-                                                Spacer(Modifier.height(4.dp))
-                                                val settings = AppDestination.SETTINGS
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        if (expanded) {
+                            NavigationRail(
+                                modifier = Modifier.testTag(NavRailTag),
+                                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxHeight(),
+                                    verticalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        // Align the search button with the first
+                                        // content card (the home hero image).
+                                        Spacer(
+                                            Modifier.height(
+                                                headerHeight + PageHeaderMetrics.ContentGap,
+                                            ),
+                                        )
+                                        RailSearchButton(onClick = model::openGlobalSearch)
+                                        Spacer(Modifier.height(24.dp))
+                                        AppDestination.entries
+                                            .filter { it != AppDestination.SETTINGS }
+                                            .forEachIndexed { index, item ->
+                                                if (index > 0) Spacer(Modifier.height(18.dp))
+                                                val selected = !state.downloadQueueOpen &&
+                                                    item == state.destination
                                                 NavigationRailItem(
-                                                    modifier = Modifier.testTag(navItemTag(settings)),
-                                                    selected = settings == state.destination,
-                                                    onClick = { model.navigate(settings) },
+                                                    modifier = Modifier.testTag(navItemTag(item)),
+                                                    selected = selected,
+                                                    onClick = { model.navigate(item) },
                                                     icon = {
                                                         DestinationIcon(
-                                                            destination = settings,
-                                                            selected = settings == state.destination,
+                                                            destination = item,
+                                                            selected = selected,
                                                             activeDownloads = state.activeDownloadCount,
                                                         )
                                                     },
-                                                    label = { Text(stringResource(settings.label)) },
+                                                    label = { Text(stringResource(item.label)) },
                                                 )
-                                                Spacer(Modifier.height(12.dp))
                                             }
-                                        }
                                     }
-                                    VerticalDivider()
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        HorizontalDivider(
+                                            modifier = Modifier.width(36.dp),
+                                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                                        )
+                                        Spacer(Modifier.height(4.dp))
+                                        val settings = AppDestination.SETTINGS
+                                        val selected = !state.downloadQueueOpen &&
+                                            settings == state.destination
+                                        NavigationRailItem(
+                                            modifier = Modifier.testTag(navItemTag(settings)),
+                                            selected = selected,
+                                            onClick = { model.navigate(settings) },
+                                            icon = {
+                                                DestinationIcon(
+                                                    destination = settings,
+                                                    selected = selected,
+                                                    activeDownloads = state.activeDownloadCount,
+                                                )
+                                            },
+                                            label = { Text(stringResource(settings.label)) },
+                                        )
+                                        Spacer(Modifier.height(12.dp))
+                                    }
                                 }
+                            }
+                            VerticalDivider()
+                        }
+                        AnimatedContent(
+                            targetState = state.downloadQueueOpen,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                            transitionSpec = {
+                                fograinPageTransition(forward = targetState)
+                            },
+                            label = "queue-page",
+                        ) { queueOpen ->
+                            if (queueOpen) {
+                                DownloadQueueScreen(model = model, state = state)
+                            } else {
                                 AnimatedContent(
                                     targetState = state.destination,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxHeight(),
+                                    modifier = Modifier.fillMaxSize(),
                                     transitionSpec = {
                                         fograinPageTransition(
                                             forward = targetState.ordinal > initialState.ordinal,

@@ -444,12 +444,15 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "fg-auth",
+ "fg-content",
  "fg-core",
+ "fg-diag",
  "fg-game",
  "fg-java",
  "fg-loader",
  "fg-net",
  "fg-task",
+ "fg-world",
  "serde",
  "serde_json",
  "tokio",
@@ -460,6 +463,22 @@ dependencies = [
 [[package]]
 name = "fg-content"
 version = "0.1.0"
+dependencies = [
+ "fg-core",
+ "fg-net",
+ "fg-task",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha1",
+ "tempfile",
+ "time",
+ "tokio",
+ "toml",
+ "tracing",
+ "wiremock",
+ "zip",
+]
 
 [[package]]
 name = "fg-core"
@@ -474,18 +493,33 @@ dependencies = [
 [[package]]
 name = "fg-diag"
 version = "0.1.0"
+dependencies = [
+ "fg-core",
+ "flate2",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "time",
+ "toml",
+ "tracing",
+ "zip",
+]
 
 [[package]]
 name = "fg-ffi"
 version = "0.1.0"
 dependencies = [
  "fg-auth",
+ "fg-content",
  "fg-core",
+ "fg-diag",
  "fg-game",
  "fg-java",
  "fg-loader",
  "fg-net",
  "fg-task",
+ "fg-world",
  "libc",
  "serde",
  "serde_json",
@@ -601,6 +635,16 @@ dependencies = [
 [[package]]
 name = "fg-world"
 version = "0.1.0"
+dependencies = [
+ "fg-core",
+ "flate2",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "time",
+ "tracing",
+ "zip",
+]
 
 [[package]]
 name = "find-msvc-tools"

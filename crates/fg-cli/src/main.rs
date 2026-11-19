@@ -14,12 +14,18 @@
 //! fg-cli assets <version>         # download every asset object of a version
 //! fg-cli probe <url>...           # HEAD-probe sources and update health data
 //! fg-cli account list             # offline / third-party accounts (M7)
+//! fg-cli content list <instance>  # local mods / resource packs / shaders (M8)
+//! fg-cli content install ...      # Modrinth / CurseForge content (M8)
+//! fg-cli world list <instance>    # worlds and backups (M8)
+//! fg-cli diag analyze <instance>  # crash analysis and the support bundle (M9)
+//! fg-cli datapack list ...        # per-world data packs (M9)
+//! fg-cli modpack inspect/import   # modpack formats and import (M9)
 //! ```
 
 use std::{
     collections::{BTreeMap, HashSet},
     io::{IsTerminal as _, Write as _},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicU64, AtomicUsize, Ordering},
@@ -32,6 +38,10 @@ use fg_auth::{
     Account, AccountKind, AccountStore, AuthResponse, AuthSession, AuthlibInjector, InjectorSource,
     OfflineAccount, YggdrasilClient, YggdrasilProfile, YggdrasilServer, random_token,
 };
+use fg_content::{
+    ContentClient, ContentIndex, ContentKind, ContentSource, InstallRequest, SearchQuery,
+    check_updates, delete_local, plan_install, scan_local, set_enabled,
+};
 use fg_core::{DownloadSource, Error, ErrorKind, Result, ThemePreference, config, paths};
 use fg_game::install::{FileKind, InstallPlan, Installer, category_counts};
 use fg_game::instance::Instance;
@@ -40,6 +50,7 @@ use fg_game::launch::{
     needs_x86_64_java,
 };
 use fg_game::layout::{Layout, validate_id};
+use fg_game::manager::InstanceManager;
 use fg_game::resolver::VersionResolver;
 use fg_game::rules::RuleContext;
 use fg_java::{
@@ -151,6 +162,16 @@ enum Command {
     Account(AccountArgs),
     /// Inspect installed instances.
     Instance(InstanceArgs),
+    /// Manage mods, resource packs, shader packs and content downloads.
+    Content(ContentArgs),
+    /// List, back up, restore and delete worlds.
+    World(WorldArgs),
+    /// Crash analysis and the diagnostic bundle.
+    Diag(DiagArgs),
+    /// Per-world data packs.
+    Datapack(DatapackArgs),
+    /// Modpack inspection, import and export.
+    Modpack(ModpackArgs),
 }
 
 #[derive(Debug, Args)]
@@ -549,6 +570,332 @@ struct InstanceDeleteArgs {
 }
 
 #[derive(Debug, Args)]
+struct ContentArgs {
+    #[command(subcommand)]
+    command: ContentCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum ContentCommand {
+    /// List installed mods, resource packs and shader packs.
+    List(ContentListArgs),
+    /// Enable or disable one installed file.
+    Toggle(ContentToggleArgs),
+    /// Delete one installed file and its index entry.
+    Delete(ContentDeleteArgs),
+    /// Search Modrinth or CurseForge.
+    Search(ContentSearchArgs),
+    /// List versions of a project.
+    Versions(ContentVersionsArgs),
+    /// Install a project version (and required dependencies) into an instance.
+    Install(ContentInstallArgs),
+    /// Check installed content for updates.
+    Update(ContentUpdateArgs),
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ContentKindArg {
+    Mod,
+    Modpack,
+    Resourcepack,
+    Shaderpack,
+    Datapack,
+}
+
+impl From<ContentKindArg> for ContentKind {
+    fn from(value: ContentKindArg) -> Self {
+        match value {
+            ContentKindArg::Mod => Self::Mod,
+            ContentKindArg::Modpack => Self::Modpack,
+            ContentKindArg::Resourcepack => Self::ResourcePack,
+            ContentKindArg::Shaderpack => Self::ShaderPack,
+            ContentKindArg::Datapack => Self::Datapack,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ContentSourceArg {
+    Modrinth,
+    Curseforge,
+}
+
+impl From<ContentSourceArg> for ContentSource {
+    fn from(value: ContentSourceArg) -> Self {
+        match value {
+            ContentSourceArg::Modrinth => Self::Modrinth,
+            ContentSourceArg::Curseforge => Self::Curseforge,
+        }
+    }
+}
+
+#[derive(Debug, Args)]
+struct ContentListArgs {
+    instance: String,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ContentToggleArgs {
+    instance: String,
+    kind: ContentKindArg,
+    file: String,
+    #[arg(long, conflicts_with = "enable")]
+    disable: bool,
+    #[arg(long, conflicts_with = "disable")]
+    enable: bool,
+}
+
+#[derive(Debug, Args)]
+struct ContentDeleteArgs {
+    instance: String,
+    kind: ContentKindArg,
+    file: String,
+    #[arg(long)]
+    yes: bool,
+}
+
+#[derive(Debug, Args)]
+struct ContentSearchArgs {
+    kind: ContentKindArg,
+    query: Option<String>,
+    /// Content provider: Modrinth or CurseForge (through MCIM).
+    #[arg(long = "provider", value_enum, default_value_t = ContentSourceArg::Modrinth)]
+    content_source: ContentSourceArg,
+    #[arg(long)]
+    instance: Option<String>,
+    #[arg(long, default_value_t = 20)]
+    limit: u32,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ContentVersionsArgs {
+    project: String,
+    kind: ContentKindArg,
+    /// Content provider: Modrinth or CurseForge (through MCIM).
+    #[arg(long = "provider", value_enum, default_value_t = ContentSourceArg::Modrinth)]
+    content_source: ContentSourceArg,
+    #[arg(long)]
+    instance: Option<String>,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ContentInstallArgs {
+    project: String,
+    kind: ContentKindArg,
+    #[arg(long)]
+    instance: String,
+    /// Content provider: Modrinth or CurseForge (through MCIM).
+    #[arg(long = "provider", value_enum, default_value_t = ContentSourceArg::Modrinth)]
+    content_source: ContentSourceArg,
+    #[arg(long)]
+    version: Option<String>,
+    /// Target world for data packs.
+    #[arg(long)]
+    world: Option<String>,
+    /// Old file name to remove after the new files are installed.
+    #[arg(long = "replace")]
+    replace: Vec<String>,
+    #[arg(long)]
+    dry_run: bool,
+}
+
+#[derive(Debug, Args)]
+struct ContentUpdateArgs {
+    instance: String,
+    #[arg(long)]
+    kind: Option<ContentKindArg>,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct WorldArgs {
+    #[command(subcommand)]
+    command: WorldCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum WorldCommand {
+    /// List worlds and backups.
+    List(WorldListArgs),
+    /// Back up one world into <root>/backups/<instance>/.
+    Backup(WorldBackupArgs),
+    /// List backups of an instance.
+    Backups(WorldBackupsArgs),
+    /// Restore a backup into a new world folder.
+    Restore(WorldRestoreArgs),
+    /// Delete a world folder.
+    Delete(WorldDeleteArgs),
+    /// Delete one backup file.
+    BackupDelete(WorldBackupDeleteArgs),
+}
+
+#[derive(Debug, Args)]
+struct WorldListArgs {
+    instance: String,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct WorldBackupArgs {
+    instance: String,
+    world: String,
+}
+
+#[derive(Debug, Args)]
+struct WorldBackupsArgs {
+    instance: String,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct WorldRestoreArgs {
+    instance: String,
+    backup: String,
+    /// New world folder name; defaults to the backup file stem plus "-restored".
+    #[arg(long)]
+    name: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct WorldDeleteArgs {
+    instance: String,
+    world: String,
+    #[arg(long)]
+    yes: bool,
+}
+
+#[derive(Debug, Args)]
+struct WorldBackupDeleteArgs {
+    instance: String,
+    backup: String,
+    #[arg(long)]
+    yes: bool,
+}
+
+#[derive(Debug, Args)]
+struct DiagArgs {
+    #[command(subcommand)]
+    command: DiagCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum DiagCommand {
+    /// List the diagnostic sources of an instance.
+    Logs(DiagInstanceArgs),
+    /// Analyze logs and crash reports.
+    Analyze(DiagInstanceArgs),
+    /// Write a redacted diagnostic bundle.
+    Export(DiagInstanceArgs),
+}
+
+#[derive(Debug, Args)]
+struct DiagInstanceArgs {
+    instance: String,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct DatapackArgs {
+    #[command(subcommand)]
+    command: DatapackCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum DatapackCommand {
+    /// List the data packs of one world.
+    List(DatapackListArgs),
+    /// Enable or disable one data pack.
+    Toggle(DatapackToggleArgs),
+    /// Delete one data pack.
+    Delete(DatapackDeleteArgs),
+    /// Copy a `.zip` data pack into the world.
+    Import(DatapackImportArgs),
+}
+
+#[derive(Debug, Args)]
+struct DatapackListArgs {
+    instance: String,
+    world: String,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct DatapackToggleArgs {
+    instance: String,
+    world: String,
+    file: String,
+    #[arg(long, conflicts_with = "enable")]
+    disable: bool,
+    #[arg(long, conflicts_with = "disable")]
+    enable: bool,
+}
+
+#[derive(Debug, Args)]
+struct DatapackDeleteArgs {
+    instance: String,
+    world: String,
+    file: String,
+    #[arg(long)]
+    yes: bool,
+}
+
+#[derive(Debug, Args)]
+struct DatapackImportArgs {
+    instance: String,
+    world: String,
+    path: String,
+}
+
+#[derive(Debug, Args)]
+struct ModpackArgs {
+    #[command(subcommand)]
+    command: ModpackCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum ModpackCommand {
+    /// Detect the pack format and print its metadata.
+    Inspect(ModpackInspectArgs),
+    /// Import a pack into a new or an existing instance.
+    Import(ModpackImportArgs),
+    /// Export an instance as a `.mrpack` under <root>/exports.
+    Export(ModpackExportArgs),
+}
+
+#[derive(Debug, Args)]
+struct ModpackInspectArgs {
+    path: String,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct ModpackImportArgs {
+    path: String,
+    /// Apply the pack to an existing instance instead of creating one.
+    #[arg(long)]
+    instance: Option<String>,
+    #[arg(long)]
+    dry_run: bool,
+}
+
+#[derive(Debug, Args)]
+struct ModpackExportArgs {
+    instance: String,
+}
+
+#[derive(Debug, Args)]
 struct InstanceListArgs {
     #[arg(long)]
     json: bool,
@@ -719,6 +1066,33 @@ async fn main() -> Result<()> {
             .await
         }
         Command::Instance(args) => command_instance(&root, args),
+        Command::Content(args) => {
+            command_content(
+                &root,
+                &table,
+                source,
+                region,
+                cli.concurrency,
+                cli.rate_limit_kib,
+                args,
+            )
+            .await
+        }
+        Command::World(args) => command_world(&root, args),
+        Command::Diag(args) => command_diag(&root, args),
+        Command::Datapack(args) => command_datapack(&root, args),
+        Command::Modpack(args) => {
+            command_modpack(
+                &root,
+                &table,
+                source,
+                region,
+                cli.concurrency,
+                cli.rate_limit_kib,
+                args,
+            )
+            .await
+        }
     }
 }
 
@@ -2523,6 +2897,806 @@ async fn command_java(
         }
     }
     Ok(())
+}
+
+async fn command_content(
+    root: &Path,
+    table: &MirrorTable,
+    source: DownloadSource,
+    region: Region,
+    concurrency: Option<usize>,
+    rate_limit_kib: u64,
+    args: ContentArgs,
+) -> Result<()> {
+    let layout = Layout::new(root);
+    let loaded = config::read_config(root)?;
+    let http = Client::builder().from_config(&loaded.network)?.build()?;
+    let client = ContentClient::new(http, layout.cache(), table.clone(), source, region);
+
+    match args.command {
+        ContentCommand::List(args) => {
+            let instance = Instance::load(&layout, &args.instance)?;
+            let index = ContentIndex::load(&layout.instance_dir(&instance.id))?;
+            let mut items = Vec::new();
+            for kind in ContentKind::ALL {
+                items.extend(scan_local(&instance.game_dir(&layout), kind, Some(&index))?);
+            }
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&items).map_err(json_error)?
+                );
+                return Ok(());
+            }
+            if items.is_empty() {
+                println!("no content installed in {}", instance.id);
+                return Ok(());
+            }
+            println!(
+                "{:<12} {:<8} {:<28} {:<12} file",
+                "kind", "enabled", "title", "version"
+            );
+            for item in items {
+                println!(
+                    "{:<12} {:<8} {:<28} {:<12} {}",
+                    item.kind.as_str(),
+                    if item.enabled { "yes" } else { "no" },
+                    truncate_text(&item.title, 28),
+                    truncate_text(item.version.as_deref().unwrap_or("-"), 12),
+                    item.file_name
+                );
+            }
+        }
+        ContentCommand::Toggle(args) => {
+            let instance = Instance::load(&layout, &args.instance)?;
+            let kind: ContentKind = args.kind.into();
+            let enabled = if args.enable {
+                true
+            } else if args.disable {
+                false
+            } else {
+                args.file.ends_with(".disabled")
+            };
+            let new_name = set_enabled(&instance.game_dir(&layout), kind, &args.file, enabled)?;
+            let instance_dir = layout.instance_dir(&instance.id);
+            let mut index = ContentIndex::load(&instance_dir)?;
+            if let Some(mut entry) = index.find(&args.file).cloned() {
+                index.remove(&args.file);
+                entry.file_name.clone_from(&new_name);
+                index.upsert(entry);
+                index.save(&instance_dir)?;
+            }
+            println!(
+                "{} {} -> {}",
+                if enabled { "enabled" } else { "disabled" },
+                args.file,
+                new_name
+            );
+        }
+        ContentCommand::Delete(args) => {
+            if !args.yes {
+                eprintln!("refusing to delete {} without --yes", args.file);
+                return Ok(());
+            }
+            let instance = Instance::load(&layout, &args.instance)?;
+            let kind: ContentKind = args.kind.into();
+            delete_local(&instance.game_dir(&layout), kind, &args.file)?;
+            let instance_dir = layout.instance_dir(&instance.id);
+            let mut index = ContentIndex::load(&instance_dir)?;
+            if index.find(&args.file).is_some() {
+                index.remove(&args.file);
+                index.save(&instance_dir)?;
+            }
+            println!("deleted {}", args.file);
+        }
+        ContentCommand::Search(args) => {
+            let kind: ContentKind = args.kind.into();
+            let source: ContentSource = args.content_source.into();
+            let instance = match args.instance.as_deref() {
+                Some(id) => Some(Instance::load(&layout, id)?),
+                None => None,
+            };
+            let mut query = SearchQuery::new(kind)
+                .with_query(args.query.unwrap_or_default())
+                .with_page(0, args.limit.clamp(1, 50));
+            if let Some(instance) = &instance {
+                query = query.with_game_version(Some(instance.minecraft.clone()));
+                if kind.loader_specific() {
+                    query = query
+                        .with_loader(fg_content::model::normalize_loader(&instance.loader.kind));
+                }
+            }
+            let page = match source {
+                ContentSource::Modrinth => client.modrinth_search(&query).await?,
+                ContentSource::Curseforge => client.curseforge_search(&query).await?,
+            };
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&page).map_err(json_error)?
+                );
+                return Ok(());
+            }
+            println!(
+                "{} results from {} (showing {}):",
+                page.total,
+                source.label(),
+                page.projects.len()
+            );
+            for project in page.projects {
+                println!(
+                    "  [{}] {} ({}) — {}",
+                    project.project_id,
+                    project.title,
+                    human_count(project.downloads),
+                    truncate_text(&project.description, 80)
+                );
+            }
+        }
+        ContentCommand::Versions(args) => {
+            let kind: ContentKind = args.kind.into();
+            let source: ContentSource = args.content_source.into();
+            let instance = match args.instance.as_deref() {
+                Some(id) => Some(Instance::load(&layout, id)?),
+                None => None,
+            };
+            let game_version = instance.as_ref().map(|instance| instance.minecraft.clone());
+            let loader = instance
+                .as_ref()
+                .filter(|_| kind.loader_specific())
+                .and_then(|instance| fg_content::model::normalize_loader(&instance.loader.kind));
+            let project = match source {
+                ContentSource::Modrinth => client.modrinth_project(&args.project).await?,
+                ContentSource::Curseforge => client.curseforge_project(&args.project).await?,
+            };
+            let versions = match source {
+                ContentSource::Modrinth => {
+                    client
+                        .modrinth_versions(
+                            &args.project,
+                            game_version.as_deref(),
+                            loader.as_deref(),
+                        )
+                        .await?
+                }
+                ContentSource::Curseforge => {
+                    client
+                        .curseforge_versions(
+                            &args.project,
+                            game_version.as_deref(),
+                            loader.as_deref(),
+                        )
+                        .await?
+                }
+            };
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "project": project,
+                        "versions": versions,
+                    }))
+                    .map_err(json_error)?
+                );
+                return Ok(());
+            }
+            println!("{} ({} versions)", project.title, versions.len());
+            for version in versions {
+                println!(
+                    "  [{}] {} · {} · {}",
+                    version.version_id,
+                    version.version_number,
+                    version.version_type.as_str(),
+                    version
+                        .file
+                        .as_ref()
+                        .map_or("-".to_string(), |file| file.file_name.clone())
+                );
+            }
+        }
+        ContentCommand::Install(args) => {
+            let kind: ContentKind = args.kind.into();
+            let source: ContentSource = args.content_source.into();
+            let instance = Instance::load(&layout, &args.instance)?;
+            let instance_dir = layout.instance_dir(&instance.id);
+            let index = ContentIndex::load(&instance_dir)?;
+            let plan = plan_install(
+                &client,
+                InstallRequest {
+                    source,
+                    project_id: args.project,
+                    version_id: args.version,
+                    kind,
+                    instance_id: instance.id.clone(),
+                    instance_dir,
+                    game_dir: instance.game_dir(&layout),
+                    game_version: instance.minecraft.clone(),
+                    loader: kind
+                        .loader_specific()
+                        .then(|| fg_content::model::normalize_loader(&instance.loader.kind))
+                        .flatten(),
+                    world: args.world,
+                    replace_files: args.replace,
+                    installed_projects: index
+                        .items
+                        .iter()
+                        .map(|entry| entry.project_id.clone())
+                        .collect(),
+                    install_dependencies: true,
+                },
+            )
+            .await?;
+            println!(
+                "{} {} → {} file(s), {}",
+                plan.project_name,
+                plan.version_number,
+                plan.items.len(),
+                human_bytes(plan.total_bytes)
+            );
+            for item in &plan.items {
+                println!(
+                    "  {:<8} {:<32} {} ({} )",
+                    if item.dependency == fg_content::PlannedFileKind::RequiredDependency {
+                        "dep"
+                    } else {
+                        "primary"
+                    },
+                    truncate_text(&item.project_name, 32),
+                    item.file_name,
+                    human_bytes(item.size)
+                );
+            }
+            for warning in &plan.warnings {
+                eprintln!("warning: {warning}");
+            }
+            if args.dry_run {
+                return Ok(());
+            }
+            let downloader =
+                build_downloader(root, concurrency, rate_limit_kib, false, None, None, 16)?;
+            let file_count = plan.items.len();
+            let plan = Arc::new(plan);
+            let graph = plan.graph(Arc::new(downloader), client);
+            let report = run_graph_interruptible(Arc::new(graph)).await?;
+            if report.is_success() {
+                println!("installed {file_count} file(s)");
+            } else {
+                return Err(Error::with_detail(
+                    ErrorKind::Internal,
+                    "error.content.install",
+                    report
+                        .failed
+                        .iter()
+                        .map(|(node, error)| format!("{node}: {error}"))
+                        .collect::<Vec<_>>()
+                        .join(" | "),
+                ));
+            }
+        }
+        ContentCommand::Update(args) => {
+            let instance = Instance::load(&layout, &args.instance)?;
+            let kind = args.kind.map(ContentKind::from);
+            let loader = fg_content::model::normalize_loader(&instance.loader.kind);
+            let check = check_updates(
+                &client,
+                &layout.instance_dir(&instance.id),
+                &instance.game_dir(&layout),
+                kind,
+                &instance.minecraft,
+                loader.as_deref(),
+            )
+            .await?;
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&check).map_err(json_error)?
+                );
+                return Ok(());
+            }
+            println!(
+                "checked {}, {} update(s), {} unknown",
+                check.checked,
+                check.updates.len(),
+                check.unknown
+            );
+            for update in check.updates {
+                println!(
+                    "  {:<12} {:<28} {} → {} [{}]",
+                    update.kind.as_str(),
+                    truncate_text(&update.project_name, 28),
+                    update.current_version,
+                    update.latest_version,
+                    update.latest_version_id
+                );
+            }
+            for warning in check.warnings {
+                eprintln!("warning: {warning}");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn command_diag(root: &Path, args: DiagArgs) -> Result<()> {
+    let layout = Layout::new(root);
+    match args.command {
+        DiagCommand::Logs(args) => {
+            let instance = Instance::load(&layout, &args.instance)?;
+            let bundle = fg_diag::collect(&instance.game_dir(&layout), Vec::new(), 2000);
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&bundle.sources).map_err(json_error)?
+                );
+                return Ok(());
+            }
+            println!("{:<6} {:<32} {:<10} lines", "kind", "name", "exists");
+            for source in bundle.sources {
+                println!(
+                    "{:<6} {:<32} {:<10} {}",
+                    source.kind.as_str(),
+                    truncate_text(&source.name, 32),
+                    if source.exists { "yes" } else { "no" },
+                    source.lines
+                );
+            }
+        }
+        DiagCommand::Analyze(args) => {
+            let instance = Instance::load(&layout, &args.instance)?;
+            let bundle = fg_diag::collect(&instance.game_dir(&layout), Vec::new(), 2000);
+            let rules = fg_diag::RuleSet::load(Some(&root.join("diag").join("rules")))?;
+            let analysis = fg_diag::analyze(&bundle, &rules);
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&analysis).map_err(json_error)?
+                );
+                return Ok(());
+            }
+            println!("{}", analysis.summary);
+            for finding in &analysis.findings {
+                println!(
+                    "  [{:<7}] {:<28} {:.0}%  {}:{}",
+                    finding.severity.as_str(),
+                    truncate_text(&finding.title, 28),
+                    finding.confidence * 100.0,
+                    finding.source,
+                    finding.line
+                );
+                if !finding.excerpt.is_empty() {
+                    println!("           {}", truncate_text(&finding.excerpt, 100));
+                }
+            }
+        }
+        DiagCommand::Export(args) => {
+            let instance = Instance::load(&layout, &args.instance)?;
+            let game_dir = instance.game_dir(&layout);
+            let bundle = fg_diag::collect(&game_dir, Vec::new(), 2000);
+            let rules = fg_diag::RuleSet::load(Some(&root.join("diag").join("rules")))?;
+            let analysis = fg_diag::analyze(&bundle, &rules);
+            let mut log_texts = Vec::new();
+            for input in &bundle.inputs {
+                let name = match input.kind {
+                    fg_diag::LogSourceKind::Stdout => "logs/session.log".to_string(),
+                    fg_diag::LogSourceKind::Log => "logs/latest.log".to_string(),
+                    fg_diag::LogSourceKind::Crash => "crash-reports/latest.txt".to_string(),
+                    fg_diag::LogSourceKind::HsErr => "hs_err.log".to_string(),
+                };
+                log_texts.push((name, input.lines.join("\n")));
+            }
+            let loader = if instance.loader.is_vanilla() {
+                String::new()
+            } else {
+                format!("{} {}", instance.loader.kind, instance.loader.version)
+            };
+            let request = fg_diag::BundleRequest {
+                data_root: root,
+                instance_id: &instance.id,
+                instance_name: &instance.name,
+                minecraft: &instance.minecraft,
+                loader: &loader,
+                java: "unknown",
+                memory_mb: 0,
+                analysis: &analysis,
+                log_texts,
+                instance_json: serde_json::json!({
+                    "instance": instance.id,
+                    "minecraft": instance.minecraft,
+                    "loaderKind": instance.loader.kind,
+                    "loaderVersion": instance.loader.version,
+                })
+                .to_string(),
+                app_version: env!("CARGO_PKG_VERSION"),
+                platform: fg_core::Platform::detect().id(),
+            };
+            let bundle = fg_diag::export_bundle(&request)?;
+            println!("wrote {} ({})", bundle.path, human_bytes(bundle.size_bytes));
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&bundle).map_err(json_error)?
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn command_datapack(root: &Path, args: DatapackArgs) -> Result<()> {
+    let layout = Layout::new(root);
+    match args.command {
+        DatapackCommand::List(args) => {
+            let instance = Instance::load(&layout, &args.instance)?;
+            let items = fg_world::datapack::list(&instance.game_dir(&layout), &args.world)?;
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&items).map_err(json_error)?
+                );
+                return Ok(());
+            }
+            if items.is_empty() {
+                println!("no data packs in {}/{}", instance.id, args.world);
+                return Ok(());
+            }
+            for item in items {
+                println!(
+                    "{:<8} {:<32} {:<8} {:<12} {}",
+                    if item.enabled { "enabled" } else { "off" },
+                    truncate_text(&item.title, 32),
+                    item.pack_format
+                        .map_or("-".to_string(), |format| format.to_string()),
+                    human_bytes(item.size_bytes),
+                    item.file_name
+                );
+            }
+        }
+        DatapackCommand::Toggle(args) => {
+            let instance = Instance::load(&layout, &args.instance)?;
+            let enabled = if args.enable {
+                true
+            } else if args.disable {
+                false
+            } else {
+                args.file.ends_with(".disabled")
+            };
+            let name = fg_world::datapack::set_enabled(
+                &instance.game_dir(&layout),
+                &args.world,
+                &args.file,
+                enabled,
+            )?;
+            println!(
+                "{} {} -> {}",
+                if enabled { "enabled" } else { "disabled" },
+                args.file,
+                name
+            );
+        }
+        DatapackCommand::Delete(args) => {
+            if !args.yes {
+                eprintln!("refusing to delete {} without --yes", args.file);
+                return Ok(());
+            }
+            let instance = Instance::load(&layout, &args.instance)?;
+            fg_world::datapack::delete(&instance.game_dir(&layout), &args.world, &args.file)?;
+            println!("deleted {}", args.file);
+        }
+        DatapackCommand::Import(args) => {
+            let instance = Instance::load(&layout, &args.instance)?;
+            let name = fg_world::datapack::import(
+                &instance.game_dir(&layout),
+                &args.world,
+                Path::new(&args.path),
+            )?;
+            println!("imported {name}");
+        }
+    }
+    Ok(())
+}
+
+async fn command_modpack(
+    root: &Path,
+    table: &MirrorTable,
+    source: DownloadSource,
+    region: Region,
+    concurrency: Option<usize>,
+    rate_limit_kib: u64,
+    args: ModpackArgs,
+) -> Result<()> {
+    let layout = Layout::new(root);
+    match args.command {
+        ModpackCommand::Inspect(args) => {
+            let pack = fg_content::modpack::inspect(Path::new(&args.path))?;
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&pack).map_err(json_error)?
+                );
+                return Ok(());
+            }
+            println!(
+                "{} · {} {} · {} file(s) · {}{}",
+                pack.name,
+                pack.minecraft,
+                if pack.loader_kind == "vanilla" {
+                    "原版".to_string()
+                } else {
+                    format!("{} {}", pack.loader_kind, pack.loader_version)
+                },
+                pack.files.len(),
+                human_bytes(pack.total_bytes()),
+                if pack.external {
+                    " · 外部目录"
+                } else {
+                    ""
+                }
+            );
+            if let Some(summary) = &pack.summary {
+                println!("{summary}");
+            }
+            if pack.skipped > 0 {
+                println!("{} entr(ies) skipped", pack.skipped);
+            }
+        }
+        ModpackCommand::Import(args) => {
+            let pack = fg_content::modpack::inspect(Path::new(&args.path))?;
+            let loaded = config::read_config(root)?;
+            let manager = InstanceManager::new(layout.clone(), loaded.game.clone());
+            if pack.external {
+                let game_dir = pack.game_dir.clone().ok_or_else(|| {
+                    Error::with_detail(
+                        ErrorKind::InvalidInput,
+                        "error.modpack.directory",
+                        pack.source_path.clone(),
+                    )
+                })?;
+                let instance = manager.import_external(
+                    Path::new(&game_dir),
+                    Some(&pack.name),
+                    Some(&pack.minecraft),
+                )?;
+                if pack.loader_kind != "vanilla" {
+                    manager.set_loader(
+                        &instance.id,
+                        &pack.loader_kind,
+                        &pack.loader_version,
+                        "",
+                    )?;
+                }
+                println!("imported external instance {}", instance.id);
+                return Ok(());
+            }
+            let instance = match args.instance.as_deref() {
+                Some(id) => {
+                    let instance = manager.load(id)?;
+                    if instance.minecraft != pack.minecraft {
+                        return Err(Error::with_detail(
+                            ErrorKind::Conflict,
+                            "error.instance.version_mismatch",
+                            format!(
+                                "instance {} is for {}, pack is for {}",
+                                instance.id, instance.minecraft, pack.minecraft
+                            ),
+                        ));
+                    }
+                    instance
+                }
+                None => {
+                    let id = unique_modpack_id(&manager, &pack.name);
+                    manager.create(
+                        &id,
+                        &pack.name,
+                        &pack.minecraft,
+                        (!pack.loader_kind.eq_ignore_ascii_case("vanilla"))
+                            .then_some(pack.loader_kind.as_str()),
+                        Some(&pack.loader_version),
+                    )?
+                }
+            };
+            println!(
+                "{} → instance {} ({} file(s), {})",
+                pack.name,
+                instance.id,
+                pack.files.len(),
+                human_bytes(pack.total_bytes())
+            );
+            if args.dry_run {
+                return Ok(());
+            }
+            let http = Client::builder().from_config(&loaded.network)?.build()?;
+            let client = ContentClient::new(http, layout.cache(), table.clone(), source, region);
+            let downloader =
+                build_downloader(root, concurrency, rate_limit_kib, false, None, None, 16)?;
+            let plan = fg_content::ModpackPlan::new(
+                pack,
+                PathBuf::from(&args.path),
+                layout.instance_dir(&instance.id),
+                instance.game_dir(&layout),
+            );
+            let graph = plan.graph(Arc::new(downloader), client);
+            let report = run_graph_interruptible(Arc::new(graph)).await?;
+            if report.is_success() {
+                println!("imported into {}", instance.id);
+            } else {
+                return Err(Error::with_detail(
+                    ErrorKind::Internal,
+                    "error.modpack.import",
+                    report
+                        .failed
+                        .iter()
+                        .map(|(node, error)| format!("{node}: {error}"))
+                        .collect::<Vec<_>>()
+                        .join(" | "),
+                ));
+            }
+        }
+        ModpackCommand::Export(args) => {
+            let instance = Instance::load(&layout, &args.instance)?;
+            let export = fg_content::modpack::export_mrpack(
+                &instance.name,
+                &instance.minecraft,
+                &instance.loader.kind,
+                &instance.loader.version,
+                &instance.game_dir(&layout),
+                &root.join("exports"),
+            )?;
+            println!(
+                "wrote {} ({} file(s), {})",
+                export.path,
+                export.files,
+                human_bytes(export.size_bytes)
+            );
+        }
+    }
+    Ok(())
+}
+
+fn unique_modpack_id(manager: &InstanceManager, name: &str) -> String {
+    let mut base: String = name
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .map(|character| character.to_ascii_lowercase())
+        .collect();
+    base.truncate(24);
+    let base = if base.is_empty() {
+        "modpack".to_string()
+    } else {
+        base
+    };
+    if !manager.exists(&base) {
+        return base;
+    }
+    let mut counter = 2_u32;
+    loop {
+        let candidate = format!("{base}-{counter}");
+        if !manager.exists(&candidate) {
+            return candidate;
+        }
+        counter += 1;
+    }
+}
+
+fn command_world(root: &Path, args: WorldArgs) -> Result<()> {
+    let layout = Layout::new(root);
+    match args.command {
+        WorldCommand::List(args) => {
+            let instance = Instance::load(&layout, &args.instance)?;
+            let worlds = fg_world::list_worlds(&instance.game_dir(&layout))?;
+            let backups = fg_world::list_backups(root, &instance.id)?;
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "worlds": worlds,
+                        "backups": backups,
+                    }))
+                    .map_err(json_error)?
+                );
+                return Ok(());
+            }
+            if worlds.is_empty() {
+                println!("no worlds in {}", instance.id);
+            } else {
+                println!("{:<32} {:>10}  modified", "world", "size");
+                for world in worlds {
+                    println!(
+                        "{:<32} {:>10}  {}",
+                        truncate_text(&world.name, 32),
+                        human_bytes(world.size_bytes),
+                        world
+                            .modified_ms
+                            .map_or("-".to_string(), |ms| ms.to_string())
+                    );
+                }
+            }
+            println!("{} backup(s) in {}", backups.len(), instance.id);
+        }
+        WorldCommand::Backup(args) => {
+            let instance = Instance::load(&layout, &args.instance)?;
+            let backup = fg_world::backup_world(
+                root,
+                &instance.id,
+                &instance.game_dir(&layout),
+                &args.world,
+            )?;
+            println!(
+                "backed up {} -> {} ({})",
+                args.world,
+                backup.path,
+                human_bytes(backup.size_bytes)
+            );
+        }
+        WorldCommand::Backups(args) => {
+            let instance = Instance::load(&layout, &args.instance)?;
+            let backups = fg_world::list_backups(root, &instance.id)?;
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&backups).map_err(json_error)?
+                );
+                return Ok(());
+            }
+            for backup in backups {
+                println!("{} ({})", backup.name, human_bytes(backup.size_bytes));
+            }
+        }
+        WorldCommand::Restore(args) => {
+            let instance = Instance::load(&layout, &args.instance)?;
+            let name = args.name.unwrap_or_else(|| {
+                let stem = Path::new(&args.backup)
+                    .file_stem()
+                    .map_or("world", |stem| stem.to_str().unwrap_or("world"));
+                format!("{stem}-restored")
+            });
+            let path = fg_world::restore_backup(
+                root,
+                &instance.id,
+                &instance.game_dir(&layout),
+                &args.backup,
+                &name,
+            )?;
+            println!("restored into {}", path.display());
+        }
+        WorldCommand::Delete(args) => {
+            if !args.yes {
+                eprintln!("refusing to delete {} without --yes", args.world);
+                return Ok(());
+            }
+            let instance = Instance::load(&layout, &args.instance)?;
+            fg_world::delete_world(&instance.game_dir(&layout), &args.world)?;
+            println!("deleted {}", args.world);
+        }
+        WorldCommand::BackupDelete(args) => {
+            if !args.yes {
+                eprintln!("refusing to delete {} without --yes", args.backup);
+                return Ok(());
+            }
+            let instance = Instance::load(&layout, &args.instance)?;
+            fg_world::delete_backup(root, &instance.id, &args.backup)?;
+            println!("deleted backup {}", args.backup);
+        }
+    }
+    Ok(())
+}
+
+fn truncate_text(value: &str, max: usize) -> String {
+    if value.chars().count() <= max {
+        return value.to_string();
+    }
+    let mut truncated: String = value.chars().take(max.saturating_sub(1)).collect();
+    truncated.push('…');
+    truncated
+}
+
+fn human_count(value: u64) -> String {
+    if value >= 1_000_000 {
+        format!("{:.1}M", value as f64 / 1_000_000.0)
+    } else if value >= 1_000 {
+        format!("{:.1}k", value as f64 / 1_000.0)
+    } else {
+        value.to_string()
+    }
 }
 
 fn command_instance(root: &std::path::Path, args: InstanceArgs) -> Result<()> {

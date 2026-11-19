@@ -1,4 +1,16 @@
-//! NBT reading for servers.dat and level.dat, and world backups.
+//! World and data pack management.
 //!
-//! M0 reserves this crate boundary only; implementation starts in M9
-//! (see `docs/design.md`).
+//! M8 lists and backs up worlds. M9 adds per-world data packs and a
+//! `level.dat` summary for the world rows.
+
+pub mod backup;
+pub mod content;
+pub mod datapack;
+pub mod level;
+pub mod nbt;
+pub mod world;
+
+pub use backup::{Backup, backup_world, delete_backup, list_backups, restore_backup};
+pub use datapack::Datapack;
+pub use level::LevelInfo;
+pub use world::{World, delete_world, list_worlds};

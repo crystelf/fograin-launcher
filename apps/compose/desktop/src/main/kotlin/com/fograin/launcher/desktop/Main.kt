@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.window.WindowDraggableArea
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.painter.BitmapPainter
@@ -33,6 +34,13 @@ import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.ui.AppDestination
 import com.fograin.launcher.ui.components.PageHeaderMetrics
 import java.awt.GraphicsEnvironment
+import java.awt.datatransfer.DataFlavor
+import java.awt.dnd.DnDConstants
+import java.awt.dnd.DropTarget
+import java.awt.dnd.DropTargetDragEvent
+import java.awt.dnd.DropTargetDropEvent
+import java.awt.dnd.DropTargetEvent
+import java.io.File
 import java.io.ByteArrayInputStream
 import java.time.Duration
 import java.time.Instant
@@ -117,6 +125,54 @@ fun main() {
             icon = windowIcon,
             state = windowState,
         ) {
+            // Desktop drag-and-drop: dropping an .mrpack/.zip or a
+            // MultiMC/Prism instance folder opens the same import sheet as the
+            // home menu. Compose has no external-drop API on Window yet, so the
+            // shell installs an AWT DropTarget.
+            DisposableEffect(window) {
+                val target = object : DropTarget() {
+                    override fun dragEnter(dtde: DropTargetDragEvent) {
+                        if (dtde.transferable?.isDataFlavorSupported(DataFlavor.javaFileListFlavor) == true) {
+                            dtde.acceptDrag(DnDConstants.ACTION_COPY)
+                            model.setModpackDragActive(true)
+                        } else {
+                            dtde.rejectDrag()
+                        }
+                    }
+
+                    override fun dragOver(dtde: DropTargetDragEvent) {
+                        if (dtde.transferable?.isDataFlavorSupported(DataFlavor.javaFileListFlavor) == true) {
+                            dtde.acceptDrag(DnDConstants.ACTION_COPY)
+                        } else {
+                            dtde.rejectDrag()
+                        }
+                    }
+
+                    override fun dragExit(dtde: DropTargetEvent) {
+                        model.setModpackDragActive(false)
+                    }
+
+                    override fun drop(dtde: DropTargetDropEvent) {
+                        model.setModpackDragActive(false)
+                        dtde.acceptDrop(DnDConstants.ACTION_COPY)
+                        val files = runCatching {
+                            @Suppress("UNCHECKED_CAST")
+                            dtde.transferable.getTransferData(DataFlavor.javaFileListFlavor) as? List<File>
+                        }.getOrNull().orEmpty()
+                        val file = files.firstOrNull()
+                        val supported = file != null && isSupportedDropFile(file)
+                        if (supported) {
+                            model.importModpackPath(file.absolutePath)
+                        } else {
+                            model.showNotice("只支持 .mrpack、.zip 或 MultiMC/Prism 实例目录")
+                        }
+                        dtde.dropComplete(supported)
+                    }
+                }
+                runCatching { window.dropTarget = target }
+                onDispose { runCatching { window.dropTarget = null } }
+            }
+
             WindowMenuBar(
                 model = model,
                 onExit = {
@@ -208,6 +264,12 @@ private fun FrameWindowScope.WindowMenuBar(model: AppModel, onExit: () -> Unit) 
         }
     }
 }
+
+/** Drop filter shared with `DropTargetTest`: archives and MultiMC instance folders. */
+internal fun isSupportedDropFile(file: File): Boolean =
+    file.isDirectory ||
+        file.name.endsWith(".mrpack", ignoreCase = true) ||
+        file.name.endsWith(".zip", ignoreCase = true)
 
 private val DESTINATION_KEYS = listOf(Key.One, Key.Two, Key.Three, Key.Four)
 

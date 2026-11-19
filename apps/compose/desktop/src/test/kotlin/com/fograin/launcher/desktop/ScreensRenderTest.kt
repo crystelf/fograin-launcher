@@ -6,6 +6,7 @@ import androidx.compose.ui.unit.Density
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AccountStage
 import com.fograin.launcher.app.AppUiState
+import com.fograin.launcher.app.ContentDependencyPrompt
 import com.fograin.launcher.app.ContentManagerTab
 import com.fograin.launcher.app.DownloadStage
 import com.fograin.launcher.app.LibraryStage
@@ -13,6 +14,7 @@ import com.fograin.launcher.model.DownloadsCategory
 import com.fograin.launcher.app.ModpackUiState
 import com.fograin.launcher.app.DiagUiState
 import com.fograin.launcher.model.GameLoaderKind
+import com.fograin.launcher.platform.CoreContentInstallItem
 import com.fograin.launcher.platform.CoreModpack
 import com.fograin.launcher.platform.CorePackFile
 import com.fograin.launcher.platform.platformServices
@@ -86,6 +88,24 @@ class ScreensRenderTest {
         val modpackCategory = model.state.value
         model.openContentProject(modpackCategory.contentBrowser.projects.first())
         val modpackProjectSheet = model.state.value
+        val dependencyPromptSheet = contentProjectState.copy(
+            contentBrowser = contentProjectState.contentBrowser.copy(
+                dependencyPrompt = ContentDependencyPrompt(
+                    projectName = "Sodium",
+                    items = listOf(
+                        CoreContentInstallItem(
+                            fileName = "fabric-api-0.119.4+1.21.4.jar",
+                            projectId = "P7dR8mSH",
+                            projectName = "Fabric API",
+                            versionId = "api-v",
+                            versionNumber = "0.119.4+1.21.4",
+                            dependency = true,
+                            size = 2_120_000,
+                        ),
+                    ),
+                ),
+            ),
+        )
         model.closeContentProject()
         model.setDownloadCategory(DownloadsCategory.DATAPACK)
         val datapackCategory = model.state.value
@@ -214,6 +234,9 @@ class ScreensRenderTest {
             "content-project-sheet" to contentProjectState.copy(
                 destination = AppDestination.DOWNLOADS,
             ),
+            "content-dependency-dialog" to dependencyPromptSheet.copy(
+                destination = AppDestination.DOWNLOADS,
+            ),
             "downloads-modpack" to modpackCategory.copy(destination = AppDestination.DOWNLOADS),
             "downloads-modpack-sheet" to modpackProjectSheet.copy(
                 destination = AppDestination.DOWNLOADS,
@@ -314,6 +337,9 @@ class ScreensRenderTest {
 
         model.setDownloadCategory(DownloadsCategory.MOD)
         val compactContentBrowser = model.state.value
+        model.openContentProject(compactContentBrowser.contentBrowser.projects.first())
+        val compactProjectSheet = model.state.value
+        model.closeContentProject()
         model.openInstanceDetail(base.instances.first(), ContentManagerTab.MODS)
         val compactInstanceDetail = model.state.value
         model.openInstanceDetail(base.instances.first(), ContentManagerTab.DATAPACKS)
@@ -332,6 +358,9 @@ class ScreensRenderTest {
             "downloads" to base.copy(destination = AppDestination.DOWNLOADS),
             "download-queue" to base.copy(downloadQueueOpen = true),
             "content-browser" to compactContentBrowser.copy(
+                destination = AppDestination.DOWNLOADS,
+            ),
+            "content-project-sheet" to compactProjectSheet.copy(
                 destination = AppDestination.DOWNLOADS,
             ),
             "downloads-modpack" to compactModpack,

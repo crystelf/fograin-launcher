@@ -223,6 +223,13 @@ class FakeCoreClient : CoreClient {
             """.trimIndent(),
         )
 
+        "content.plan" -> json(
+            """{"ok":true,"source":"modrinth","projectId":"AANobbMI","projectName":"Sodium","versionId":"old-v","versionNumber":"mc1.21.4-0.6.12-fabric","kind":"mod","files":2,"totalBytes":2000000,"warnings":[],"items":[
+              {"fileName":"sodium-0.6.12.jar","projectId":"AANobbMI","projectName":"Sodium","versionId":"old-v","versionNumber":"mc1.21.4-0.6.12-fabric","dependency":false,"size":1290000},
+              {"fileName":"fabric-api.jar","projectId":"P7dR8mSH","projectName":"Fabric API","versionId":"api-v","versionNumber":"0.119.4+1.21.4","dependency":true,"size":710000}
+            ]}""",
+        )
+
         "content.toggle", "content.delete", "content.install" -> json(
             """{"ok":true,"taskId":"content-task-1","projectName":"Sodium","versionNumber":"0.6.13","files":1,"totalBytes":1306799,"items":[]}""",
         )
