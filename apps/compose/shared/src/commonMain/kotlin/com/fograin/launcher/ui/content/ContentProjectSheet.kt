@@ -46,6 +46,7 @@ import com.fograin.launcher.platform.CoreContentProject
 import com.fograin.launcher.platform.CoreContentVersion
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.components.DropdownField
+import com.fograin.launcher.ui.downloadsCountText
 import com.fograin.launcher.ui.title
 import org.jetbrains.compose.resources.stringResource
 
@@ -112,8 +113,7 @@ fun ContentProjectSheet(
             text = buildString {
                 append(sourceLabel)
                 append(" · ")
-                append(compactCount(project.downloads))
-                append(" 下载")
+                append(downloadsCountText(project.downloads))
                 project.categories.take(4).takeIf { it.isNotEmpty() }?.let { categories ->
                     append(" · ")
                     append(categories.joinToString(" / "))
@@ -553,14 +553,4 @@ private fun VersionTypeBadge(versionType: String) {
             color = tint,
         )
     }
-}
-
-private fun compactCount(value: Long): String = when {
-    value >= 100_000_000L -> {
-        val tenths = value * 10 / 100_000_000L
-        "${tenths / 10}.${tenths % 10} 亿"
-    }
-
-    value >= 10_000L -> "${value / 1_000L} 千"
-    else -> value.toString()
 }

@@ -267,5 +267,5 @@ private fun loaderLabel(pack: CoreModpack): String = when (pack.loaderKind.lower
     "quilt" -> "Quilt ${pack.loaderVersion}".trim()
     "forge" -> "Forge ${pack.loaderVersion}".trim()
     "neoforge" -> "NeoForge ${pack.loaderVersion}".trim()
-    else -> "原版"
+    else -> stringResource(Res.string.library_scope_vanilla)
 }

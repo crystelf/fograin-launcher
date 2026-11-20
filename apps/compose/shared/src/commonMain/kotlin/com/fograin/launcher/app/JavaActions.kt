@@ -6,7 +6,6 @@ import com.fograin.launcher.platform.CoreJavaList
 import com.fograin.launcher.platform.CoreJavaRuntime
 import com.fograin.launcher.platform.decode
 import com.fograin.launcher.platform.stringOrNull
-import com.fograin.launcher.ui.AppDestination
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.buildJsonObject
@@ -23,20 +22,6 @@ internal class JavaActions(private val model: AppModel) {
 
     private var generation = 0
     private var loading = false
-
-    fun open() {
-        model.setState {
-            it.copy(
-                destination = AppDestination.SETTINGS,
-                settingsStage = SettingsStage.JAVA,
-            )
-        }
-        refresh()
-    }
-
-    fun close() {
-        model.setState { it.copy(settingsStage = SettingsStage.MAIN) }
-    }
 
     fun refresh() {
         model.scope.launch { load(includeCatalog = true) }

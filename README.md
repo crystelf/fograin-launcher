@@ -25,6 +25,7 @@ Minecraft Java 版启动器：一套 Rust 核心 + 一套 Compose Multiplatform 
 | R4 | 桌面外壳：窗口状态、菜单快捷键、Esc 返回、原生目录选择器、宽屏 NavigationRail | 完成（2026-11-14） |
 | R5 | 打包与 CI：DMG/MSI/DEB、tag 触发的 release workflow、三 OS CI 矩阵 | 进行中 |
 | R6 | 清理：删除旧 `apps/android` 与旧文档 | 完成（2026-11-14） |
+| M10 | 设置界面、四语言与主题色；自动更新、签名、发布打磨 | 进行中（设置与 i18n 于 2026-11-19 完成） |
 
 M0–M4 早期实现了四套原生 UI（SwiftUI / WinUI 3 / GTK4 / Compose）。四端 UI 合计约 3 万行，同一个页面要写四遍，维护成本过高。2026-11-12 起按 [ADR 0004](docs/adr/0004-compose-multiplatform-ui.md) 收敛为**一套 Compose Multiplatform UI**：Rust 核心、FFI 契约、数据目录与配置不变；Android 端与桌面端运行同一份 `commonMain` 页面，平台外壳各自打包。
 
@@ -35,6 +36,8 @@ R3/R4/R6 于 2026-11-14 收尾：`AppModel` 拆成四个按功能的 controller�
 M7（2026-11-15）加入离线账户与第三方 Yggdrasil / authlib-injector 登录、账户面板和启动接线。按范围调整，皮肤管理从计划中移除；微软正版登录保留在 M11。
 
 M8（2026-11-15）加入实例内容管理与内容下载页：模组、资源包、光影的扫描/启用/删除/更新检查，世界的列表/备份/恢复/删除，以及 Modrinth 与 CurseForge（MCIM）的搜索、版本选择、必需前置解析和安装。原理图（`.litematic` / `.schem` / `.nbt`）已从 M8 与全部后续计划中删除，实例目录不再创建 `schematics/`；数据包与整合包留在 M9。实现细节与手测记录见 [docs/m8.md](docs/m8.md)。
+
+M10（进行中，2026-11-19）重做设置：从导航栏进入同一窗口内的设置页（与普通页面共用正向/返回动画，不再弹出第二个窗口）；宽屏为可拖动分隔的「分类侧栏 + 内容区」，窄屏为分类列表 → 详情，并保留 General → Java 的返回栈。外观页支持简体中文 / 繁體中文 / English / 日本語（默认跟随系统）、明暗主题、系统自动取色与自定义主题色（OKLCH 生成色板）；通用页可配置内存、JVM 参数、分辨率、全屏、日志、自动补全、Java 策略与初始页面；下载页可配置源、并发、分片、限速、重试与单主机并发；网络页支持代理模式/地址与超时；存储页显示数据目录、磁盘空间并支持下次启动切换目录；关于页展示构建信息与诊断复制。`launcher.toml` 新增 `[appearance] language/accent` 与 `[general] initial_page`，RPC 新增 `settings.get` / `settings.set`。宽屏主界面与设置内容区改为仅左侧圆角、其余边缘贴合系统窗口的内容面板（Windows 10/7 等无窗口圆角的系统使用直边）。同时修复了内容 API 测试在能访问 Modrinth 官方站点的 CI 上返回真实搜索结果而失败的问题（测试镜像表现在禁用官方候选）。
 
 M9（2026-11-17）加入崩溃分析页、数据包安装和整合包导入/导出。`fg-diag` 用可覆盖的 TOML 规则分析 `latest.log`、崩溃报告与 `hs_err`，并导出脱敏诊断包；数据包按世界管理并可从下载页安装；整合包支持 Modrinth `.mrpack`、CurseForge/HMCL zip 与 MultiMC/Prism 外部实例，导入后写入 `modpack.json`，并可导出 `.mrpack`。下载页的「整合包 / 数据包 / 资源包」分类现在都有真实内容：整合包安装到新实例，数据包安装到选中的世界，资源包/光影/模组沿用内容浏览器；桌面支持把 `.mrpack` / `.zip` / MultiMC 目录拖进窗口导入，主页三点菜单也有「导入整合包…」。服务器列表、状态 Ping、局域网与快速加入在当天从产品范围移除。整合包增量更新留在 M9.1。实现细节见 [docs/m9.md](docs/m9.md)。
 

@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.model.GameLoaderKind
+import com.fograin.launcher.ui.titleText
 import com.fograin.launcher.platform.CoreLoaderVersion
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.components.SkeletonBox
@@ -101,7 +102,7 @@ internal fun LoaderVersionsPage(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(
-                            text = loader.title,
+                            text = loader.titleText(),
                             style = MaterialTheme.typography.titleMedium,
                         )
                         if (!download.isLoadingLoaderVersions && versions.isNotEmpty()) {

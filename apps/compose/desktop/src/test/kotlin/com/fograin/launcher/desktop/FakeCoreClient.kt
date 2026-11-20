@@ -1,12 +1,18 @@
 package com.fograin.launcher.desktop
 
 import com.fograin.launcher.platform.CoreClient
+import com.fograin.launcher.platform.CoreDownloadSettings
+import com.fograin.launcher.platform.CoreGameConfig
 import com.fograin.launcher.platform.CoreJson
+import com.fograin.launcher.platform.CoreNetworkSettings
 import com.fograin.launcher.platform.CoreSettings
 import com.fograin.launcher.settings.ThemeMode
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Deterministic in-memory core for off-screen rendering tests.
@@ -38,10 +44,25 @@ class FakeCoreClient : CoreClient {
         appVersion = "0.1.0",
         platform = "macos",
         theme = ThemeMode.DARK,
+        language = "system",
+        accent = "auto",
+        initialPage = "home",
         dataRoot = "/tmp/fograin-test",
         configPath = "/tmp/fograin-test/launcher.toml",
     )
         private set
+
+    private var gameConfig = CoreGameConfig(
+        username = "Steve_Fog",
+        memoryMb = 6144,
+        resolution = listOf(1920, 1080),
+    )
+    private var download = CoreDownloadSettings()
+    private var network = CoreNetworkSettings()
+    private var language = "system"
+    private var accent = "auto"
+    private var initialPage = "home"
+    private var javaAutoDownload = true
 
     override suspend fun rpc(method: String, params: JsonObject): JsonObject = when (method) {
         "instances.list" -> json(
@@ -59,8 +80,68 @@ class FakeCoreClient : CoreClient {
         )
 
         "gameConfig.get" -> json(
-            """{"ok":true,"username":"Steve_Fog","memoryMb":6144,"java":null,"jvmArgs":"","resolution":[1920,1080],"fullscreen":false,"showLog":false,"autoCompleteResources":true}""",
+            """{"ok":true,"username":"${gameConfig.username}","memoryMb":${gameConfig.memoryMb},"java":null,"jvmArgs":"${gameConfig.jvmArgs}","resolution":[${gameConfig.resolution?.joinToString(",") ?: ""}],"fullscreen":${gameConfig.fullscreen},"showLog":${gameConfig.showLog},"autoCompleteResources":${gameConfig.autoCompleteResources}}""",
         )
+
+        "gameConfig.set" -> {
+            gameConfig = gameConfig.copy(
+                memoryMb = params["memoryMb"]?.jsonPrimitive?.intOrNull ?: gameConfig.memoryMb,
+                jvmArgs = params["jvmArgs"]?.jsonPrimitive?.content ?: gameConfig.jvmArgs,
+                fullscreen = params["fullscreen"]?.jsonPrimitive?.booleanOrNull
+                    ?: gameConfig.fullscreen,
+                showLog = params["showLog"]?.jsonPrimitive?.booleanOrNull ?: gameConfig.showLog,
+                autoCompleteResources = params["autoCompleteResources"]?.jsonPrimitive?.booleanOrNull
+                    ?: gameConfig.autoCompleteResources,
+                resolution = if (params.containsKey("resolution")) {
+                    (params["resolution"] as? kotlinx.serialization.json.JsonArray)
+                        ?.mapNotNull { it.jsonPrimitive.intOrNull }
+                } else {
+                    gameConfig.resolution
+                },
+            )
+            json(
+                """{"ok":true,"username":"${gameConfig.username}","memoryMb":${gameConfig.memoryMb},"java":null,"jvmArgs":"${gameConfig.jvmArgs}","resolution":[${gameConfig.resolution?.joinToString(",") ?: ""}],"fullscreen":${gameConfig.fullscreen},"showLog":${gameConfig.showLog},"autoCompleteResources":${gameConfig.autoCompleteResources}}""",
+            )
+        }
+
+        "settings.get" -> json(settingsPayload())
+
+        "settings.set" -> {
+            language = params["language"]?.jsonPrimitive?.content ?: language
+            accent = params["accent"]?.jsonPrimitive?.content ?: accent
+            initialPage = params["initialPage"]?.jsonPrimitive?.content ?: initialPage
+            val theme = params["theme"]?.jsonPrimitive?.content
+            if (theme != null) settings = settings.copy(theme = ThemeMode.fromWire(theme))
+            (params["download"] as? JsonObject)?.let { value ->
+                download = download.copy(
+                    source = value["source"]?.jsonPrimitive?.content ?: download.source,
+                    versionSource = value["versionSource"]?.jsonPrimitive?.content
+                        ?: download.versionSource,
+                    concurrency = value["concurrency"]?.jsonPrimitive?.intOrNull
+                        ?: download.concurrency,
+                    perHost = value["perHost"]?.jsonPrimitive?.intOrNull ?: download.perHost,
+                    rateLimitKib = value["rateLimitKib"]?.jsonPrimitive?.intOrNull
+                        ?: download.rateLimitKib,
+                    segments = value["segments"]?.jsonPrimitive?.intOrNull ?: download.segments,
+                    segmentThresholdMb = value["segmentThresholdMb"]?.jsonPrimitive?.intOrNull
+                        ?: download.segmentThresholdMb,
+                    retries = value["retries"]?.jsonPrimitive?.intOrNull ?: download.retries,
+                )
+            }
+            (params["network"] as? JsonObject)?.let { value ->
+                network = network.copy(
+                    proxy = value["proxy"]?.jsonPrimitive?.content ?: network.proxy,
+                    timeoutSecs = value["timeoutSecs"]?.jsonPrimitive?.intOrNull
+                        ?: network.timeoutSecs,
+                )
+            }
+            val settingsBody = settingsPayload()
+                .removePrefix("{\"ok\":true,")
+                .removeSuffix("}")
+            json(
+                """{"ok":true,"settings":{$settingsBody},"snapshot":${snapshotPayload()}}""",
+            )
+        }
 
         "accounts.list" -> json(
             """{"ok":true,"selectedId":"offline-steve","accounts":[
@@ -146,7 +227,7 @@ class FakeCoreClient : CoreClient {
         "instances.dir" -> json("""{"ok":true,"gameDir":"/tmp/fograin-test/instances/fog-forest"}""")
 
         "java.list" -> json(
-            """{"ok":true,"autoDownload":true,"supported":true,"platform":"macos","hostArch":"arm64","runtimes":[
+            """{"ok":true,"autoDownload":$javaAutoDownload,"supported":true,"platform":"macos","hostArch":"arm64","runtimes":[
               {"id":"mojang-java-runtime-delta-21.0.7-arm64","vendor":"mojang","version":"21.0.7","major":21,"arch":"arm64","home":"/tmp/fograin-test/runtimes/mojang-java-runtime-delta-21.0.7-arm64/jre.bundle/Contents/Home","executable":"/tmp/fograin-test/runtimes/mojang-java-runtime-delta-21.0.7-arm64/jre.bundle/Contents/Home/bin/java","source":"Fograin runtimes","managed":true,"sizeBytes":104202936,"installedAtMs":1794712058419,"component":"java-runtime-delta","platform":"mac-os-arm64"},
               {"id":null,"vendor":"Oracle Corporation","version":"21.0.9","major":21,"arch":"arm64","home":"/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home","executable":"/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home/bin/java","source":"java_home","managed":false,"sizeBytes":0}
             ]}""",
@@ -160,7 +241,11 @@ class FakeCoreClient : CoreClient {
             ]}""",
         )
 
-        "java.policy.set" -> json("""{"ok":true,"autoDownload":false}""")
+        "java.policy.set" -> {
+            javaAutoDownload = params["autoDownload"]?.jsonPrimitive?.booleanOrNull
+                ?: javaAutoDownload
+            json("""{"ok":true,"autoDownload":$javaAutoDownload}""")
+        }
 
         "content.local" -> json(
             """
@@ -272,6 +357,21 @@ class FakeCoreClient : CoreClient {
         settings = settings.copy(theme = theme)
         return settings
     }
+
+    private fun settingsPayload(): String {
+        val downloadJson = CoreJson.encodeToJsonElement(
+            CoreDownloadSettings.serializer(),
+            download,
+        )
+        val networkJson = CoreJson.encodeToJsonElement(
+            CoreNetworkSettings.serializer(),
+            network,
+        )
+        return """{"ok":true,"theme":"${settings.theme.wireValue}","language":"$language","accent":"$accent","initialPage":"$initialPage","download":$downloadJson,"network":$networkJson}"""
+    }
+
+    private fun snapshotPayload(): String =
+        """{"abiVersion":1,"appVersion":"0.1.0","platform":"macos","theme":"${settings.theme.wireValue}","language":"$language","accent":"$accent","initialPage":"$initialPage","dataRoot":"/tmp/fograin-test","configPath":"/tmp/fograin-test/launcher.toml"}"""
 
     override fun nextEvents(): List<JsonObject> = emptyList()
 

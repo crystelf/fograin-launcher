@@ -39,6 +39,12 @@ data class CoreSettings(
     val platform: String = "unknown",
     @Serializable(with = ThemeModeSerializer::class)
     val theme: ThemeMode = ThemeMode.SYSTEM,
+    /** `system`, `zh-Hans`, `zh-Hant`, `en` or `ja` (see `AppLanguage`). */
+    val language: String = "system",
+    /** `auto` or a `#RRGGBB` seed colour. */
+    val accent: String = "auto",
+    /** `home`, `library` or `downloads`. */
+    val initialPage: String = "home",
     val dataRoot: String = "",
     val configPath: String = "",
     val configError: CoreErrorPayload? = null,
@@ -50,6 +56,9 @@ data class CoreSettings(
             appVersion = "0.1.0",
             platform = platform,
             theme = ThemeMode.SYSTEM,
+            language = "system",
+            accent = "auto",
+            initialPage = "home",
             dataRoot = dataRoot,
             configPath = if (dataRoot.isBlank()) "" else "$dataRoot/launcher.toml",
         )
@@ -244,6 +253,44 @@ data class CoreInstanceRow(
     val sizeBytes: Long = 0,
     val playSeconds: Long = 0,
     val lastPlayedMs: Long? = null,
+)
+
+/** `[download]` engine limits and source preferences. */
+@Serializable
+data class CoreDownloadSettings(
+    val source: String = "auto",
+    val versionSource: String = "auto",
+    val concurrency: Int = 0,
+    val perHost: Int = 32,
+    val rateLimitKib: Int = 0,
+    val segments: Int = 4,
+    val segmentThresholdMb: Int = 16,
+    val retries: Int = 5,
+)
+
+/** `[network]` proxy and timeout settings. */
+@Serializable
+data class CoreNetworkSettings(
+    val proxy: String = "auto",
+    val timeoutSecs: Int = 10,
+)
+
+/** Launcher-wide settings returned by `settings.get`. */
+@Serializable
+data class CoreLauncherSettings(
+    val theme: String = "system",
+    val language: String = "system",
+    val accent: String = "auto",
+    val initialPage: String = "home",
+    val download: CoreDownloadSettings = CoreDownloadSettings(),
+    val network: CoreNetworkSettings = CoreNetworkSettings(),
+)
+
+/** `settings.set` echoes the normalized settings plus a fresh snapshot. */
+@Serializable
+data class CoreLauncherSettingsUpdate(
+    val settings: CoreLauncherSettings = CoreLauncherSettings(),
+    val snapshot: CoreSettings = CoreSettings(),
 )
 
 /** `[game]` section as the core serializes it. */

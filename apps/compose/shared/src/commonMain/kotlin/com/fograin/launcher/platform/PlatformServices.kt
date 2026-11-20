@@ -47,6 +47,9 @@ interface DeviceInfoProvider {
     val totalMemoryBytes: Long
     val deviceText: String
     val socText: String
+
+    /** Logical processors; drives the automatic download concurrency label. */
+    val cpuCount: Int
 }
 
 /** 4. Plain-text clipboard access (instance paths, diagnostics). */
@@ -55,16 +58,29 @@ interface ClipboardService {
 }
 
 /**
- * 5. Preferences the core does not own yet. Material You dynamic color is an
- * Android-only presentation choice, so it stays local until the settings
- * surface lands in M10.
+ * 5. Presentation preferences the core does not own.
+ *
+ * Theme, language and accent live in `launcher.toml`; the values below are
+ * window-scoped (geometry, splitter width) or a desktop bootstrap path read
+ * before the core starts, so they stay local to each platform.
  */
 interface LocalPreferences {
-    var dynamicColor: Boolean
+    /** True when the platform can supply a system accent colour. */
     fun supportsDynamicColor(): Boolean
 
     /** Desktop window geometry; `null` on Android and until the user moves a window. */
     var windowFrame: WindowFrame?
+
+    /**
+     * Data directory used on the next launch, overriding the platform default.
+     * `null` means "use the default". Applying it before `createCoreClient()`
+     * is what makes "change data folder" safe: the running core keeps its
+     * already-open root.
+     */
+    var dataRootOverride: String?
+
+    /** Width of the settings category sidebar in dp; `0` uses the default. */
+    var settingsSidebarWidth: Float
 }
 
 /** A directory row returned by [DirectoryBrowser]. Paths stay absolute strings. */
@@ -157,6 +173,17 @@ interface BackDispatcher {
     fun handleBack(enabled: Boolean, onBack: () -> Unit)
 }
 
+/**
+ * 10. Shell-level navigation that leaves the app: revealing the data folder
+ * and opening project links. Both return false where the platform cannot
+ * honour the request so the caller can fall back to the clipboard.
+ */
+interface SystemLinks {
+    fun revealDirectory(path: String): Boolean
+
+    fun openUrl(url: String): Boolean
+}
+
 /** Everything the shared UI needs from the host, provided once per process. */
 data class PlatformServices(
     val platformName: String,
@@ -170,6 +197,7 @@ data class PlatformServices(
     val logger: AppLogger,
     val appearance: SystemAppearance,
     val backDispatcher: BackDispatcher,
+    val links: SystemLinks,
 )
 
 /**

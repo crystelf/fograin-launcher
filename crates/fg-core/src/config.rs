@@ -31,6 +31,72 @@ impl ThemePreference {
     }
 }
 
+/// UI language (`[appearance] language`).
+///
+/// `System` follows the host locale. The four explicit values match the
+/// `values-*` folders the Compose resources module ships.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LanguagePreference {
+    #[default]
+    #[serde(rename = "system")]
+    System,
+    #[serde(rename = "zh-Hans")]
+    SimplifiedChinese,
+    #[serde(rename = "zh-Hant")]
+    TraditionalChinese,
+    #[serde(rename = "en")]
+    English,
+    #[serde(rename = "ja")]
+    Japanese,
+}
+
+impl LanguagePreference {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::SimplifiedChinese => "zh-Hans",
+            Self::TraditionalChinese => "zh-Hant",
+            Self::English => "en",
+            Self::Japanese => "ja",
+        }
+    }
+
+    /// Parses a `launcher.toml` / RPC value. Unknown values fall back to the
+    /// system language instead of rejecting the whole config.
+    #[must_use]
+    pub const fn from_value(value: &str) -> Self {
+        match value.as_bytes() {
+            b"zh-Hans" | b"zh-CN" | b"zh_cn" => Self::SimplifiedChinese,
+            b"zh-Hant" | b"zh-TW" | b"zh-HK" => Self::TraditionalChinese,
+            b"en" | b"en-US" | b"en-GB" => Self::English,
+            b"ja" | b"ja-JP" => Self::Japanese,
+            _ => Self::System,
+        }
+    }
+}
+
+/// Which destination opens after a cold start (`[general] initial_page`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum InitialPage {
+    #[default]
+    Home,
+    Library,
+    Downloads,
+}
+
+impl InitialPage {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Home => "home",
+            Self::Library => "library",
+            Self::Downloads => "downloads",
+        }
+    }
+}
+
 /// The concrete theme after resolving [`ThemePreference::System`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -60,6 +126,7 @@ impl ResolvedTheme {
 pub struct LauncherConfig {
     pub schema_version: u32,
     pub appearance: AppearanceConfig,
+    pub general: GeneralConfig,
     pub game: GameConfig,
     pub java: JavaConfig,
     pub download: DownloadConfig,
@@ -78,6 +145,7 @@ impl LauncherConfig {
         Self {
             schema_version: SCHEMA_VERSION,
             appearance: AppearanceConfig::default(),
+            general: GeneralConfig::default(),
             game: GameConfig::default(),
             java: JavaConfig::default(),
             download: DownloadConfig::default(),
@@ -92,15 +160,40 @@ impl LauncherConfig {
             self.schema_version = SCHEMA_VERSION;
         }
         self.download = self.download.clamped();
+        self.appearance.accent = normalize_accent(&self.appearance.accent);
         self.game.normalize();
         self
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppearanceConfig {
     pub theme: ThemePreference,
+    /// UI language; [`LanguagePreference::System`] follows the host locale.
+    #[serde(deserialize_with = "deserialize_language")]
+    pub language: LanguagePreference,
+    /// Accent choice: `auto` follows the system accent (Material You on
+    /// Android), any `#RRGGBB` value pins a custom seed colour.
+    pub accent: String,
+}
+
+impl Default for AppearanceConfig {
+    fn default() -> Self {
+        Self {
+            theme: ThemePreference::System,
+            language: LanguagePreference::System,
+            accent: "auto".to_string(),
+        }
+    }
+}
+
+/// `[general]` — shell behaviour shared by every platform.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GeneralConfig {
+    /// Destination shown after a cold start.
+    pub initial_page: InitialPage,
 }
 
 /// `[game]` — defaults inherited by every instance (§5.2, §8.3).
@@ -313,6 +406,33 @@ impl NetworkConfig {
     }
 }
 
+/// Tolerant language deserializer: a hand-edited unknown value falls back to
+/// the system language instead of rejecting every other setting in the file.
+fn deserialize_language<'de, D>(
+    deserializer: D,
+) -> std::result::Result<LanguagePreference, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    Ok(LanguagePreference::from_value(&value))
+}
+
+/// Normalizes an accent value: `auto` or an upper-case `#RRGGBB` seed.
+#[must_use]
+pub fn normalize_accent(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.eq_ignore_ascii_case("auto") || trimmed.is_empty() {
+        return "auto".to_string();
+    }
+    let hex = trimmed.strip_prefix('#').unwrap_or(trimmed);
+    if hex.len() == 6 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        format!("#{}", hex.to_ascii_uppercase())
+    } else {
+        "auto".to_string()
+    }
+}
+
 /// Path of the global settings file inside the launcher data root.
 #[must_use]
 pub fn config_path(root: &Path) -> PathBuf {
@@ -448,6 +568,49 @@ mod tests {
         let text = fs::read_to_string(config_path(&root)).expect("read toml");
         assert!(text.contains("username = \"Notch\""));
         assert!(text.contains("auto_complete_resources = true"));
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn appearance_language_and_accent_round_trip() {
+        let root = temp_root();
+        let mut config = LauncherConfig::new();
+        config.appearance.language = LanguagePreference::TraditionalChinese;
+        config.appearance.accent = "#3f8f6b".to_string();
+        config.general.initial_page = InitialPage::Downloads;
+
+        write_config(&root, &config).expect("write config");
+        let loaded = read_config(&root).expect("read config");
+        assert_eq!(
+            loaded.appearance.language,
+            LanguagePreference::TraditionalChinese
+        );
+        assert_eq!(loaded.appearance.accent, "#3F8F6B");
+        assert_eq!(loaded.general.initial_page, InitialPage::Downloads);
+
+        let text = fs::read_to_string(config_path(&root)).expect("read toml");
+        assert!(text.contains("language = \"zh-Hant\""), "{text}");
+        assert!(text.contains("accent = \"#3F8F6B\""), "{text}");
+        assert!(text.contains("[general]"), "{text}");
+        assert!(text.contains("initial_page = \"downloads\""), "{text}");
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn invalid_accent_and_language_fall_back_to_defaults() {
+        let root = temp_root();
+        fs::create_dir_all(&root).expect("create root");
+        fs::write(
+            config_path(&root),
+            "[appearance]\nlanguage = \"klingon\"\naccent = \"not-a-colour\"\n",
+        )
+        .expect("write config");
+
+        let loaded = read_config(&root).expect("read config");
+        assert_eq!(loaded.appearance.language, LanguagePreference::System);
+        assert_eq!(loaded.appearance.accent, "auto");
 
         fs::remove_dir_all(root).expect("cleanup");
     }

@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalTime::class)
+
 package com.fograin.launcher.ui
 
 import androidx.compose.runtime.Composable
@@ -9,7 +11,16 @@ import com.fograin.launcher.model.ContentLoaderFilter
 import com.fograin.launcher.model.ContentVersionChannel
 import com.fograin.launcher.model.DownloadVersionChannel
 import com.fograin.launcher.model.DownloadsCategory
+import com.fograin.launcher.model.GameLoaderKind
+import com.fograin.launcher.model.Instance
 import com.fograin.launcher.model.InstanceFormat
+import com.fograin.launcher.model.LoaderKind
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
+import kotlin.time.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.number
+import kotlinx.datetime.toLocalDateTime
 import com.fograin.launcher.model.LibraryGroup
 import com.fograin.launcher.model.LibraryScope
 import com.fograin.launcher.model.LibrarySort
@@ -141,6 +152,123 @@ fun ThemeMode.title(): String = stringResource(
         ThemeMode.DARK -> Res.string.settings_theme_dark
     },
 )
+
+/** Localized loader name for instance summaries. */
+@Composable
+fun LoaderKind.titleText(): String = when (this) {
+    LoaderKind.VANILLA -> stringResource(Res.string.library_scope_vanilla)
+    else -> title
+}
+
+/** Install-page loader name; only Vanilla differs from the wire label. */
+@Composable
+fun GameLoaderKind.titleText(): String = when (this) {
+    GameLoaderKind.VANILLA -> stringResource(Res.string.library_scope_vanilla)
+    else -> title
+}
+
+/** Install-page one-line description in the current language. */
+@Composable
+fun GameLoaderKind.subtitleText(): String = stringResource(
+    when (this) {
+        GameLoaderKind.VANILLA -> Res.string.loader_vanilla_subtitle
+        GameLoaderKind.FABRIC -> Res.string.loader_fabric_subtitle
+        GameLoaderKind.QUILT -> Res.string.loader_quilt_subtitle
+        GameLoaderKind.FORGE -> Res.string.loader_forge_subtitle
+        GameLoaderKind.NEOFORGE -> Res.string.loader_neoforge_subtitle
+        GameLoaderKind.OPTIFINE -> Res.string.loader_optifine_subtitle
+    },
+)
+
+/** `1.21.4 · Fabric · 42 模组` in the current language. */
+@Composable
+fun Instance.metaText(): String {
+    val loaderLabel = loader.titleText()
+    val parts = buildList {
+        add(minecraftVersion)
+        add(loaderLabel)
+        modCount?.let { add(stringResource(Res.string.instance_meta_mods, it)) }
+    }
+    return parts.joinToString(" · ")
+}
+
+/** `1.21.4 · Fabric 0.16.9`, or just the Minecraft version for vanilla. */
+@Composable
+fun Instance.versionLineText(): String {
+    if (loaderVersion.isBlank()) return minecraftVersion
+    return "$minecraftVersion · ${loader.titleText()} $loaderVersion"
+}
+
+/** Relative "last played" label in the current language. */
+@Composable
+fun relativeTimeText(
+    epochMillis: Long?,
+    nowMillis: Long = Clock.System.now().toEpochMilliseconds(),
+    timeZone: TimeZone = TimeZone.currentSystemDefault(),
+): String {
+    if (epochMillis == null) return stringResource(Res.string.time_never_played)
+    val delta = nowMillis - epochMillis
+    if (delta < 60_000L) return stringResource(Res.string.time_just_now)
+    val minutes = delta / 60_000L
+    val hours = minutes / 60L
+    val days = hours / 24L
+    return when {
+        minutes < 60L -> stringResource(Res.string.time_minutes_ago, minutes.toInt())
+        hours < 24L -> stringResource(Res.string.time_hours_ago, hours.toInt())
+        days == 1L -> stringResource(Res.string.time_yesterday)
+        days < 7L -> stringResource(Res.string.time_days_ago, days.toInt())
+        days < 14L -> stringResource(Res.string.time_last_week)
+        else -> {
+            val date = Instant.fromEpochMilliseconds(epochMillis)
+                .toLocalDateTime(timeZone)
+                .date
+            stringResource(Res.string.time_month_day, date.month.number, date.day)
+        }
+    }
+}
+
+/** Download counter with a language-appropriate compact unit. */
+@Composable
+fun downloadsCountText(count: Long): String = when {
+    count >= 100_000_000L -> {
+        val tenths = count * 10 / 100_000_000L
+        stringResource(
+            Res.string.content_downloads_ten_millions,
+            "${tenths / 10}.${tenths % 10}",
+        )
+    }
+
+    count >= 10_000L -> stringResource(
+        Res.string.content_downloads_thousands,
+        count / 1_000L,
+    )
+
+    else -> stringResource(Res.string.content_downloads_exact, count)
+}
+
+/** Localized task title built from the raw core graph name. */
+@Composable
+fun DownloadRow.titleText(): String {
+    val name = graphName.ifBlank { title }
+    return when {
+        name.startsWith("install:") ->
+            stringResource(Res.string.task_install, name.removePrefix("install:"))
+
+        name.startsWith("java:") ->
+            stringResource(Res.string.task_java, name.removePrefix("java:"))
+
+        name.startsWith("content:") ->
+            stringResource(Res.string.task_content_install, name.removePrefix("content:"))
+
+        name.startsWith("整合包下载:") ->
+            stringResource(Res.string.task_modpack_download, name.removePrefix("整合包下载:"))
+
+        name.startsWith("整合包:") ->
+            stringResource(Res.string.task_modpack_import, name.removePrefix("整合包:"))
+
+        else -> title
+    }
+}
 
 @Composable
 fun DownloadRow.stateText(): String = when (state) {

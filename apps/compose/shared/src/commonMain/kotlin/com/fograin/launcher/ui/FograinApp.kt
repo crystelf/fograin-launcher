@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Search
@@ -45,7 +46,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -70,6 +70,7 @@ import com.fograin.launcher.ui.components.AnimatedSheetHost
 import com.fograin.launcher.ui.components.LocalPageHeaderTopInset
 import com.fograin.launcher.ui.components.PageHeaderMetrics
 import com.fograin.launcher.ui.components.fograinPageTransition
+import com.fograin.launcher.ui.components.windowContentShape
 import com.fograin.launcher.ui.content.ContentProjectSheet
 import com.fograin.launcher.ui.downloads.DownloadQueueScreen
 import com.fograin.launcher.ui.downloads.DownloadsScreen
@@ -78,7 +79,6 @@ import com.fograin.launcher.ui.library.LibraryScreen
 import com.fograin.launcher.ui.modpack.ModpackExportDialog
 import com.fograin.launcher.ui.modpack.ModpackImportSheet
 import com.fograin.launcher.ui.search.GlobalSearchSheet
-import com.fograin.launcher.ui.settings.SettingsScreen
 import org.jetbrains.compose.resources.stringResource
 
 /** Window width at which the shell swaps the bottom bar for a navigation rail. */
@@ -107,8 +107,6 @@ private data object AccountTarget
 fun FograinApp(
     model: AppModel,
     state: AppUiState,
-    dynamicColorEnabled: Boolean,
-    onDynamicColorChange: (Boolean) -> Unit,
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val services = remember { platformServices() }
@@ -117,6 +115,13 @@ fun FograinApp(
     // that puts the title row on the same line as the native traffic lights;
     // the header itself uses a shorter 48 dp row for that title-bar feel.
     val headerHeight = PageHeaderMetrics.heightFor(services.platformName)
+
+    // One handler for Android's back gesture and the desktop Escape key. It
+    // peels sheets and dialogs before it leaves the current destination and is
+    // disabled while the settings destination owns the window.
+    backDispatcher.handleBack(enabled = !state.settingsWindow.open && model.canGoBack()) {
+        model.back()
+    }
 
     LaunchedEffect(state.notice?.id) {
         val notice = state.notice ?: return@LaunchedEffect
@@ -127,10 +132,6 @@ fun FograinApp(
         )
         model.consumeNotice(notice.id)
     }
-
-    // One handler for Android's back gesture and the desktop Escape key. It
-    // peels sheets and dialogs before it leaves the current destination.
-    backDispatcher.handleBack(enabled = model.canGoBack()) { model.back() }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val expanded = maxWidth >= ExpandedWidth
@@ -167,7 +168,11 @@ fun FograinApp(
                             val selected = !state.downloadQueueOpen && item == state.destination
                             NavigationBarItem(
                                 modifier = Modifier.testTag(navItemTag(item)),
-                                selected = selected,
+                                selected = if (item == AppDestination.SETTINGS) {
+                                    state.settingsWindow.open
+                                } else {
+                                    selected
+                                },
                                 onClick = { model.navigate(item) },
                                 icon = {
                                     DestinationIcon(
@@ -243,7 +248,7 @@ fun FograinApp(
                                             settings == state.destination
                                         NavigationRailItem(
                                             modifier = Modifier.testTag(navItemTag(settings)),
-                                            selected = selected,
+                                            selected = state.settingsWindow.open,
                                             onClick = { model.navigate(settings) },
                                             icon = {
                                                 DestinationIcon(
@@ -258,47 +263,58 @@ fun FograinApp(
                                     }
                                 }
                             }
-                            VerticalDivider()
                         }
-                        AnimatedContent(
-                            targetState = state.downloadQueueOpen,
+                        // The right half is flush with the window's top,
+                        // right and bottom edges. Only its left corners are
+                        // rounded, and only when the host window is rounded
+                        // (macOS, Windows 11, GNOME); otherwise it stays
+                        // rectangular so it merges with the system chrome.
+                        Surface(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight(),
-                            transitionSpec = {
-                                fograinPageTransition(forward = targetState)
-                            },
-                            label = "queue-page",
-                        ) { queueOpen ->
-                            if (queueOpen) {
-                                DownloadQueueScreen(model = model, state = state)
-                            } else {
-                                AnimatedContent(
-                                    targetState = state.destination,
-                                    modifier = Modifier.fillMaxSize(),
-                                    transitionSpec = {
-                                        fograinPageTransition(
-                                            forward = targetState.ordinal > initialState.ordinal,
-                                        )
-                                    },
-                                    label = "page-transition",
-                                ) { destination ->
-                                    when (destination) {
-                                        AppDestination.HOME ->
-                                            HomeScreen(model = model, state = state)
+                            shape = if (expanded) windowContentShape() else RectangleShape,
+                            color = MaterialTheme.colorScheme.surface,
+                            contentColor = MaterialTheme.colorScheme.onSurface,
+                        ) {
+                            AnimatedContent(
+                                targetState = state.downloadQueueOpen,
+                                modifier = Modifier.fillMaxSize(),
+                                transitionSpec = {
+                                    fograinPageTransition(forward = targetState)
+                                },
+                                label = "queue-page",
+                            ) { queueOpen ->
+                                if (queueOpen) {
+                                    DownloadQueueScreen(model = model, state = state)
+                                } else {
+                                    AnimatedContent(
+                                        targetState = state.destination,
+                                        modifier = Modifier.fillMaxSize(),
+                                        transitionSpec = {
+                                            fograinPageTransition(
+                                                forward = targetState.ordinal > initialState.ordinal,
+                                            )
+                                        },
+                                        label = "page-transition",
+                                    ) { destination ->
+                                        when (destination) {
+                                            AppDestination.HOME ->
+                                                HomeScreen(model = model, state = state)
 
-                                        AppDestination.LIBRARY ->
-                                            LibraryScreen(model = model, state = state)
+                                            AppDestination.LIBRARY ->
+                                                LibraryScreen(model = model, state = state)
 
-                                        AppDestination.DOWNLOADS ->
-                                            DownloadsScreen(model = model, state = state)
+                                            AppDestination.DOWNLOADS ->
+                                                DownloadsScreen(model = model, state = state)
 
-                                        AppDestination.SETTINGS -> SettingsScreen(
-                                            model = model,
-                                            state = state,
-                                            dynamicColorEnabled = dynamicColorEnabled,
-                                            onDynamicColorChange = onDynamicColorChange,
-                                        )
+                                            // Settings is an in-window
+                                            // destination rendered by App;
+                                            // this branch only keeps the enum
+                                            // exhaustive without a second page.
+                                            AppDestination.SETTINGS ->
+                                                HomeScreen(model = model, state = state)
+                                        }
                                     }
                                 }
                             }

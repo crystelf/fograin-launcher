@@ -54,6 +54,66 @@ class CoreClientSmokeTest {
     }
 
     @Test
+    fun launcherSettingsRoundTripThroughJni() = runBlocking {
+        AppRuntime.dataRoot = TestDataRoot.path
+        val core = createCoreClient()
+
+        val initial = core.rpc("settings.get")
+        assertEquals("system", initial["language"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("auto", initial["accent"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("home", initial["initialPage"]?.jsonPrimitive?.contentOrNull)
+        assertNotNull(initial["download"]?.jsonObject, "settings.get must return [download]")
+        assertNotNull(initial["network"]?.jsonObject, "settings.get must return [network]")
+
+        val updated = core.rpc(
+            "settings.set",
+            buildJsonObject {
+                put("language", "ja")
+                put("accent", "#336699")
+                put("initialPage", "downloads")
+                put(
+                    "download",
+                    buildJsonObject {
+                        put("source", "mirror")
+                        put("concurrency", 12)
+                    },
+                )
+                put(
+                    "network",
+                    buildJsonObject {
+                        put("proxy", "none")
+                        put("timeoutSecs", 30)
+                    },
+                )
+            },
+        )
+        assertEquals("ja", updated["settings"]?.jsonObject?.get("language")?.jsonPrimitive?.contentOrNull)
+        assertEquals("#336699", updated["settings"]?.jsonObject?.get("accent")?.jsonPrimitive?.contentOrNull)
+        assertEquals(
+            "downloads",
+            updated["snapshot"]?.jsonObject?.get("initialPage")?.jsonPrimitive?.contentOrNull,
+        )
+
+        val read = core.rpc("settings.get")
+        assertEquals("mirror", read["download"]?.jsonObject?.get("source")?.jsonPrimitive?.contentOrNull)
+        assertEquals(12, read["download"]?.jsonObject?.get("concurrency")?.jsonPrimitive?.contentOrNull?.toInt())
+        assertEquals("none", read["network"]?.jsonObject?.get("proxy")?.jsonPrimitive?.contentOrNull)
+
+        // Restore defaults so other JNI tests see a predictable config.
+        core.rpc(
+            "settings.set",
+            buildJsonObject {
+                put("language", "system")
+                put("accent", "auto")
+                put("initialPage", "home")
+                put("download", buildJsonObject { put("source", "auto"); put("concurrency", 0) })
+                put("network", buildJsonObject { put("proxy", "auto"); put("timeoutSecs", 10) })
+            },
+        )
+        Unit
+    }
+
+    @Test
     fun javaListRoundTripsThroughJni() = runBlocking {
         AppRuntime.dataRoot = TestDataRoot.path
         val core = createCoreClient()

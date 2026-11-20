@@ -12,6 +12,8 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import com.fograin.launcher.App
 import com.fograin.launcher.app.AppModel
@@ -67,12 +69,24 @@ import com.fograin.launcher.ui.search.GlobalSearchFieldTag
 import com.fograin.launcher.ui.search.globalSearchCommandTag
 import com.fograin.launcher.ui.modpack.ModpackImportConfirmTag
 import com.fograin.launcher.ui.modpack.ModpackImportSheetTag
+import com.fograin.launcher.app.SettingsSection
 import com.fograin.launcher.ui.settings.JavaScreenTag
-import com.fograin.launcher.ui.settings.SettingsJavaManageTag
+import com.fograin.launcher.ui.settings.SettingsJavaOpenTag
+import com.fograin.launcher.ui.settings.SettingsCompactBackTag
+import com.fograin.launcher.ui.settings.SettingsCompactCloseTag
+import com.fograin.launcher.ui.settings.SettingsCompactListTag
+import com.fograin.launcher.ui.settings.SettingsLanguageRowTag
+import com.fograin.launcher.ui.settings.SettingsWindowBackTag
+import com.fograin.launcher.ui.settings.SettingsPageListTag
+import com.fograin.launcher.ui.settings.SettingsSidebarTag
+import com.fograin.launcher.ui.settings.SettingsSplitterTag
+import com.fograin.launcher.ui.settings.SettingsWindowTag
+import com.fograin.launcher.ui.settings.settingsNavTag
 import com.fograin.launcher.ui.components.PageHeaderBackTag
 import com.fograin.launcher.ui.navItemTag
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -88,11 +102,20 @@ import kotlinx.coroutines.Dispatchers
 @OptIn(ExperimentalTestApi::class)
 class FograinAppUiTest {
 
-    private fun model(): AppModel = AppModel.create(
-        core = FakeCoreClient(),
-        platform = platformServices(),
-        scope = CoroutineScope(Dispatchers.Unconfined),
-    )
+    /**
+     * UI tests assert Simplified Chinese labels; force the language instead of
+     * inheriting the CI machine's locale (the launcher defaults to "follow
+     * system", so an English runner would otherwise render English).
+     */
+    private fun model(): AppModel {
+        val created = AppModel.create(
+            core = FakeCoreClient(),
+            platform = platformServices(),
+            scope = CoroutineScope(Dispatchers.Unconfined),
+        )
+        created.setLanguage(com.fograin.launcher.settings.AppLanguage.SIMPLIFIED_CHINESE)
+        return created
+    }
 
     @Test
     fun narrowWindowKeepsBottomBar() = runDesktopComposeUiTest(width = 720, height = 900) {
@@ -607,27 +630,149 @@ class FograinAppUiTest {
         }
 
     @Test
-    fun javaManagementOpensFromSettingsAndBackReturns() = runDesktopComposeUiTest(width = 1280, height = 900) {
-        val appModel = model()
-        appModel.navigate(AppDestination.SETTINGS)
-        setContent { App(appModel) }
-        waitForIdle()
+    fun settingsOpensInTheMainWindowWithAJavaPage() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val appModel = model()
+            setContent { App(appModel) }
+            waitForIdle()
 
-        onNodeWithTag(SettingsJavaManageTag).performClick()
-        waitForIdle()
+            onNodeWithTag(navItemTag(AppDestination.SETTINGS)).performClick()
+            waitForIdle()
 
-        onNodeWithTag(JavaScreenTag).assertIsDisplayed()
-        assertEquals(
-            com.fograin.launcher.app.SettingsStage.JAVA,
-            appModel.state.value.settingsStage,
-        )
+            onNodeWithTag(SettingsWindowTag).assertIsDisplayed()
+            // Settings replaces the shell inside the same window.
+            onNodeWithTag(NavRailTag).assertDoesNotExist()
+            assertEquals(true, appModel.state.value.settingsWindow.open)
+            assertEquals(SettingsSection.APPEARANCE, appModel.state.value.settingsWindow.section)
 
-        onNodeWithTag(PageHeaderBackTag).performClick()
-        waitForIdle()
-        onNodeWithTag(JavaScreenTag).assertDoesNotExist()
-        onNodeWithTag(SettingsJavaManageTag).assertIsDisplayed()
-        assertEquals(com.fograin.launcher.app.SettingsStage.MAIN, appModel.state.value.settingsStage)
-    }
+            onNodeWithTag(settingsNavTag(SettingsSection.GENERAL)).performClick()
+            waitForIdle()
+            assertTrue(appModel.state.value.settingsWindow.section == SettingsSection.GENERAL)
+            onNodeWithTag(SettingsPageListTag)
+                .performScrollToNode(hasTestTag(SettingsJavaOpenTag))
+            onNodeWithTag(SettingsJavaOpenTag).performClick()
+            waitForIdle()
+
+            onNodeWithTag(JavaScreenTag).assertIsDisplayed()
+            assertEquals(SettingsSection.JAVA, appModel.state.value.settingsWindow.section)
+            assertEquals(
+                listOf(SettingsSection.GENERAL),
+                appModel.state.value.settingsWindow.sectionHistory,
+            )
+
+            // The General → Java shortcut is nested: Back returns to General
+            // before it can close settings.
+            onNodeWithTag(SettingsWindowBackTag).performClick()
+            waitForIdle()
+            assertEquals(SettingsSection.GENERAL, appModel.state.value.settingsWindow.section)
+            assertEquals(true, appModel.state.value.settingsWindow.open)
+            assertEquals(false, appModel.state.value.settingsWindow.sectionForward)
+
+            onNodeWithTag(SettingsWindowBackTag).performClick()
+            waitForIdle()
+            assertEquals(false, appModel.state.value.settingsWindow.open)
+            onNodeWithTag(SettingsWindowTag).assertDoesNotExist()
+            onNodeWithTag(NavRailTag).assertIsDisplayed()
+        }
+
+    @Test
+    fun compactJavaPageReturnsToGeneralThenTheSettingsList() =
+        runDesktopComposeUiTest(width = 420, height = 900) {
+            val appModel = model()
+            setContent { App(appModel) }
+            waitForIdle()
+
+            onNodeWithTag(navItemTag(AppDestination.SETTINGS)).performClick()
+            waitForIdle()
+            onNodeWithTag(SettingsCompactListTag).assertIsDisplayed()
+            onNodeWithTag(NavBarTag).assertDoesNotExist()
+
+            onNodeWithTag(settingsNavTag(SettingsSection.GENERAL)).performClick()
+            waitForIdle()
+            assertEquals(SettingsSection.GENERAL, appModel.state.value.settingsWindow.section)
+
+            onNodeWithTag(SettingsPageListTag)
+                .performScrollToNode(hasTestTag(SettingsJavaOpenTag))
+            onNodeWithTag(SettingsJavaOpenTag).performClick()
+            waitForIdle()
+            assertEquals(SettingsSection.JAVA, appModel.state.value.settingsWindow.section)
+            assertTrue(appModel.state.value.settingsWindow.sectionForward)
+
+            // Java is a child of General, so Back returns to General, not the
+            // settings category list.
+            onNodeWithTag(SettingsCompactBackTag).performClick()
+            waitForIdle()
+            assertEquals(SettingsSection.GENERAL, appModel.state.value.settingsWindow.section)
+            assertTrue(appModel.state.value.settingsWindow.detailOpen)
+            assertEquals(false, appModel.state.value.settingsWindow.sectionForward)
+
+            onNodeWithTag(SettingsCompactBackTag).performClick()
+            waitForIdle()
+            assertFalse(appModel.state.value.settingsWindow.detailOpen)
+            assertTrue(appModel.state.value.settingsWindow.open)
+
+            onNodeWithTag(SettingsCompactCloseTag).performClick()
+            waitForIdle()
+            assertFalse(appModel.state.value.settingsWindow.open)
+            onNodeWithTag(SettingsWindowTag).assertDoesNotExist()
+        }
+
+    @Test
+    fun languageRowOpensTheLanguagePicker() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val appModel = model()
+            setContent { App(appModel) }
+            waitForIdle()
+
+            onNodeWithTag(navItemTag(AppDestination.SETTINGS)).performClick()
+            waitForIdle()
+            onNodeWithTag(SettingsLanguageRowTag).performClick()
+            waitForIdle()
+
+            onNodeWithText("日本語").assertIsDisplayed()
+            onNodeWithText("日本語").performClick()
+            waitForIdle()
+
+            assertEquals(
+                com.fograin.launcher.settings.AppLanguage.JAPANESE,
+                appModel.state.value.language,
+            )
+            appModel.setLanguage(com.fograin.launcher.settings.AppLanguage.SYSTEM)
+            waitForIdle()
+            com.fograin.launcher.platform.applyAppLanguage(
+                com.fograin.launcher.settings.AppLanguage.SYSTEM,
+            )
+        }
+
+    @Test
+    fun settingsSplitterResizesTheSidebar() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val preferences = platformServices().preferences
+            val original = preferences.settingsSidebarWidth
+            try {
+                preferences.settingsSidebarWidth = 0f
+                val appModel = model()
+                setContent { App(appModel) }
+                waitForIdle()
+
+                onNodeWithTag(navItemTag(AppDestination.SETTINGS)).performClick()
+                waitForIdle()
+
+                val before = onNodeWithTag(SettingsSidebarTag)
+                    .fetchSemanticsNode().boundsInRoot.width
+                onNodeWithTag(SettingsSplitterTag).performTouchInput {
+                    swipeRight(startX = centerX, endX = centerX + 80f)
+                }
+                waitForIdle()
+
+                val after = onNodeWithTag(SettingsSidebarTag)
+                    .fetchSemanticsNode().boundsInRoot.width
+                assertTrue(after > before + 20f, "drag did not widen the sidebar: $before -> $after")
+                assertTrue(preferences.settingsSidebarWidth > 0f, "width was not persisted")
+            } finally {
+                preferences.settingsSidebarWidth = original
+            }
+        }
 
     @Test
     fun railSearchOpensGlobalSearchAndNavigates() = runDesktopComposeUiTest(width = 1280, height = 900) {
@@ -645,11 +790,30 @@ class FograinAppUiTest {
         onNodeWithTag(globalSearchCommandTag("java")).performClick()
         waitForIdle()
 
-        assertEquals(
-            com.fograin.launcher.app.SettingsStage.JAVA,
-            appModel.state.value.settingsStage,
-        )
+        assertEquals(SettingsSection.JAVA, appModel.state.value.settingsWindow.section)
+        assertEquals(true, appModel.state.value.settingsWindow.open)
         onNodeWithTag(JavaScreenTag).assertIsDisplayed()
+    }
+
+    @Test
+    fun languageSwitchRefreshesTheInterface() = runDesktopComposeUiTest(width = 1280, height = 900) {
+        val appModel = model()
+        appModel.setLanguage(com.fograin.launcher.settings.AppLanguage.TRADITIONAL_CHINESE)
+        setContent { App(appModel) }
+        waitForIdle()
+
+        onNodeWithText("首頁").assertIsDisplayed()
+
+        appModel.setLanguage(com.fograin.launcher.settings.AppLanguage.JAPANESE)
+        waitForIdle()
+        onNodeWithText("ホーム").assertIsDisplayed()
+
+        appModel.setLanguage(com.fograin.launcher.settings.AppLanguage.ENGLISH)
+        waitForIdle()
+        onNodeWithText("Home").assertIsDisplayed()
+
+        appModel.setLanguage(com.fograin.launcher.settings.AppLanguage.SYSTEM)
+        waitForIdle()
     }
 
     @Test

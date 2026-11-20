@@ -25,6 +25,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.model.Instance
+import com.fograin.launcher.ui.metaText
+import com.fograin.launcher.ui.relativeTimeText
 import com.fograin.launcher.model.InstanceFormat
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.components.InstanceTile
@@ -91,7 +93,7 @@ fun LibraryRow(
                 }
             }
             Text(
-                text = "${instance.meta} · ${InstanceFormat.byteSize(instance.sizeBytes)}",
+                text = "${instance.metaText()} · ${InstanceFormat.byteSize(instance.sizeBytes)}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -99,7 +101,7 @@ fun LibraryRow(
             )
         }
         Text(
-            text = InstanceFormat.relativeTime(instance.lastPlayedEpochMillis, nowMillis),
+            text = relativeTimeText(instance.lastPlayedEpochMillis, nowMillis),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,

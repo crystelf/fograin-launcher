@@ -28,7 +28,10 @@ use std::{
     sync::OnceLock,
 };
 
-use fg_core::{Error, ErrorKind, LauncherConfig, Platform, Result, ThemePreference, config, paths};
+use fg_core::{
+    Error, ErrorKind, InitialPage, LanguagePreference, LauncherConfig, Platform, Result,
+    ThemePreference, config, paths,
+};
 use serde::Serialize;
 
 mod events;
@@ -104,6 +107,9 @@ struct SettingsSnapshot {
     app_version: &'static str,
     platform: &'static str,
     theme: ThemePreference,
+    language: LanguagePreference,
+    accent: String,
+    initial_page: InitialPage,
     data_root: String,
     config_path: String,
     /// Present when `launcher.toml` exists but could not be parsed; the
@@ -128,6 +134,9 @@ impl SettingsSnapshot {
             app_version: env!("CARGO_PKG_VERSION"),
             platform: Platform::detect().id(),
             theme: config.appearance.theme,
+            language: config.appearance.language,
+            accent: config.appearance.accent,
+            initial_page: config.general.initial_page,
             data_root: root.display().to_string(),
             config_path: config::config_path(root).display().to_string(),
             config_error,
@@ -523,6 +532,9 @@ mod tests {
         let root = temp_root();
         let snapshot = SettingsSnapshot::at(&root);
         assert_eq!(snapshot.theme, ThemePreference::System);
+        assert_eq!(snapshot.language, LanguagePreference::System);
+        assert_eq!(snapshot.accent, "auto");
+        assert_eq!(snapshot.initial_page, InitialPage::Home);
         assert_eq!(snapshot.abi_version, ABI_VERSION);
         assert_eq!(snapshot.platform, Platform::detect().id());
         assert_eq!(snapshot.data_root, root.display().to_string());
@@ -537,6 +549,9 @@ mod tests {
         let json = serde_json::to_value(SettingsSnapshot::at(&root)).expect("serialize");
         assert_eq!(json["abiVersion"], json!(ABI_VERSION));
         assert_eq!(json["theme"], json!("system"));
+        assert_eq!(json["language"], json!("system"));
+        assert_eq!(json["accent"], json!("auto"));
+        assert_eq!(json["initialPage"], json!("home"));
         assert_eq!(json["platform"], json!(Platform::detect().id()));
         assert!(json["appVersion"].is_string());
         assert!(json["dataRoot"].is_string());

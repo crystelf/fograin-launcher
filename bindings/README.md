@@ -27,7 +27,9 @@ owns the boundary between them.
   exists. Desktop clients normally leave this to `dirs`; Android passes its
   app-private external files directory before the first RPC call.
 - `fg_settings_snapshot()` — JSON settings snapshot (`abiVersion`, `appVersion`,
-  `platform`, `theme`, `dataRoot`, `configPath`, optional `configError`).
+  `platform`, `theme`, `language`, `accent`, `initialPage`, `dataRoot`,
+  `configPath`, optional `configError`). `language` is `system`, `zh-Hans`,
+  `zh-Hant`, `en` or `ja`; `accent` is `auto` or `#RRGGBB`.
 - `fg_settings_set_theme(theme)` — writes `appearance.theme` through the Rust
   config layer and returns a JSON result (`ok`, `theme`, `snapshot`, `error`).
 - `fg_service_current()` — builds the async launcher service once per process.
@@ -38,7 +40,7 @@ owns the boundary between them.
   `game.line`, `game.exited`) as a JSON array.
 - `fg_string_free(value)` — releases strings returned by the core.
 
-### RPC methods implemented (M4–M9)
+### RPC methods implemented (M4–M10)
 
 | Method | Params → Result |
 | --- | --- |
@@ -63,6 +65,7 @@ owns the boundary between them.
 | `launch.status` / `session.wait` / `session.stop` | session polling and stop |
 | `game.log.recent` | `{instanceId, limit}` → last buffered log lines |
 | `gameConfig.get` / `.set` | `[game]` read / merge-write |
+| `settings.get` / `settings.set` | `{}` → `{theme, language, accent, initialPage, download, network}`; `.set` merges `theme`, `language`, `accent`, `initialPage` and the `download` / `network` objects, then returns `{settings, snapshot}`. Values are normalized (accent to `#RRGGBB`, engine limits clamped) and download/network changes apply on the next process start |
 | `java.list` | `{}` → `{runtimes, autoDownload, supported, platform, hostArch}`; runtime rows include `id`, `vendor`, `version`, `major`, `arch`, `home`, `executable`, `source`, `managed`, `sizeBytes`, `installedAtMs`, `component`, `platform` |
 | `java.catalog` | `{}` → `{versions:[{runtimeId, major, component, version, arch, platform, fallback, installed, installedVersion?}], autoDownload, supported}` |
 | `java.install` | `{major, component?}` → `{taskId, runtimeId, existing, major, component, version, files, totalBytes}`; queues a `java:<major>` graph and pushes `task.*` events |

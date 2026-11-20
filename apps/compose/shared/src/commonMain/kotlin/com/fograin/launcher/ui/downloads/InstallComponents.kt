@@ -38,6 +38,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.model.GameLoaderKind
+import com.fograin.launcher.ui.subtitleText
+import com.fograin.launcher.ui.titleText
 import com.fograin.launcher.resources.*
 import org.jetbrains.compose.resources.stringResource
 
@@ -182,13 +184,13 @@ internal fun LoaderOptionCard(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
-                text = option.title,
+                text = option.titleText(),
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = option.subtitle,
+                text = option.subtitleText(),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,

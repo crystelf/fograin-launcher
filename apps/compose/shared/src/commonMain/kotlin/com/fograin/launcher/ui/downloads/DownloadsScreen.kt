@@ -81,6 +81,7 @@ import com.fograin.launcher.ui.components.ThinProgressBar
 import com.fograin.launcher.ui.downloadSpeedText
 import com.fograin.launcher.ui.stateText
 import com.fograin.launcher.ui.title
+import com.fograin.launcher.ui.titleText
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 
@@ -665,7 +666,7 @@ private fun ActiveDownloadsCard(
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = row.title,
+                            text = row.titleText(),
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.weight(1f),
                             maxLines = 1,

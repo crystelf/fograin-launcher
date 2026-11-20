@@ -3,6 +3,7 @@ package com.fograin.launcher.desktop
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.unit.Density
+import com.fograin.launcher.App
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AccountStage
 import com.fograin.launcher.app.AppUiState
@@ -184,11 +185,6 @@ class ScreensRenderTest {
             "library" to base.copy(destination = AppDestination.LIBRARY),
             "downloads" to base.copy(destination = AppDestination.DOWNLOADS),
             "download-queue" to base.copy(downloadQueueOpen = true),
-            "settings" to base.copy(destination = AppDestination.SETTINGS),
-            "java-page" to javaPage.copy(
-                destination = AppDestination.SETTINGS,
-                settingsStage = com.fograin.launcher.app.SettingsStage.JAVA,
-            ),
             "instance-detail" to instanceDetail,
             "instance-detail-updates" to instanceDetailUpdates,
             "instance-detail-worlds" to instanceDetailWorlds,
@@ -290,11 +286,6 @@ class ScreensRenderTest {
             "library" to base.copy(destination = AppDestination.LIBRARY),
             "downloads" to base.copy(destination = AppDestination.DOWNLOADS),
             "download-queue" to base.copy(downloadQueueOpen = true),
-            "settings" to base.copy(destination = AppDestination.SETTINGS),
-            "java-page" to base.copy(
-                destination = AppDestination.SETTINGS,
-                settingsStage = com.fograin.launcher.app.SettingsStage.JAVA,
-            ),
             "instance-detail" to instanceDetail,
             "instance-settings-page" to instanceDetail.copy(
                 libraryStage = LibraryStage.SETTINGS,
@@ -354,7 +345,6 @@ class ScreensRenderTest {
         val pages = listOf(
             "home" to base.copy(destination = AppDestination.HOME),
             "library" to base.copy(destination = AppDestination.LIBRARY),
-            "settings" to base.copy(destination = AppDestination.SETTINGS),
             "downloads" to base.copy(destination = AppDestination.DOWNLOADS),
             "download-queue" to base.copy(downloadQueueOpen = true),
             "content-browser" to compactContentBrowser.copy(
@@ -398,6 +388,159 @@ class ScreensRenderTest {
         assertTrue(landscape.size > 6_000, "landscape instance detail rendered too small")
     }
 
+    @Test
+    fun rendersEverySettingsSection() = runBlocking {
+        val core = FakeCoreClient()
+        val model = AppModel.create(
+            core = core,
+            platform = platformServices(),
+            scope = CoroutineScope(Dispatchers.Unconfined),
+        )
+        model.openSettings()
+        repeat(4) { kotlinx.coroutines.yield() }
+
+        assertTrue(model.state.value.settingsWindow.loaded, "settings.get was not applied")
+
+        com.fograin.launcher.app.SettingsSection.entries.forEach { section ->
+            model.selectSettingsSection(section)
+            val bytes = renderSettings(model, width = 1120, height = 780)
+            val output = Files.createTempFile("fograin-settings-${section.name.lowercase()}-", ".png")
+            output.toFile().writeBytes(bytes)
+            println("FOGRAIN_SETTINGS_PNG_${section.name.lowercase()}=$output")
+            assertTrue(bytes.size > 8_000, "$section rendered suspiciously small (${bytes.size} bytes)")
+        }
+
+        // Compact list, then a compact detail page.
+        model.state.value.let { model.closeSettings() }
+        model.openSettings()
+        val list = renderSettings(model, width = 420, height = 900, compactList = true)
+        val listOutput = Files.createTempFile("fograin-settings-compact-list-", ".png")
+        listOutput.toFile().writeBytes(list)
+        println("FOGRAIN_SETTINGS_PNG_compact-list=$listOutput")
+        assertTrue(list.size > 6_000)
+
+        model.selectSettingsSection(com.fograin.launcher.app.SettingsSection.APPEARANCE)
+        val detail = renderSettings(model, width = 420, height = 900)
+        val detailOutput = Files.createTempFile("fograin-settings-compact-detail-", ".png")
+        detailOutput.toFile().writeBytes(detail)
+        println("FOGRAIN_SETTINGS_PNG_compact-detail=$detailOutput")
+        assertTrue(detail.size > 6_000)
+    }
+
+    @Test
+    fun rendersTheSettingsTransition() = runBlocking {
+        val core = FakeCoreClient()
+        val model = AppModel.create(
+            core = core,
+            platform = platformServices(),
+            scope = CoroutineScope(Dispatchers.Unconfined),
+        )
+        model.setLanguage(com.fograin.launcher.settings.AppLanguage.SIMPLIFIED_CHINESE)
+        repeat(4) { kotlinx.coroutines.yield() }
+
+        val scene = ImageComposeScene(width = 1120, height = 780, density = Density(1f)) {
+            App(model)
+        }
+        try {
+            scene.render(0L)
+            model.openSettings()
+            listOf(16L, 48L, 96L, 160L, 240L, 320L).forEach { offsetMs ->
+                val image = scene.render(offsetMs * 1_000_000L)
+                val bytes = image.encodeToData(EncodedImageFormat.PNG)?.bytes ?: byteArrayOf()
+                val output = Files.createTempFile("fograin-settings-transition-$offsetMs-", ".png")
+                output.toFile().writeBytes(bytes)
+                println("FOGRAIN_SETTINGS_TRANSITION_PNG_$offsetMs=$output")
+                assertTrue(bytes.size > 8_000, "transition frame at $offsetMs was blank")
+            }
+        } finally {
+            scene.close()
+        }
+        com.fograin.launcher.platform.applyAppLanguage(
+            com.fograin.launcher.settings.AppLanguage.SYSTEM,
+        )
+    }
+
+    @Test
+    fun rendersLightSettings() = runBlocking {
+        val core = FakeCoreClient()
+        val model = AppModel.create(
+            core = core,
+            platform = platformServices(),
+            scope = CoroutineScope(Dispatchers.Unconfined),
+        )
+        model.openSettings()
+        model.selectSettingsSection(com.fograin.launcher.app.SettingsSection.APPEARANCE)
+        repeat(4) { kotlinx.coroutines.yield() }
+        model.setTheme(com.fograin.launcher.settings.ThemeMode.LIGHT)
+        repeat(4) { kotlinx.coroutines.yield() }
+
+        val bytes = renderSettings(model, width = 1120, height = 780)
+        val output = Files.createTempFile("fograin-settings-light-", ".png")
+        output.toFile().writeBytes(bytes)
+        println("FOGRAIN_SETTINGS_LIGHT_PNG=$output")
+        assertTrue(bytes.size > 8_000)
+    }
+
+    @Test
+    fun rendersSettingsInEveryLanguage() = runBlocking {
+        val core = FakeCoreClient()
+        val model = AppModel.create(
+            core = core,
+            platform = platformServices(),
+            scope = CoroutineScope(Dispatchers.Unconfined),
+        )
+        model.openSettings()
+        model.selectSettingsSection(com.fograin.launcher.app.SettingsSection.APPEARANCE)
+        repeat(4) { kotlinx.coroutines.yield() }
+
+        listOf(
+            "en" to com.fograin.launcher.settings.AppLanguage.ENGLISH,
+            "ja" to com.fograin.launcher.settings.AppLanguage.JAPANESE,
+            "zh-hant" to com.fograin.launcher.settings.AppLanguage.TRADITIONAL_CHINESE,
+        ).forEach { (name, language) ->
+            model.setLanguage(language)
+            repeat(4) { kotlinx.coroutines.yield() }
+            val bytes = renderSettings(model, width = 1120, height = 780)
+            val output = Files.createTempFile("fograin-settings-$name-", ".png")
+            output.toFile().writeBytes(bytes)
+            println("FOGRAIN_SETTINGS_LANG_PNG_$name=$output")
+            assertTrue(bytes.size > 8_000, "$name settings rendered suspiciously small")
+
+            val compactBytes = renderSettings(model, width = 420, height = 900)
+            val compactOutput = Files.createTempFile("fograin-settings-$name-compact-", ".png")
+            compactOutput.toFile().writeBytes(compactBytes)
+            println("FOGRAIN_SETTINGS_LANG_PNG_${name}_compact=$compactOutput")
+            assertTrue(compactBytes.size > 6_000, "$name compact settings too small")
+        }
+        model.setLanguage(com.fograin.launcher.settings.AppLanguage.SYSTEM)
+        com.fograin.launcher.platform.applyAppLanguage(
+            com.fograin.launcher.settings.AppLanguage.SYSTEM,
+        )
+    }
+
+    private fun renderSettings(
+        model: AppModel,
+        width: Int,
+        height: Int,
+        compactList: Boolean = false,
+    ): ByteArray {
+        val scene = ImageComposeScene(width = width, height = height, density = Density(1f)) {
+            if (compactList) {
+                // Re-opening settings always lands on the category list.
+                com.fograin.launcher.ui.settings.SettingsWindowRoot(model)
+            } else {
+                com.fograin.launcher.ui.settings.SettingsWindowRoot(model)
+            }
+        }
+        return try {
+            repeat(30) { scene.render(it * 16L) }
+            scene.render(600L).encodeToData(EncodedImageFormat.PNG)?.bytes
+                ?: error("settings scene produced no PNG")
+        } finally {
+            scene.close()
+        }
+    }
+
     private fun render(
         model: AppModel,
         state: AppUiState,
@@ -405,12 +548,10 @@ class ScreensRenderTest {
         height: Int = 780,
     ): ByteArray {
         val scene = ImageComposeScene(width = width, height = height, density = Density(1f)) {
-            FograinTheme(themeMode = state.theme, dynamicColor = false) {
+            FograinTheme(themeMode = state.theme) {
                 FograinApp(
                     model = model,
                     state = state,
-                    dynamicColorEnabled = false,
-                    onDynamicColorChange = {},
                 )
             }
         }

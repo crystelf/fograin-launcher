@@ -307,10 +307,12 @@ class AppModelTest {
 
         model.openJavaSettings()
         runCurrent()
+        // Phone layout: Back pops the detail page before it closes the window.
+        model.setSettingsCompact(true)
 
         var state = model.state.value
-        assertEquals(AppDestination.SETTINGS, state.destination)
-        assertEquals(SettingsStage.JAVA, state.settingsStage)
+        assertTrue(state.settingsWindow.open)
+        assertEquals(SettingsSection.JAVA, state.settingsWindow.section)
         assertTrue(model.canGoBack())
         assertEquals(2, state.java.runtimes.size)
         assertEquals(1, state.java.managedCount)
@@ -345,8 +347,46 @@ class AppModelTest {
         assertEquals("Java 运行时安装完成", model.state.value.notice?.message)
 
         model.back()
-        assertEquals(SettingsStage.MAIN, model.state.value.settingsStage)
-        assertTrue(model.canGoBack(), "still on Settings, so back now leaves the tab")
+        assertFalse(model.state.value.settingsWindow.detailOpen)
+        assertTrue(model.state.value.settingsWindow.open)
+
+        model.back()
+        assertFalse(model.state.value.settingsWindow.open)
+    }
+
+    @Test
+    fun settingsWindowLoadsAndUpdatesAppearance() = runTest {
+        val core = FakeCore()
+        val model = model(backgroundScope, core)
+        runCurrent()
+
+        model.openSettings()
+        runCurrent()
+
+        var state = model.state.value
+        assertTrue(state.settingsWindow.open)
+        assertTrue(state.settingsWindow.loaded)
+        assertTrue(core.rpcCalls.contains("settings.get"))
+
+        model.setLanguage(com.fograin.launcher.settings.AppLanguage.JAPANESE)
+        runCurrent()
+        state = model.state.value
+        assertEquals(com.fograin.launcher.settings.AppLanguage.JAPANESE, state.language)
+
+        model.setAccent(com.fograin.launcher.settings.AccentPreference.custom("#3f8f6b"))
+        runCurrent()
+        state = model.state.value
+        assertEquals("#3F8F6B", state.accent.value)
+
+        model.setInitialPage(com.fograin.launcher.settings.InitialPage.DOWNLOADS)
+        runCurrent()
+        assertEquals(
+            com.fograin.launcher.settings.InitialPage.DOWNLOADS,
+            model.state.value.initialPage,
+        )
+
+        model.settingsBack()
+        assertFalse(model.state.value.settingsWindow.open)
     }
 
     @Test

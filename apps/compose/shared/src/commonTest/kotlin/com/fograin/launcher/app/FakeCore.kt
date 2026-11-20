@@ -17,6 +17,7 @@ import com.fograin.launcher.platform.DeviceInfoProvider
 import com.fograin.launcher.platform.LocalPreferences
 import com.fograin.launcher.platform.NativeLibrary
 import com.fograin.launcher.platform.PlatformServices
+import com.fograin.launcher.platform.SystemLinks
 import com.fograin.launcher.platform.SystemAppearance
 import com.fograin.launcher.platform.WindowFrame
 import com.fograin.launcher.settings.ThemeMode
@@ -67,10 +68,17 @@ internal class FakeCore : CoreClient {
         appVersion = "0.1.0",
         platform = "test",
         theme = ThemeMode.DARK,
+        language = "system",
+        accent = "auto",
+        initialPage = "home",
         dataRoot = "/tmp/fograin-test",
         configPath = "/tmp/fograin-test/launcher.toml",
     )
         private set
+
+    private var language = "system"
+    private var accent = "auto"
+    private var initialPage = "home"
 
     override suspend fun rpc(method: String, params: JsonObject): JsonObject {
         rpcCalls += method
@@ -89,6 +97,26 @@ internal class FakeCore : CoreClient {
             "gameConfig.get" -> json(
                 """{"ok":true,"username":"Steve_Fog","memoryMb":6144,"java":null,"jvmArgs":"","resolution":[1920,1080],"fullscreen":false,"showLog":false,"autoCompleteResources":true}""",
             )
+
+            "gameConfig.set" -> json(
+                """{"ok":true,"username":"Steve_Fog","memoryMb":${params.stringOrNull("memoryMb") ?: "6144"},"java":null,"jvmArgs":"${params.stringOrNull("jvmArgs").orEmpty()}","resolution":null,"fullscreen":false,"showLog":false,"autoCompleteResources":true}""",
+            )
+
+            "settings.get" -> json(
+                """{"ok":true,"theme":"${settings.theme.wireValue}","language":"$language","accent":"$accent","initialPage":"$initialPage","download":{"source":"auto","versionSource":"auto","concurrency":0,"perHost":32,"rateLimitKib":0,"segments":4,"segmentThresholdMb":16,"retries":5},"network":{"proxy":"auto","timeoutSecs":10}}""",
+            )
+
+            "settings.set" -> {
+                language = params.stringOrNull("language") ?: language
+                accent = params.stringOrNull("accent") ?: accent
+                initialPage = params.stringOrNull("initialPage") ?: initialPage
+                params.stringOrNull("theme")?.let { theme ->
+                    settings = settings.copy(theme = ThemeMode.fromWire(theme))
+                }
+                json(
+                    """{"ok":true,"settings":{"theme":"${settings.theme.wireValue}","language":"$language","accent":"$accent","initialPage":"$initialPage","download":{"source":"auto","versionSource":"auto","concurrency":0,"perHost":32,"rateLimitKib":0,"segments":4,"segmentThresholdMb":16,"retries":5},"network":{"proxy":"auto","timeoutSecs":10}},"snapshot":{"abiVersion":1,"appVersion":"0.1.0","platform":"test","theme":"${settings.theme.wireValue}","language":"$language","accent":"$accent","initialPage":"$initialPage","dataRoot":"/tmp/fograin-test","configPath":"/tmp/fograin-test/launcher.toml"}}""",
+                )
+            }
 
             "accounts.list" -> json(accountsPayload())
 
@@ -369,9 +397,10 @@ internal class FakePlatform(
     var nextFilePick: String? = null
 
     private val preferences = object : LocalPreferences {
-        override var dynamicColor: Boolean = false
         override fun supportsDynamicColor(): Boolean = false
         override var windowFrame: WindowFrame? = null
+        override var dataRootOverride: String? = null
+        override var settingsSidebarWidth: Float = 0f
     }
 
     private val directories = object : DirectoryBrowser {
@@ -403,6 +432,7 @@ internal class FakePlatform(
             override val totalMemoryBytes: Long = 16L * 1024 * 1024 * 1024
             override val deviceText: String = "Test Device"
             override val socText: String = "test-soc"
+            override val cpuCount: Int = 8
         },
         clipboard = object : ClipboardService {
             override fun copy(text: String) {
@@ -429,6 +459,10 @@ internal class FakePlatform(
         backDispatcher = object : BackDispatcher {
             @Composable
             override fun handleBack(enabled: Boolean, onBack: () -> Unit) = Unit
+        },
+        links = object : SystemLinks {
+            override fun revealDirectory(path: String): Boolean = false
+            override fun openUrl(url: String): Boolean = false
         },
     )
 }

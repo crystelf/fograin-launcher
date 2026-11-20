@@ -67,6 +67,7 @@ import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.app.ContentManagerTab
 import com.fograin.launcher.model.InstanceFormat
+import com.fograin.launcher.ui.relativeTimeText
 import com.fograin.launcher.platform.CoreContentUpdate
 import com.fograin.launcher.platform.CoreDatapack
 import com.fograin.launcher.platform.CoreLocalContent
@@ -433,7 +434,7 @@ private fun LocalContentRow(
     val meta = buildList {
         item.version?.takeIf { it.isNotBlank() }?.let { add(it) }
         item.loader?.takeIf { it.isNotBlank() }?.let { add(loaderLabel(it)) }
-        item.packFormat?.let { add("格式 $it") }
+        item.packFormat?.let { add(stringResource(Res.string.content_pack_format, it)) }
         add(InstanceFormat.byteSize(item.sizeBytes))
     }.joinToString(" · ")
 
@@ -849,7 +850,7 @@ private fun WorldRow(
                 val modified = world.modifiedMs?.let { millis ->
                     stringResource(
                         Res.string.content_world_modified,
-                        InstanceFormat.relativeTime(millis),
+                        relativeTimeText(millis),
                     )
                 }
                 Text(

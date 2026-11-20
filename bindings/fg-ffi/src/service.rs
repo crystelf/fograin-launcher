@@ -38,7 +38,9 @@ use fg_game::{
 };
 use fg_java::{InstalledRuntime, JavaArch, JavaManager, JavaRuntime};
 use fg_loader::{LoaderKind, LoaderPaths, LoaderPlanner};
-use fg_net::{DownloadOptions, DownloadRequest, Downloader, MirrorTable, Priority, Region};
+use fg_net::{
+    DownloadOptions, DownloadRequest, Downloader, MirrorTable, Priority, Region, Url as NetUrl,
+};
 use fg_task::{Control, NodeState, RunOptions, StopReason, TaskCx, TaskGraph};
 use fg_world::{Backup, World};
 
@@ -443,6 +445,8 @@ impl Service {
             "session.stop" => self.session_stop(&params).await,
             "game.log.recent" => self.game_log_recent(&params).await,
 
+            "settings.get" => self.settings_value(),
+            "settings.set" => self.settings_set(&params).await,
             "gameConfig.get" => self.game_config_value(),
             "gameConfig.set" => self.game_config_set(&params).await,
 
@@ -2447,6 +2451,51 @@ impl Service {
         Ok(game_json(&game))
     }
 
+    /// Launcher-wide settings owned by the shell (appearance, initial page,
+    /// download engine and proxy). Game defaults stay on `gameConfig.*` and
+    /// the Java policy on `java.policy.set`.
+    fn settings_value(&self) -> Result<Value> {
+        Ok(settings_json(&self.config()?))
+    }
+
+    async fn settings_set(&self, params: &Value) -> Result<Value> {
+        let fields = params
+            .as_object()
+            .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "error.config.fields"))?;
+        let mut config = self.config()?;
+        for (key, value) in fields {
+            match key.as_str() {
+                "theme" => {
+                    config.appearance.theme = parse_wire_theme(&as_string(value))?;
+                }
+                "language" => {
+                    config.appearance.language =
+                        fg_core::LanguagePreference::from_value(&as_string(value));
+                }
+                "accent" => config.appearance.accent = as_string(value),
+                "initialPage" => {
+                    config.general.initial_page = parse_initial_page(&as_string(value))?;
+                }
+                "download" => apply_download_settings(&mut config.download, value)?,
+                "network" => apply_network_settings(&mut config.network, value)?,
+                other => {
+                    return Err(Error::with_detail(
+                        ErrorKind::InvalidInput,
+                        "error.config.unknown_field",
+                        other.to_string(),
+                    ));
+                }
+            }
+        }
+        config::write_config(&self.root, &config)?;
+        // Re-read so the response carries the clamped/normalized values.
+        let config = self.config()?;
+        Ok(json!({
+            "settings": settings_json(&config),
+            "snapshot": crate::SettingsSnapshot::at(&self.root),
+        }))
+    }
+
     async fn game_config_set(&self, params: &Value) -> Result<Value> {
         let fields = params
             .as_object()
@@ -3138,6 +3187,138 @@ fn game_json(game: &GameConfig) -> Value {
         "showLog": game.show_log,
         "autoCompleteResources": game.auto_complete_resources,
     })
+}
+
+fn settings_json(config: &LauncherConfig) -> Value {
+    json!({
+        "theme": config.appearance.theme.as_str(),
+        "language": config.appearance.language.as_str(),
+        "accent": config.appearance.accent,
+        "initialPage": config.general.initial_page.as_str(),
+        "download": {
+            "source": config.download.source.as_str(),
+            "versionSource": config.download.version_source.as_str(),
+            "concurrency": config.download.concurrency,
+            "perHost": config.download.per_host,
+            "rateLimitKib": config.download.rate_limit_kib,
+            "segments": config.download.segments,
+            "segmentThresholdMb": config.download.segment_threshold_mb,
+            "retries": config.download.retries,
+        },
+        "network": {
+            "proxy": config.network.proxy,
+            "timeoutSecs": config.network.timeout_secs,
+        },
+    })
+}
+
+fn parse_wire_theme(value: &str) -> Result<fg_core::ThemePreference> {
+    match value {
+        "system" => Ok(fg_core::ThemePreference::System),
+        "light" => Ok(fg_core::ThemePreference::Light),
+        "dark" => Ok(fg_core::ThemePreference::Dark),
+        other => Err(Error::with_detail(
+            ErrorKind::InvalidInput,
+            "error.theme.invalid",
+            other.to_string(),
+        )),
+    }
+}
+
+fn parse_initial_page(value: &str) -> Result<fg_core::InitialPage> {
+    match value {
+        "home" => Ok(fg_core::InitialPage::Home),
+        "library" => Ok(fg_core::InitialPage::Library),
+        "downloads" => Ok(fg_core::InitialPage::Downloads),
+        other => Err(Error::with_detail(
+            ErrorKind::InvalidInput,
+            "error.settings.initial_page",
+            other.to_string(),
+        )),
+    }
+}
+
+fn apply_download_settings(download: &mut fg_core::DownloadConfig, value: &Value) -> Result<()> {
+    let fields = value
+        .as_object()
+        .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "error.config.fields"))?;
+    for (key, value) in fields {
+        match key.as_str() {
+            "source" => download.source = parse_download_source(&as_string(value))?,
+            "versionSource" => {
+                download.version_source = parse_download_source(&as_string(value))?;
+            }
+            "concurrency" => download.concurrency = as_u32(value),
+            "perHost" => download.per_host = as_u32(value),
+            "rateLimitKib" => download.rate_limit_kib = as_u32(value),
+            "segments" => download.segments = as_u32(value),
+            "segmentThresholdMb" => download.segment_threshold_mb = as_u32(value),
+            "retries" => download.retries = as_u32(value),
+            other => {
+                return Err(Error::with_detail(
+                    ErrorKind::InvalidInput,
+                    "error.config.unknown_field",
+                    format!("download.{other}"),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn apply_network_settings(network: &mut fg_core::NetworkConfig, value: &Value) -> Result<()> {
+    let fields = value
+        .as_object()
+        .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "error.config.fields"))?;
+    for (key, value) in fields {
+        match key.as_str() {
+            "proxy" => {
+                let proxy = as_string(value).trim().to_string();
+                if !proxy.is_empty()
+                    && !proxy.eq_ignore_ascii_case("auto")
+                    && !proxy.eq_ignore_ascii_case("none")
+                {
+                    // Reject a malformed URL now: the client parses the proxy
+                    // on startup, and a bad value would otherwise stop the
+                    // core from launching on the next restart.
+                    NetUrl::parse(&proxy).map_err(|error| {
+                        Error::with_detail(
+                            ErrorKind::InvalidInput,
+                            "error.settings.proxy",
+                            error.to_string(),
+                        )
+                    })?;
+                }
+                network.proxy = if proxy.is_empty() {
+                    "auto".to_string()
+                } else {
+                    proxy
+                };
+            }
+            "timeoutSecs" => network.timeout_secs = as_u32(value),
+            other => {
+                return Err(Error::with_detail(
+                    ErrorKind::InvalidInput,
+                    "error.config.unknown_field",
+                    format!("network.{other}"),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn parse_download_source(value: &str) -> Result<fg_core::DownloadSource> {
+    match value {
+        "auto" => Ok(fg_core::DownloadSource::Auto),
+        "official" => Ok(fg_core::DownloadSource::Official),
+        "mirror" => Ok(fg_core::DownloadSource::Mirror),
+        other => Err(Error::with_detail(
+            ErrorKind::InvalidInput,
+            "error.settings.source",
+            other.to_string(),
+        )),
+    }
 }
 
 fn as_string(value: &Value) -> String {
@@ -3901,6 +4082,80 @@ mod tests {
             assert_eq!(read["username"], json!("Alex"));
             assert_eq!(read["memoryMb"], json!(8192));
             assert_eq!(read["showLog"], json!(true));
+        });
+    }
+
+    #[test]
+    fn launcher_settings_round_trip() {
+        let (dir, service) = fixture();
+        service.block_on(async {
+            let defaults = service
+                .rpc("settings.get", json!({}))
+                .await
+                .expect("settings");
+            assert_eq!(defaults["language"], json!("system"));
+            assert_eq!(defaults["accent"], json!("auto"));
+            assert_eq!(defaults["initialPage"], json!("home"));
+            assert_eq!(defaults["download"]["source"], json!("auto"));
+            assert_eq!(defaults["network"]["proxy"], json!("auto"));
+
+            let updated = service
+                .rpc(
+                    "settings.set",
+                    json!({
+                        "theme": "light",
+                        "language": "zh-Hant",
+                        "accent": "#3f8f6b",
+                        "initialPage": "library",
+                        "download": { "source": "mirror", "concurrency": 24, "segments": 2 },
+                        "network": { "proxy": "socks5://127.0.0.1:1080", "timeoutSecs": 20 }
+                    }),
+                )
+                .await
+                .expect("set");
+            assert_eq!(updated["settings"]["theme"], json!("light"));
+            assert_eq!(updated["settings"]["language"], json!("zh-Hant"));
+            assert_eq!(updated["settings"]["accent"], json!("#3F8F6B"));
+            assert_eq!(updated["settings"]["initialPage"], json!("library"));
+            assert_eq!(updated["settings"]["download"]["source"], json!("mirror"));
+            assert_eq!(updated["settings"]["download"]["concurrency"], json!(24));
+            assert_eq!(updated["settings"]["network"]["timeoutSecs"], json!(20));
+            assert_eq!(updated["snapshot"]["language"], json!("zh-Hant"));
+            assert_eq!(updated["snapshot"]["accent"], json!("#3F8F6B"));
+            assert_eq!(updated["snapshot"]["initialPage"], json!("library"));
+
+            let text =
+                std::fs::read_to_string(fg_core::config::config_path(dir.path())).expect("config");
+            assert!(text.contains("language = \"zh-Hant\""), "{text}");
+            assert!(text.contains("accent = \"#3F8F6B\""), "{text}");
+            assert!(text.contains("initial_page = \"library\""), "{text}");
+        });
+    }
+
+    #[test]
+    fn settings_set_rejects_a_malformed_proxy() {
+        let (_dir, service) = fixture();
+        service.block_on(async {
+            let error = service
+                .rpc(
+                    "settings.set",
+                    json!({ "network": { "proxy": "not a proxy url" } }),
+                )
+                .await
+                .expect_err("malformed proxy");
+            assert_eq!(error.message_key, "error.settings.proxy");
+        });
+    }
+
+    #[test]
+    fn settings_set_rejects_unknown_fields() {
+        let (_dir, service) = fixture();
+        service.block_on(async {
+            let error = service
+                .rpc("settings.set", json!({ "proxy": "http://127.0.0.1:1" }))
+                .await
+                .expect_err("unknown top-level field");
+            assert_eq!(error.message_key, "error.config.unknown_field");
         });
     }
 

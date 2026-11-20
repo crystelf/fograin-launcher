@@ -34,7 +34,7 @@
 
 - ✅ P0 — 记录 R0 基线：安装包体积、安装后体积、冷启动、空闲 RSS。
 - P1 — 中文输入法在三 OS 的回归测试（R1/R2 页面已迁入 `commonMain`，待人工验收）。
-- P2 — `AppModel` 的运行期提示/错误文案仍内嵌中文；随 M10 i18n 一起迁入 `composeResources`。
+- P2 — 设置与全部页面文案已迁入 `composeResources`（简 / 繁 / 英 / 日）；`AppModel` 的临时提示与核心错误文案仍内嵌中文，下一步改为 message key + 资源映射。
 - P2 — 模型内展示元数据（`LoaderKind.title`、`Instance.meta`）随 M8/M10 改为核心下发后资源化。
 - P1 — jlink 裁剪运行时模块；AppCDS；ZGC 参数调优。
 - P1 — 桌面图标（`.icns` / `.ico` / PNG）从 `design/app-icon.png` 生成。

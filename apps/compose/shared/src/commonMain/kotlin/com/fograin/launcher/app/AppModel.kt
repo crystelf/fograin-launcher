@@ -20,7 +20,9 @@ import com.fograin.launcher.platform.CoreGameConfig
 import com.fograin.launcher.platform.CoreInstanceRow
 import com.fograin.launcher.platform.CoreInstanceSettings
 import com.fograin.launcher.platform.CoreJavaList
+import com.fograin.launcher.platform.CoreDownloadSettings
 import com.fograin.launcher.platform.CoreJavaRuntime
+import com.fograin.launcher.platform.CoreNetworkSettings
 import com.fograin.launcher.platform.CoreLoaderVersion
 import com.fograin.launcher.platform.CoreTaskRow
 import com.fograin.launcher.platform.CoreWorldBackup
@@ -30,6 +32,9 @@ import com.fograin.launcher.platform.decode
 import com.fograin.launcher.platform.objectRows
 import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.platform.resultRows
+import com.fograin.launcher.settings.AccentPreference
+import com.fograin.launcher.settings.AppLanguage
+import com.fograin.launcher.settings.InitialPage
 import com.fograin.launcher.settings.ThemeMode
 import com.fograin.launcher.ui.AppDestination
 import kotlinx.coroutines.CancellationException
@@ -91,6 +96,7 @@ class AppModel internal constructor(
     internal val content = ContentActions(this)
     internal val diag = DiagActions(this)
     internal val modpack = ModpackActions(this)
+    internal val settingsPanel = SettingsActions(this)
 
     private val refreshMutex = Mutex()
 
@@ -111,13 +117,23 @@ class AppModel internal constructor(
 
     init {
         val settings = core.settings
+        val initialPage = InitialPage.fromWire(settings.initialPage)
         _state = MutableStateFlow(
             AppUiState(
                 settings = settings,
                 theme = settings.theme,
+                language = AppLanguage.fromWire(settings.language),
+                accent = AccentPreference.fromWire(settings.accent),
+                initialPage = initialPage,
+                destination = when (initialPage) {
+                    InitialPage.HOME -> AppDestination.HOME
+                    InitialPage.LIBRARY -> AppDestination.LIBRARY
+                    InitialPage.DOWNLOADS -> AppDestination.DOWNLOADS
+                },
                 deviceMemoryBytes = platform.deviceInfo.totalMemoryBytes,
                 deviceText = platform.deviceInfo.deviceText,
                 socText = platform.deviceInfo.socText,
+                cpuCount = platform.deviceInfo.cpuCount,
             ),
         )
         state = _state.asStateFlow()
@@ -228,6 +244,7 @@ class AppModel internal constructor(
                             fraction = row.fraction,
                             speed = row.speed,
                             state = row.state,
+                            graphName = row.name,
                         )
                     },
                 )
@@ -314,16 +331,18 @@ class AppModel internal constructor(
     // ------------------------------------------------------------------
 
     fun navigate(destination: AppDestination) {
+        // Settings is an in-window destination rendered by App, not a fifth
+        // shell page. Route the rail/menu/shortcut entry point there.
+        if (destination == AppDestination.SETTINGS) {
+            openSettings()
+            return
+        }
         _state.update {
             it.copy(
                 destination = destination,
                 // The queue behaves like any other in-shell page: picking a
                 // destination leaves it before the page transition runs.
                 downloadQueueOpen = false,
-                // Entering Settings always lands on the main page; leaving a
-                // Java sub-page also resets it so back cannot dismiss an
-                // invisible page later.
-                settingsStage = SettingsStage.MAIN,
                 // Library sub-pages are not tabs of their own: leaving the
                 // destination returns the next visit to the instance list.
                 libraryStage = if (destination == AppDestination.LIBRARY) {
@@ -352,7 +371,7 @@ class AppModel internal constructor(
             current.downloadQueueOpen ||
             current.contentBrowser.selectedProject != null ||
             current.globalSearchOpen ||
-            current.settingsStage != SettingsStage.MAIN ||
+            current.settingsWindow.open ||
             installSubPage ||
             librarySubPage ||
             current.destination != AppDestination.HOME
@@ -363,6 +382,7 @@ class AppModel internal constructor(
         val current = state.value
         when {
             current.alert != null -> dismissAlert()
+            current.settingsWindow.open -> settingsPanel.back()
             current.account.open -> account.back()
             current.downloadQueueOpen -> closeDownloadQueue()
             current.contentBrowser.selectedProject != null -> closeContentProject()
@@ -376,7 +396,6 @@ class AppModel internal constructor(
             current.destination == AppDestination.LIBRARY &&
                 current.libraryStage == LibraryStage.DETAIL -> closeInstanceDetail()
 
-            current.settingsStage != SettingsStage.MAIN -> closeJavaSettings()
             current.destination == AppDestination.DOWNLOADS &&
                 current.download.stage == DownloadStage.LOADER_VERSIONS ->
                 closeLoaderVersionPicker()
@@ -509,20 +528,57 @@ class AppModel internal constructor(
         _state.update { it.copy(homeFilter = filter) }
     }
 
-    fun setTheme(theme: ThemeMode) {
-        if (theme == state.value.theme) return
-        scope.launch {
-            try {
-                val snapshot = core.setTheme(theme)
-                _state.update { it.copy(settings = snapshot, theme = snapshot.theme) }
-                showNotice("外观已切换", Notice.Tone.SUCCESS)
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                showError("外观切换失败", error)
-            }
-        }
+    // ------------------------------------------------------------------
+    // Settings destination (M10). App animates between the shell and the
+    // full-window settings surface on every platform.
+    // ------------------------------------------------------------------
+
+    fun openSettings(section: SettingsSection? = null) {
+        settingsPanel.refreshDataRootOverride()
+        settingsPanel.open(section)
     }
+
+    fun closeSettings() = settingsPanel.close()
+
+    fun settingsBack() = settingsPanel.back()
+
+    fun setSettingsCompact(compact: Boolean) = settingsPanel.setCompact(compact)
+
+    fun selectSettingsSection(section: SettingsSection) = settingsPanel.select(section)
+
+    fun pushSettingsSection(section: SettingsSection) = settingsPanel.push(section)
+
+    fun retrySettings() = settingsPanel.load()
+
+    fun setLanguage(language: AppLanguage) = settingsPanel.setLanguage(language)
+
+    fun setAccent(accent: AccentPreference) = settingsPanel.setAccent(accent)
+
+    fun setInitialPage(page: InitialPage) = settingsPanel.setInitialPage(page)
+
+    fun setGlobalMemoryMb(memoryMb: Int) = settingsPanel.setMemoryMb(memoryMb)
+
+    fun setGlobalJvmArgs(args: String) = settingsPanel.setJvmArgs(args)
+
+    fun setGlobalFullscreen(enabled: Boolean) = settingsPanel.setFullscreen(enabled)
+
+    fun setGlobalShowLog(enabled: Boolean) = settingsPanel.setShowLog(enabled)
+
+    fun setGlobalAutoCompleteResources(enabled: Boolean) =
+        settingsPanel.setAutoCompleteResources(enabled)
+
+    fun setGlobalResolution(width: Int?, height: Int?) =
+        settingsPanel.setResolution(width, height)
+
+    fun updateDownloadSettings(transform: (CoreDownloadSettings) -> CoreDownloadSettings) =
+        settingsPanel.updateDownload(transform)
+
+    fun updateNetworkSettings(transform: (CoreNetworkSettings) -> CoreNetworkSettings) =
+        settingsPanel.updateNetwork(transform)
+
+    fun setDataRootOverride(path: String?) = settingsPanel.setDataRootOverride(path)
+
+    fun setTheme(theme: ThemeMode) = settingsPanel.setTheme(theme)
 
     /** Flips light/dark, the pair users actually toggle; SYSTEM stays untouched. */
     fun toggleTheme() {
@@ -669,9 +725,13 @@ class AppModel internal constructor(
     // Java runtime management (M6)
     // ------------------------------------------------------------------
 
-    fun openJavaSettings() = java.open()
+    /** Menu/shortcut/search entry point: settings page on the Java section. */
+    fun openJavaSettings() {
+        settingsPanel.open(SettingsSection.JAVA)
+        refreshJavaSettings()
+    }
 
-    fun closeJavaSettings() = java.close()
+    fun closeJavaSettings() = settingsPanel.back()
 
     fun refreshJavaSettings() = java.refresh()
 

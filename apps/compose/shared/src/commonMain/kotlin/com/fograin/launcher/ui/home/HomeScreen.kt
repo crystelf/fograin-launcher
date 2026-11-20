@@ -76,6 +76,8 @@ import com.fograin.launcher.app.HomeFilter
 import com.fograin.launcher.model.Instance
 import com.fograin.launcher.model.InstanceFormat
 import com.fograin.launcher.resources.*
+import com.fograin.launcher.ui.metaText
+import com.fograin.launcher.ui.relativeTimeText
 import com.fograin.launcher.ui.components.AccountAvatarButton
 import com.fograin.launcher.ui.components.InstanceTile
 import com.fograin.launcher.ui.components.PageHeader
@@ -86,6 +88,7 @@ import com.fograin.launcher.ui.components.ThinProgressBar
 import com.fograin.launcher.ui.downloadSpeedText
 import com.fograin.launcher.ui.stateText
 import com.fograin.launcher.ui.title
+import com.fograin.launcher.ui.titleText
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 import kotlinx.datetime.TimeZone
@@ -338,7 +341,7 @@ private fun HeroCard(model: AppModel, state: AppUiState, instance: Instance) {
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            text = instance.meta,
+                            text = instance.metaText(),
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color.White.copy(alpha = 0.82f),
                             maxLines = 1,
@@ -363,7 +366,7 @@ private fun HeroCard(model: AppModel, state: AppUiState, instance: Instance) {
                                         Column {
                                             Text(candidate.name)
                                             Text(
-                                                text = candidate.meta,
+                                                text = candidate.metaText(),
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             )
@@ -554,7 +557,7 @@ private fun HomeInstanceRow(
                 )
             }
             Text(
-                text = InstanceFormat.relativeTime(instance.lastPlayedEpochMillis, nowMillis),
+                text = relativeTimeText(instance.lastPlayedEpochMillis, nowMillis),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -674,7 +677,7 @@ private fun HomeDownloadRow(model: AppModel, task: com.fograin.launcher.app.Down
     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = task.title,
+                text = task.titleText(),
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.weight(1f),
                 maxLines = 1,

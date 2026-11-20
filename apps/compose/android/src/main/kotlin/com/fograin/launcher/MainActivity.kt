@@ -41,7 +41,8 @@ class MainActivity : ComponentActivity() {
         AndroidPlatform.install(this)
         AndroidPlatform.attachTreePicker { treePicker.launch(null) }
         AndroidPlatform.attachFilePicker { types -> filePicker.launch(types) }
-        AppRuntime.dataRoot = (getExternalFilesDir(null) ?: filesDir).absolutePath
+        AppRuntime.dataRoot = AndroidPlatform.installedDataRootOverride()
+            ?: (getExternalFilesDir(null) ?: filesDir).absolutePath
         val core = createCoreClient()
 
         // Paint the starting window with the stored theme so a dark user never

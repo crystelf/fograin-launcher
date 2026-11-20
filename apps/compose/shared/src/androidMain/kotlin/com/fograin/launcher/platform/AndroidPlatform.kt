@@ -100,6 +100,10 @@ object AndroidPlatform {
             .also { preferences = it }
     }
 
+    /** Data folder chosen in settings, applied before the core is created. */
+    fun installedDataRootOverride(): String? =
+        sharedPreferences()?.getString(KEY_DATA_ROOT, null)?.takeIf { it.isNotBlank() }
+
     internal fun supportSocModel(): String =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             Build.SOC_MODEL.ifBlank { Build.HARDWARE }
@@ -136,6 +140,9 @@ private val androidServices: PlatformServices by lazy {
 
             override val socText: String
                 get() = AndroidPlatform.supportSocModel()
+
+            override val cpuCount: Int
+                get() = Runtime.getRuntime().availableProcessors()
         },
         clipboard = object : ClipboardService {
             override fun copy(text: String) {
@@ -146,18 +153,35 @@ private val androidServices: PlatformServices by lazy {
             }
         },
         preferences = object : LocalPreferences {
-            override var dynamicColor: Boolean
-                get() = AndroidPlatform.sharedPreferences()?.getBoolean(KEY_DYNAMIC_COLOR, false) ?: false
-                set(value) {
-                    AndroidPlatform.sharedPreferences()?.edit()?.putBoolean(KEY_DYNAMIC_COLOR, value)?.apply()
-                }
-
             override fun supportsDynamicColor(): Boolean = supportsMaterialYou()
 
             // Android windows are not resizable in the desktop sense.
             override var windowFrame: WindowFrame?
                 get() = null
                 set(_) = Unit
+
+            override var dataRootOverride: String?
+                get() = AndroidPlatform.sharedPreferences()
+                    ?.getString(KEY_DATA_ROOT, null)
+                    ?.takeIf { it.isNotBlank() }
+                set(value) {
+                    AndroidPlatform.sharedPreferences()?.edit()?.let { editor ->
+                        if (value.isNullOrBlank()) {
+                            editor.remove(KEY_DATA_ROOT)
+                        } else {
+                            editor.putString(KEY_DATA_ROOT, value)
+                        }
+                        editor.apply()
+                    }
+                }
+
+            override var settingsSidebarWidth: Float
+                get() = AndroidPlatform.sharedPreferences()
+                    ?.getFloat(KEY_SETTINGS_SIDEBAR_WIDTH, 0f) ?: 0f
+                set(value) {
+                    AndroidPlatform.sharedPreferences()?.edit()
+                        ?.putFloat(KEY_SETTINGS_SIDEBAR_WIDTH, value)?.apply()
+                }
         },
         directories = AndroidDirectoryPicker,
         files = AndroidFilePicker,
@@ -209,10 +233,12 @@ private val androidServices: PlatformServices by lazy {
                 BackHandler(enabled = enabled, onBack = onBack)
             }
         },
+        links = AndroidSystemLinks,
     )
 }
 
-private const val KEY_DYNAMIC_COLOR = "appearance.dynamicColor"
+private const val KEY_DATA_ROOT = "storage.dataRoot"
+private const val KEY_SETTINGS_SIDEBAR_WIDTH = "settings.sidebarWidth"
 
 private fun supportsMaterialYou(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 

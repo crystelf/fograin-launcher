@@ -2,6 +2,7 @@ package com.fograin.launcher.platform
 
 import androidx.compose.material3.ColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 import java.lang.management.ManagementFactory
@@ -30,6 +31,9 @@ private val desktopServices: PlatformServices by lazy {
 
             override val socText: String
                 get() = System.getProperty("os.arch")
+
+            override val cpuCount: Int
+                get() = Runtime.getRuntime().availableProcessors()
         },
         clipboard = object : ClipboardService {
             override fun copy(text: String) {
@@ -44,13 +48,7 @@ private val desktopServices: PlatformServices by lazy {
                 Preferences.userRoot().node("com/fograin/launcher")
             }
 
-            override var dynamicColor: Boolean
-                get() = node.getBoolean(KEY_DYNAMIC_COLOR, false)
-                set(value) {
-                    node.putBoolean(KEY_DYNAMIC_COLOR, value)
-                }
-
-            override fun supportsDynamicColor(): Boolean = false
+            override fun supportsDynamicColor(): Boolean = DesktopAccent.color() != null
 
             override var windowFrame: WindowFrame?
                 get() = node.getInt(KEY_WINDOW_WIDTH, 0).takeIf { it > 0 }?.let { width ->
@@ -77,24 +75,51 @@ private val desktopServices: PlatformServices by lazy {
                     node.putInt(KEY_WINDOW_HEIGHT, value.height)
                     node.putBoolean(KEY_WINDOW_MAXIMIZED, value.maximized)
                 }
+
+            override var dataRootOverride: String?
+                get() = node.get(KEY_DATA_ROOT, null)?.takeIf { it.isNotBlank() }
+                set(value) {
+                    if (value.isNullOrBlank()) {
+                        node.remove(KEY_DATA_ROOT)
+                    } else {
+                        node.put(KEY_DATA_ROOT, value)
+                    }
+                }
+
+            override var settingsSidebarWidth: Float
+                get() = node.getFloat(KEY_SETTINGS_SIDEBAR_WIDTH, 0f)
+                set(value) {
+                    node.putFloat(KEY_SETTINGS_SIDEBAR_WIDTH, value)
+                }
         },
         directories = DesktopDirectoryPicker,
         files = DesktopFilePicker,
         logger = JvmLogger,
         appearance = object : SystemAppearance {
-            override val supportsDynamicColor: Boolean = false
+            override val supportsDynamicColor: Boolean
+                get() = DesktopAccent.color() != null
 
             @Composable
-            override fun dynamicColorScheme(darkTheme: Boolean): ColorScheme? = null
+            override fun dynamicColorScheme(darkTheme: Boolean): ColorScheme? {
+                // Higher-contrast seeded scheme from the OS accent. `remember`
+                // keeps the palette stable while the appearance page offers
+                // the other options.
+                val seed = remember { DesktopAccent.color() } ?: return null
+                return remember(seed, darkTheme) {
+                    com.fograin.launcher.ui.theme.seedColorScheme(seed, darkTheme)
+                }
+            }
 
             @Composable
             override fun applySystemBars(darkTheme: Boolean) = Unit
         },
         backDispatcher = DesktopBackDispatcher,
+        links = DesktopSystemLinks,
     )
 }
 
-private const val KEY_DYNAMIC_COLOR = "appearance.dynamicColor"
+private const val KEY_DATA_ROOT = "storage.dataRoot"
+private const val KEY_SETTINGS_SIDEBAR_WIDTH = "settings.sidebarWidth"
 private const val KEY_WINDOW_X = "window.x"
 private const val KEY_WINDOW_Y = "window.y"
 private const val KEY_WINDOW_WIDTH = "window.width"
@@ -116,9 +141,40 @@ private fun desktopPlatformName(): String {
     val os = System.getProperty("os.name").lowercase()
     return when {
         os.contains("mac") -> "macos"
-        os.contains("win") -> "win11"
+        os.contains("win") -> windowsPlatformName()
         else -> "gnome"
     }
+}
+
+/**
+ * Windows 11 (build 22000+) draws rounded native window corners; Windows 10
+ * and 7 do not. The shared `windowContentShape` uses this to decide whether
+ * the content pane gets rounded left corners or stays rectangular.
+ */
+private fun windowsPlatformName(): String {
+    if (System.getProperty("os.name").orEmpty().contains("11")) return "win11"
+    val build = runCatching {
+        val process = ProcessBuilder(
+            "reg",
+            "query",
+            "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
+            "/v",
+            "CurrentBuildNumber",
+        )
+            .redirectErrorStream(true)
+            .start()
+        if (!process.waitFor(700, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+            process.destroyForcibly()
+            null
+        } else {
+            process.inputStream.bufferedReader().use { it.readText() }
+                .trim()
+                .split(Regex("\\s+"))
+                .lastOrNull()
+                ?.toIntOrNull()
+        }
+    }.getOrNull()
+    return if (build != null && build >= 22_000) "win11" else "win10"
 }
 
 private fun totalPhysicalMemory(): Long = runCatching {

@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.ContentManagerTab
 import com.fograin.launcher.model.Instance
+import com.fograin.launcher.ui.versionLineText
 import com.fograin.launcher.platform.CoreInstanceSettings
 import com.fograin.launcher.platform.CoreJavaRuntime
 import com.fograin.launcher.resources.*
@@ -81,6 +82,7 @@ fun InstanceSettingsPage(
     var resolution by remember(instance.id) { mutableStateOf<List<Int>?>(null) }
     var javaRuntimes by remember(instance.id) { mutableStateOf<List<CoreJavaRuntime>>(emptyList()) }
     var showDeleteConfirm by remember(instance.id) { mutableStateOf(false) }
+    val loadErrorTitle = stringResource(Res.string.instance_settings_load_error_title)
 
     LaunchedEffect(instance.id) {
         try {
@@ -94,7 +96,7 @@ fun InstanceSettingsPage(
             throw error
         } catch (error: Throwable) {
             loadError = model.errorMessage(error)
-            model.showError("无法读取实例设置", error)
+            model.showError(loadErrorTitle, error)
         }
 
         // The Java picker must include launcher-managed runtimes; a failure here
@@ -412,7 +414,7 @@ private fun InstanceSettingsSummary(instance: Instance) {
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = instance.versionLine,
+                text = instance.versionLineText(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

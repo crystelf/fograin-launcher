@@ -228,8 +228,9 @@ commonTest
 
 - `design/tokens.json` 是唯一来源，只生成 `apps/compose/shared/src/commonMain/.../generated/Tokens.kt`。
 - 语义色、字号、间距、圆角、窗口尺寸全部来自令牌；代码里不写十六进制颜色。
-- `appearance.theme = system | light | dark` 由 Rust 核心写入 `launcher.toml`，UI 首帧前读取。
-- Android 保留可选的 Material You 动态色；桌面不提供动态色开关。
+- `appearance.theme = system | light | dark`、`appearance.language = system | zh-Hans | zh-Hant | en | ja`、`appearance.accent = auto | #RRGGBB` 由 Rust 核心写入 `launcher.toml`，UI 首帧前读取。
+- 自动取色：Android 12+ 使用 Material You；桌面读取系统强调色（macOS `AppleAccentColor`、Windows DWM、GNOME accent）。自定义主题色用 OKLCH 生成完整的 Material 3 色板。
+- 语言切换通过平台默认 Locale 重建资源子树；简体 / 繁體 / English / 日本語 四套 `composeResources`，默认跟随系统。
 - 字体：默认使用系统字体（Android Roboto、macOS PingFang/SF、Windows Microsoft YaHei、Linux Noto Sans CJK）。Linux 包内自带 Noto Sans SC 回退，避免缺字。
 - 浅色令牌仍是初稿；等 `fograin.pen` 补浅色画面后统一更新。
 
@@ -240,6 +241,9 @@ commonTest
 - 快捷键：`Cmd/Ctrl+N`、`Cmd/Ctrl+I`、`Cmd/Ctrl+F`、`Cmd/Ctrl+Shift+T`、`Cmd/Ctrl+1..4`、`Cmd/Ctrl+Q`、`Esc`。
 - `Esc` 走共享的 `BackDispatcher`：先关 sheet/对话框，再回主页；Android 的返回手势是同一实现。
 - 宽度 ≥ 840 dp 用 `NavigationRail`，否则用底栏；两档离屏截图作为验收（`AdaptiveLayoutRenderTest`）。宽屏导航栏顶部是全局搜索按钮，设置固定在最下方；macOS 原生红绿灯通过全窗内容叠在导航栏顶部。
+- 宽屏右半区与设置内容区只对左侧上下角做圆角，右侧/顶部/底部贴合系统窗口；无窗口圆角的平台（Windows 10/7、Android）使用直边。窄屏恢复全宽页面。
+- 设置是同一窗口内的整页目的地：`App` 用同一套 `fograinPageTransition` 在主页壳与设置页之间做正向/返回动画，不再创建第二个 `Window`。宽屏为「分类侧栏 + 可拖动分隔条 + 内容区」，窄屏为「分类列表 → 分类详情」，并保留 General → Java 的 section 返回栈；侧栏宽度写入本地偏好。
+- 宽屏内容面板只对左侧上下角做圆角，右侧/顶部/底部贴合系统窗口；macOS、Windows 11、GNOME 使用圆角，Windows 10/7 与 Android 使用直边。
 - 四个一级页面共用 `PageHeader`：标题、搜索框与页面操作在同一行，标题不再占用第二行；紧凑窗口的搜索框折叠成图标，展开时在同一行替换标题。
 - 页面切换使用淡入与短距离滑动；列表项、任务进度、搜索展开、弹层进出场都有过渡，避免硬切。
 - 桌面目录选择优先调用系统原生对话框（macOS `osascript choose folder`、Windows PowerShell `FolderBrowserDialog`、Linux `zenity`/`kdialog`），Swing `JFileChooser` 仅作无原生工具时的回退，并使用系统 L&F。
@@ -302,7 +306,19 @@ commonTest
 
 ### 4.2 配置格式
 
-`launcher.toml` 分区：`[general] [game] [java] [download] [appearance] [network] [notify] [advanced]`，与设置页分组对应。
+`launcher.toml` 分区：`[general] [game] [java] [download] [appearance] [network] [notify] [advanced]`，与设置页分组对应。当前已实现：
+
+```toml
+[general]
+initial_page = "home"          # home | library | downloads
+
+[appearance]
+theme = "system"               # system | light | dark
+language = "system"            # system | zh-Hans | zh-Hant | en | ja
+accent = "auto"                # auto | "#RRGGBB"
+```
+
+`settings.get` / `settings.set` 读写外观、初始页、下载引擎与代理；`[game]` 仍由 `gameConfig.*` 写入，`[java]` 由 `java.policy.set` 写入。下载与网络设置在下次启动时生效。
 
 `instance.toml`：
 
@@ -553,7 +569,7 @@ M0–M9 见 §1.1。M4 的实例管理、安装、启动链路已经在 macOS / 
 | M7 ✅ | 离线账户、Yggdrasil / authlib-injector、账户页与启动接线；皮肤管理移出计划，微软正版留 M11 | 完成 2026-11-15 |
 | M8 ✅ | 模组、资源包、光影、世界管理，Modrinth / CurseForge 内容下载页与更新检查 | 完成 2026-11-15 |
 | M9 ✅ | 崩溃分析与诊断包、数据包、整合包导入/导出与在线浏览、拖放导入 | 完成 2026-11-17；服务器已移除 |
-| M10 | 设置、i18n、自动更新、签名、发布打磨 | 2 周 |
+| M10 | 设置、i18n、自动更新、签名、发布打磨 | 2 周（设置界面、四语言与主题色已完成） |
 | M11 | 微软正版登录（审核通过后） | 1 周 |
 | M12+ | Android 游戏运行时（A0–A10）、联机、更多加载器 | 3–4 个月 / 待定 |
 

@@ -31,6 +31,11 @@ import com.fograin.launcher.platform.CorePlanPreview
 import com.fograin.launcher.platform.CoreSettings
 import com.fograin.launcher.platform.CoreVersionEntry
 import com.fograin.launcher.platform.CoreYggdrasilProfile
+import com.fograin.launcher.platform.CoreDownloadSettings
+import com.fograin.launcher.platform.CoreNetworkSettings
+import com.fograin.launcher.settings.AccentPreference
+import com.fograin.launcher.settings.AppLanguage
+import com.fograin.launcher.settings.InitialPage
 import com.fograin.launcher.settings.ThemeMode
 import com.fograin.launcher.ui.AppDestination
 
@@ -65,13 +70,54 @@ data class DownloadRow(
     val fraction: Double,
     val speed: Double,
     val state: String,
+    /** Raw task graph name such as `install:1.21.5`; used for localization. */
+    val graphName: String = "",
 )
 
-/** Sub-pages of the settings destination. */
-enum class SettingsStage {
-    MAIN,
+/** Categories shown by the settings surface. */
+enum class SettingsSection {
+    APPEARANCE,
+    GENERAL,
     JAVA,
+    DOWNLOAD,
+    NETWORK,
+    STORAGE,
+    ABOUT,
 }
+
+/** A settings write/read failure kept as a key so the UI can localize it. */
+data class SettingsFailure(
+    val messageKey: String = "",
+    val detail: String? = null,
+)
+
+/** Settings destination state; the section survives closing so reopening is instant. */
+data class SettingsUiState(
+    val open: Boolean = false,
+    val section: SettingsSection = SettingsSection.APPEARANCE,
+    /**
+     * Compact layout only: `true` shows the category content, `false` the
+     * category list. Wide layouts always show both at once.
+     */
+    val detailOpen: Boolean = false,
+    /** True while the window is in the phone / narrow layout. */
+    val compact: Boolean = false,
+    /**
+     * Previous sections pushed while navigating inside the compact detail
+     * page. "General → Java" pushes General, so Back returns there.
+     */
+    val sectionHistory: List<SettingsSection> = emptyList(),
+    /** Direction of the next section animation; false means Back. */
+    val sectionForward: Boolean = true,
+    val isLoading: Boolean = false,
+    val isSaving: Boolean = false,
+    val loaded: Boolean = false,
+    val error: SettingsFailure? = null,
+    val download: CoreDownloadSettings = CoreDownloadSettings(),
+    val network: CoreNetworkSettings = CoreNetworkSettings(),
+    /** Data folder applied after the next restart; `null` means the default. */
+    val dataRootOverride: String? = null,
+)
 
 /**
  * Pages inside the 实例库 destination. The instance list is the root; a row
@@ -415,8 +461,14 @@ data class ContentBrowserUiState(
 data class AppUiState(
     val settings: CoreSettings,
     val theme: ThemeMode,
+    /** Interface language; `SYSTEM` follows the host locale. */
+    val language: AppLanguage = AppLanguage.SYSTEM,
+    /** `auto` or a `#RRGGBB` accent seed. */
+    val accent: AccentPreference = AccentPreference.Auto,
+    /** Destination opened after a cold start. */
+    val initialPage: InitialPage = InitialPage.HOME,
     val destination: AppDestination = AppDestination.HOME,
-    val settingsStage: SettingsStage = SettingsStage.MAIN,
+    val settingsWindow: SettingsUiState = SettingsUiState(),
     val instances: List<Instance> = emptyList(),
     val downloads: List<DownloadRow> = emptyList(),
     /** Full-window queue page opened from Home or the downloads card. */
@@ -457,6 +509,7 @@ data class AppUiState(
     val deviceMemoryBytes: Long = 0,
     val deviceText: String = "",
     val socText: String = "",
+    val cpuCount: Int = 4,
 ) {
     val currentInstance: Instance?
         get() = instances.firstOrNull { it.id == currentInstanceId } ?: instances.firstOrNull()

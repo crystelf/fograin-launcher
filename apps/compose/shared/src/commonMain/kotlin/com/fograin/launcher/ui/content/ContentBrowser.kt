@@ -40,6 +40,8 @@ import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.app.ContentSourceOption
 import com.fograin.launcher.model.DownloadsCategory
 import com.fograin.launcher.model.InstanceFormat
+import com.fograin.launcher.ui.downloadsCountText
+import com.fograin.launcher.ui.titleText
 import com.fograin.launcher.platform.CoreContentProject
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.components.DropdownField
@@ -218,7 +220,7 @@ fun ContentBrowser(
                                 },
                         )
                     } else {
-                        "${target.minecraftVersion} · ${target.loader.title}"
+                        "${target.minecraftVersion} · ${target.loader.titleText()}"
                     },
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -310,8 +312,7 @@ private fun ProjectCard(project: CoreContentProject, onClick: () -> Unit) {
                 }
                 Text(
                     text = buildString {
-                        append(downloadsText(project.downloads))
-                        append(" 下载")
+                        append(downloadsCountText(project.downloads))
                         project.categories.take(3).takeIf { it.isNotEmpty() }?.let { categories ->
                             append(" · ")
                             append(categories.joinToString(" / "))
@@ -369,16 +370,6 @@ private fun EmptyState(
             textAlign = TextAlign.Center,
         )
     }
-}
-
-private fun downloadsText(downloads: Long): String = when {
-    downloads >= 100_000_000L -> {
-        val tenths = downloads * 10 / 100_000_000L
-        "${tenths / 10}.${tenths % 10} 亿"
-    }
-
-    downloads >= 10_000L -> "${downloads / 1_000L} 千"
-    else -> downloads.toString()
 }
 
 @Composable

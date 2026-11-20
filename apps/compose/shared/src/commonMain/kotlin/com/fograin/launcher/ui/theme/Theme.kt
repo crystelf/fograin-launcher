@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.fograin.launcher.generated.FograinTokens
 import com.fograin.launcher.platform.platformServices
+import com.fograin.launcher.settings.AccentPreference
 import com.fograin.launcher.settings.ThemeMode
 
 /**
@@ -259,10 +260,19 @@ private val FograinShapes = Shapes(
     extraLarge = RoundedCornerShape(FograinTokens.Radius.pill),
 )
 
+/**
+ * Applies the Fograin theme.
+ *
+ * [accent] is the string stored in `launcher.toml`: `auto` follows the system
+ * accent (Material You on Android, the desktop accent colour elsewhere), while
+ * a `#RRGGBB` value seeds a full Material 3 scheme. When the platform has no
+ * accent source the Fograin palette is used, so `auto` always has a defined
+ * fallback.
+ */
 @Composable
 fun FograinTheme(
     themeMode: ThemeMode,
-    dynamicColor: Boolean,
+    accent: String = "auto",
     content: @Composable () -> Unit,
 ) {
     val darkTheme = when (themeMode) {
@@ -271,8 +281,20 @@ fun FograinTheme(
         ThemeMode.DARK -> true
     }
     val appearance = remember { platformServices().appearance }
-    val dynamicScheme = if (dynamicColor) appearance.dynamicColorScheme(darkTheme) else null
-    val colorScheme: ColorScheme = dynamicScheme ?: if (darkTheme) DarkColorScheme else LightColorScheme
+    val preference = remember(accent) { AccentPreference.fromWire(accent) }
+    val customScheme = remember(preference, darkTheme) {
+        preference.hex?.let { hex ->
+            parseHexColor(hex)?.let { seed -> seedColorScheme(seed, darkTheme) }
+        }
+    }
+    val systemScheme = if (preference.isAuto) {
+        appearance.dynamicColorScheme(darkTheme)
+    } else {
+        null
+    }
+    val colorScheme: ColorScheme = customScheme
+        ?: systemScheme
+        ?: if (darkTheme) DarkColorScheme else LightColorScheme
 
     // Re-apply the status/navigation bar icon contrast when the in-app theme
     // changes; `enableEdgeToEdge` captures a fixed detect-dark value.

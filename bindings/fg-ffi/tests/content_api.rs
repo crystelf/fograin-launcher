@@ -128,13 +128,18 @@ async fn content_search_versions_install_and_task_round_trip() {
 
     let root = temp_root();
     fs::create_dir_all(root.join("cache")).expect("cache dir");
+    // Resolve every Modrinth request through the mock server. The official API
+    // must stay disabled here: with the default `official = true`, a runner
+    // that can reach api.modrinth.com gets real search results instead of the
+    // fixture, which made this test depend on the CI network.
     fs::write(
         root.join("cache").join("mirrors.toml"),
         format!(
             "version = 1\n\
              [[rule]]\n\
              source = \"https://api.modrinth.com\"\n\
-             mirror = \"{}\"\n",
+             mirror = \"{}\"\n\
+             official = false\n",
             server.uri()
         ),
     )

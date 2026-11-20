@@ -54,12 +54,10 @@ class AdaptiveLayoutRenderTest {
 
     private fun render(model: AppModel, state: AppUiState, width: Int, height: Int): ByteArray {
         val scene = ImageComposeScene(width = width, height = height, density = Density(1f)) {
-            FograinTheme(themeMode = state.theme, dynamicColor = false) {
+            FograinTheme(themeMode = state.theme) {
                 FograinApp(
                     model = model,
                     state = state,
-                    dynamicColorEnabled = false,
-                    onDynamicColorChange = {},
                 )
             }
         }

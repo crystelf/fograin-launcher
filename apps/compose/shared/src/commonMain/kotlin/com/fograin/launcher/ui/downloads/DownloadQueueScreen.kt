@@ -43,6 +43,7 @@ import com.fograin.launcher.ui.components.PageHeader
 import com.fograin.launcher.ui.components.ThinProgressBar
 import com.fograin.launcher.ui.downloadSpeedText
 import com.fograin.launcher.ui.stateText
+import com.fograin.launcher.ui.titleText
 import org.jetbrains.compose.resources.stringResource
 
 const val DownloadQueueTag: String = "download-queue"
@@ -246,7 +247,7 @@ private fun QueueTaskRow(
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
-                    text = row.title,
+                    text = row.titleText(),
                     style = MaterialTheme.typography.titleSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -338,7 +339,7 @@ private fun FinishedTaskRow(row: DownloadRow) {
                 tint = tone,
             )
             Text(
-                text = row.title,
+                text = row.titleText(),
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f),
                 maxLines = 1,

@@ -34,6 +34,7 @@
     <string name="global_search_instances">实例</string>
     <string name="global_search_empty">没有匹配的结果</string>
     <string name="global_search_open">全局搜索</string>
+    <string name="global_search_go_to">前往 %1$s</string>
     <string name="global_search_java">Java 运行时</string>
     <string name="global_search_java_body">管理系统与启动器托管的 Java</string>
     <string name="global_search_add_instance">添加实例</string>
@@ -148,6 +149,26 @@
     <string name="library_menu_unfavorite">取消收藏</string>
 
     <!-- Instance detail page -->
+    <string name="instance_meta_mods">%1$d 模组</string>
+    <string name="task_install">安装 %1$s</string>
+    <string name="task_java">Java %1$s</string>
+    <string name="task_content_install">安装 %1$s</string>
+    <string name="task_modpack_download">下载整合包 %1$s</string>
+    <string name="task_modpack_import">导入整合包 %1$s</string>
+    <string name="loader_vanilla_subtitle">纯净游戏，不需要额外加载器</string>
+    <string name="loader_fabric_subtitle">轻量、更新快的模组加载器</string>
+    <string name="loader_quilt_subtitle">Fabric 的社区分支</string>
+    <string name="loader_forge_subtitle">老牌模组加载器，覆盖 1.7.10 到最新版</string>
+    <string name="loader_neoforge_subtitle">Forge 的现代分支，覆盖 1.20.1+</string>
+    <string name="loader_optifine_subtitle">光影与性能优化</string>
+    <string name="time_never_played">从未游玩</string>
+    <string name="time_just_now">刚刚</string>
+    <string name="time_minutes_ago">%1$d 分钟前</string>
+    <string name="time_hours_ago">%1$d 小时前</string>
+    <string name="time_yesterday">昨天</string>
+    <string name="time_days_ago">%1$d 天前</string>
+    <string name="time_last_week">上周</string>
+    <string name="time_month_day">%1$d月%2$d日</string>
     <string name="instance_detail_search_placeholder">搜索已安装的内容</string>
     <string name="instance_detail_complete_and_play">补全资源并启动</string>
 
@@ -333,6 +354,7 @@
     <string name="settings_milestone_m2">M2</string>
 
     <!-- Instance settings sheet -->
+    <string name="instance_settings_load_error_title">无法读取实例设置</string>
     <string name="instance_settings_load_failed">读取设置失败：%1$s</string>
     <string name="instance_settings_launch">启动</string>
     <string name="instance_settings_memory">内存</string>
@@ -364,6 +386,10 @@
     <!-- Runtime messages surfaced by AppModel -->
 
     <!-- Instance content manager (M8) -->
+    <string name="content_pack_format">格式 %1$d</string>
+    <string name="content_downloads_exact">%1$d 次下载</string>
+    <string name="content_downloads_thousands">%1$d 千次下载</string>
+    <string name="content_downloads_ten_millions">%1$s 亿次下载</string>
     <string name="content_tab_mods">模组</string>
     <string name="content_tab_resourcepacks">资源包</string>
     <string name="content_tab_shaderpacks">光影</string>
@@ -520,4 +546,169 @@
     <string name="modpack_export_body">已写入 %1$s（%2$d 个文件）。可以把 .mrpack 分享给其他人导入。</string>
     <string name="modpack_copy_path">复制路径</string>
     <string name="modpack_done">好</string>
+
+    <!-- Settings window (M10) -->
+    <string name="settings_window_title">设置</string>
+    <string name="settings_close">关闭设置</string>
+    <string name="settings_back">返回设置</string>
+    <string name="settings_loading">正在读取设置…</string>
+    <string name="settings_load_error">无法读取设置：%1$s</string>
+    <string name="settings_error_config">无法读取或写入启动器设置。</string>
+    <string name="settings_error_network">网络请求失败，请检查网络或代理设置。</string>
+    <string name="settings_error_core">启动器核心返回了一个错误。</string>
+    <string name="settings_save_error">保存失败：%1$s</string>
+    <string name="settings_retry">重试</string>
+    <string name="settings_restart_hint">部分设置需要重启启动器后生效。</string>
+    <string name="settings_adjust_sidebar">拖动调整侧栏宽度</string>
+    <string name="settings_group_app">应用与界面</string>
+    <string name="settings_group_data">数据与网络</string>
+    <string name="settings_group_about">关于</string>
+    <string name="settings_nav_appearance">外观</string>
+    <string name="settings_nav_general">通用</string>
+    <string name="settings_nav_java">Java 运行时</string>
+    <string name="settings_nav_download">下载</string>
+    <string name="settings_nav_network">网络</string>
+    <string name="settings_nav_storage">存储</string>
+    <string name="settings_nav_about">关于</string>
+    <string name="settings_account_local">本机账户</string>
+
+    <!-- Appearance -->
+    <string name="settings_appearance_subtitle">调整语言、明暗与主题色。</string>
+    <string name="settings_language_desc">选择界面语言；默认跟随系统。</string>
+    <string name="settings_language_system">跟随系统</string>
+    <string name="settings_language_system_value">跟随系统（%1$s）</string>
+    <string name="settings_language_zh_hans">简体中文</string>
+    <string name="settings_language_zh_hant">繁體中文</string>
+    <string name="settings_language_en">English</string>
+    <string name="settings_language_ja">日本語</string>
+    <string name="settings_theme_desc">控制启动器与设置界面的明暗。</string>
+    <string name="settings_accent_title">主题色</string>
+    <string name="settings_accent_desc">使用系统强调色，或选择一种专属颜色。</string>
+    <string name="settings_accent_auto">自动取色</string>
+    <string name="settings_accent_auto_desc">跟随系统强调色；Android 12+ 使用壁纸取色。</string>
+    <string name="settings_accent_custom">自定义颜色</string>
+    <string name="settings_accent_hex">十六进制颜色</string>
+    <string name="settings_accent_hex_hint">例如 #5EC8A0</string>
+    <string name="settings_accent_invalid">请输入 6 位十六进制颜色，例如 #5EC8A0。</string>
+    <string name="settings_accent_preview">预览</string>
+    <string name="settings_restart_required">重启后生效</string>
+
+    <!-- General -->
+    <string name="settings_general_subtitle">启动方式、内存与 Java 的默认行为。</string>
+    <string name="settings_group_startup">启动</string>
+    <string name="settings_initial_page">初始页面</string>
+    <string name="settings_initial_page_desc">启动启动器后打开的页面。</string>
+    <string name="settings_initial_home">主页</string>
+    <string name="settings_initial_library">实例库</string>
+    <string name="settings_initial_downloads">下载</string>
+    <string name="settings_group_game">游戏</string>
+    <string name="settings_memory">内存分配</string>
+    <string name="settings_memory_desc">为每个实例分配的默认最大堆内存。</string>
+    <string name="settings_memory_auto">自动分配</string>
+    <string name="settings_memory_auto_desc">由核心根据物理内存与模组数量选择。</string>
+    <string name="settings_memory_value">%1$d GB</string>
+    <string name="settings_memory_slider_desc">建议不超过物理内存的一半。</string>
+    <string name="settings_jvm_args">JVM 参数</string>
+    <string name="settings_jvm_args_desc">追加到所有未单独覆盖的实例。</string>
+    <string name="settings_jvm_args_hint">例如 -XX:+UseG1GC</string>
+    <string name="settings_resolution">窗口分辨率</string>
+    <string name="settings_resolution_desc">启动游戏时的初始窗口大小。</string>
+    <string name="settings_resolution_default">跟随游戏默认</string>
+    <string name="settings_resolution_value">%1$d × %2$d</string>
+    <string name="settings_fullscreen">全屏启动</string>
+    <string name="settings_fullscreen_desc">以全屏模式打开游戏窗口。</string>
+    <string name="settings_show_log">显示游戏日志</string>
+    <string name="settings_show_log_desc">启动游戏时打开日志窗口。</string>
+    <string name="settings_auto_complete">自动补全资源</string>
+    <string name="settings_auto_complete_desc">启动前检查并下载缺失的游戏文件。</string>
+    <string name="settings_group_java">Java</string>
+    <string name="settings_java_count">已发现 %1$d 个运行时 · %2$d 个由启动器管理</string>
+    <string name="settings_java_open">管理 Java 运行时</string>
+    <string name="settings_java_open_desc">查看系统与启动器托管的运行时。</string>
+
+    <!-- Downloads -->
+    <string name="settings_download_subtitle">选择镜像、并发与限速。</string>
+    <string name="settings_group_source">数据源</string>
+    <string name="settings_download_source_title">文件下载源</string>
+    <string name="settings_download_source_desc">游戏文件与内容文件的镜像顺序。</string>
+    <string name="settings_version_source_title">版本清单源</string>
+    <string name="settings_version_source_desc">版本列表与元数据的镜像顺序。</string>
+    <string name="settings_source_auto">自动（按地区）</string>
+    <string name="settings_source_official">官方优先</string>
+    <string name="settings_source_mirror">镜像优先</string>
+    <string name="settings_group_engine">引擎</string>
+        <string name="settings_concurrency_desc">同时进行的文件请求数。</string>
+    <string name="settings_concurrency_auto">自动</string>
+    <string name="settings_concurrency_auto_value">自动（%1$d）</string>
+    <string name="settings_segments">分片下载</string>
+    <string name="settings_segments_desc">大文件拆分为多少段并行下载。</string>
+    <string name="settings_segments_off">关闭</string>
+    <string name="settings_segments_value">%1$d 段</string>
+    <string name="settings_segment_threshold">分片阈值</string>
+    <string name="settings_segment_threshold_desc">只有大于此大小的文件才会分段下载。</string>
+    <string name="settings_threshold_off">不分片</string>
+    <string name="settings_threshold_mb">%1$d MB</string>
+    <string name="settings_retries">重试次数</string>
+    <string name="settings_retries_desc">每个下载地址失败后的重试次数。</string>
+    <string name="settings_retries_value">%1$d 次</string>
+    <string name="settings_per_host">单主机并发</string>
+    <string name="settings_per_host_desc">对同一台主机同时发起的请求上限。</string>
+    <string name="settings_per_host_value">%1$d</string>
+    <string name="settings_rate_limit">下载限速</string>
+    <string name="settings_rate_limit_desc">限制所有下载任务的总带宽。</string>
+    <string name="settings_rate_limit_off">不限速</string>
+    <string name="settings_rate_limit_value">%1$s/s</string>
+    <string name="settings_restart_engine">下载设置会在重启启动器后生效。</string>
+
+    <!-- Network -->
+    <string name="settings_network_subtitle">代理与连接超时。</string>
+    <string name="settings_group_proxy">代理</string>
+    <string name="settings_proxy_mode">代理模式</string>
+    <string name="settings_proxy_mode_desc">镜像与 API 请求使用的网络代理。</string>
+    <string name="settings_proxy_auto">跟随系统</string>
+    <string name="settings_proxy_auto_desc">读取系统或环境变量中的代理设置。</string>
+    <string name="settings_proxy_none">不使用代理</string>
+    <string name="settings_proxy_custom">自定义代理</string>
+    <string name="settings_proxy_url">代理地址</string>
+    <string name="settings_proxy_url_desc">支持 http:// 与 socks5:// 地址。</string>
+    <string name="settings_proxy_url_hint">http://127.0.0.1:7890</string>
+    <string name="settings_proxy_invalid">代理地址需要以 http:// 或 socks5:// 开头。</string>
+    <string name="settings_group_connection">连接</string>
+    <string name="settings_timeout">连接超时</string>
+    <string name="settings_timeout_desc">连接与读取请求的最长等待时间。</string>
+    <string name="settings_timeout_value">%1$d 秒</string>
+    <string name="settings_restart_network">网络设置会在重启启动器后生效。</string>
+
+    <!-- Storage -->
+    <string name="settings_storage_subtitle">数据目录与磁盘占用。</string>
+    <string name="settings_group_storage_data">数据目录</string>
+    <string name="settings_data_root">当前数据目录</string>
+    <string name="settings_data_root_desc">实例、运行时、缓存与配置都保存在这里。</string>
+    <string name="settings_data_root_pending">下次启动将使用新目录；现有文件不会自动迁移。</string>
+    <string name="settings_data_root_change">更改目录…</string>
+    <string name="settings_data_root_reset">恢复默认</string>
+    <string name="settings_storage_android_locked">Android 的数据目录由系统管理，无法更改。</string>
+    <string name="settings_group_disk">磁盘</string>
+    <string name="settings_disk_free">可用空间</string>
+    <string name="settings_disk_free_value">%1$s</string>
+    <string name="settings_config_file">配置文件</string>
+    <string name="settings_open_folder">打开目录</string>
+    <string name="settings_copy_path">复制路径</string>
+    <string name="settings_copied">路径已复制</string>
+    <string name="settings_data_root_dialog_title">更改数据目录</string>
+    <string name="settings_data_root_dialog_body">新目录将在下次启动时生效。现有数据不会自动搬移，请手动迁移。继续吗？</string>
+    <string name="settings_data_root_dialog_confirm">使用此目录</string>
+    <string name="settings_data_root_pick_title">选择数据目录</string>
+
+    <!-- About -->
+    <string name="settings_about_subtitle">版本、构建与开源信息。</string>
+    <string name="settings_about_version">版本</string>
+    <string name="settings_about_build">构建信息</string>
+    <string name="settings_about_runtime">运行环境</string>
+    <string name="settings_about_copy">复制诊断信息</string>
+    <string name="settings_about_copied">诊断信息已复制</string>
+    <string name="settings_about_license">许可证</string>
+    <string name="settings_about_license_value">GPL-3.0-only</string>
+    <string name="settings_about_data">数据目录</string>
+    <string name="settings_about_config">配置文件</string>
 </resources>

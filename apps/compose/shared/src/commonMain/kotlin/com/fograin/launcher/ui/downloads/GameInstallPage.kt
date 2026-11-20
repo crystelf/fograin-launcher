@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.model.GameLoaderKind
+import com.fograin.launcher.ui.titleText
 import com.fograin.launcher.model.InstanceFormat
 import com.fograin.launcher.platform.CoreVersionEntry
 import com.fograin.launcher.resources.*
@@ -243,7 +244,7 @@ private fun InstallContents(
                 text = when {
                     withLoader -> stringResource(
                         Res.string.install_contents_loader,
-                        loader.title,
+                        loader.titleText(),
                         loaderVersion,
                     )
 
@@ -373,7 +374,7 @@ private fun LoaderSection(
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Spacer(Modifier.height(2.dp))
                 LoaderVersionRow(
-                    title = stringResource(Res.string.install_loader_versions, loader.title),
+                    title = stringResource(Res.string.install_loader_versions, loader.titleText()),
                     value = if (state.isLoadingLoaderVersions) "" else loaderVersion,
                     loading = state.isLoadingLoaderVersions,
                     hasError = state.loaderVersionsError != null,
@@ -433,7 +434,7 @@ private fun InstallActionBar(
         else -> stringResource(
             Res.string.install_summary_loader,
             version,
-            loader.title,
+            loader.titleText(),
             loaderVersion,
         )
     }

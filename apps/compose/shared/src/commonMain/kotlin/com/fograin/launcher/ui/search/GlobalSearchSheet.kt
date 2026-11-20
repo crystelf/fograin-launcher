@@ -44,6 +44,8 @@ import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.model.Instance
+import com.fograin.launcher.ui.titleText
+import com.fograin.launcher.ui.versionLineText
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.AppDestination
 import com.fograin.launcher.ui.components.InstanceTile
@@ -84,7 +86,7 @@ fun GlobalSearchSheet(model: AppModel, state: AppUiState) {
                 SearchCommand(
                     id = destination.name.lowercase(),
                     title = label,
-                    subtitle = "前往$label",
+                    subtitle = stringResource(Res.string.global_search_go_to, label),
                     icon = destination.icon,
                     action = { closeAnd { model.navigate(destination) } },
                 ),
@@ -126,7 +128,7 @@ fun GlobalSearchSheet(model: AppModel, state: AppUiState) {
     val instances = state.instances
         .filter { instance ->
             query.isEmpty() ||
-                listOf(instance.name, instance.minecraftVersion, instance.loader.title, instance.loaderVersion)
+                listOf(instance.name, instance.minecraftVersion, instance.loader.titleText(), instance.loaderVersion)
                     .any { it.contains(query, ignoreCase = true) }
         }
         .take(if (query.isEmpty()) 4 else 8)
@@ -265,7 +267,7 @@ private fun SearchInstanceRow(instance: Instance, onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = instance.versionLine,
+                text = instance.versionLineText(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

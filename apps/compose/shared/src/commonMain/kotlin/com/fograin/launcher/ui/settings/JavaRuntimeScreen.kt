@@ -69,12 +69,19 @@ fun javaInstallTag(major: Int): String = "java-install-$major"
  * here keeps reporting even if the user navigates away and back.
  */
 @Composable
-fun JavaRuntimeScreen(model: AppModel, state: AppUiState) {
+fun JavaRuntimeScreen(
+    model: AppModel,
+    state: AppUiState,
+    embedded: Boolean = false,
+    showTitle: Boolean = true,
+) {
     val java = state.java
     var deleteTarget by remember { mutableStateOf<CoreJavaRuntime?>(null) }
 
     LaunchedEffect(Unit) {
-        if (java.runtimes.isEmpty() && java.catalog.isEmpty() && !java.isLoading) {
+        // The inventory is refreshed at startup, so only the network-bound
+        // catalog is normally missing when this page opens.
+        if (java.catalog.isEmpty() && !java.isLoading) {
             model.refreshJavaSettings()
         }
     }
@@ -84,17 +91,40 @@ fun JavaRuntimeScreen(model: AppModel, state: AppUiState) {
             .fillMaxSize()
             .testTag(JavaScreenTag),
     ) {
-        PageHeader(
-            title = stringResource(Res.string.java_title),
-            onBack = model::closeJavaSettings,
-        )
+        if (!embedded) {
+            PageHeader(
+                title = stringResource(Res.string.java_title),
+                onBack = model::closeJavaSettings,
+            )
+        }
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 28.dp),
+            contentPadding = if (embedded) {
+                PaddingValues(start = 30.dp, end = 30.dp, top = 22.dp, bottom = 36.dp)
+            } else {
+                PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 28.dp)
+            },
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (embedded && showTitle) {
+                item {
+                    Column(modifier = Modifier.padding(bottom = 6.dp)) {
+                        Text(
+                            text = stringResource(Res.string.java_title),
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = stringResource(Res.string.settings_java_body),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
             item {
                 JavaCard {
                     Row(

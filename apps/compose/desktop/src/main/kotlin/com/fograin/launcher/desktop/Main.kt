@@ -7,8 +7,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.window.WindowDraggableArea
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.painter.Painter
@@ -28,11 +31,15 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.fograin.launcher.App
 import com.fograin.launcher.app.AppModel
+import com.fograin.launcher.platform.AppRuntime
 import com.fograin.launcher.platform.WindowFrame
+import com.fograin.launcher.platform.currentSystemLanguageTag
 import com.fograin.launcher.platform.createCoreClient
 import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.ui.AppDestination
 import com.fograin.launcher.ui.components.PageHeaderMetrics
+import com.fograin.launcher.ui.settings.LocalSettingsTopInset
+import com.fograin.launcher.settings.AppLanguage
 import java.awt.GraphicsEnvironment
 import java.awt.datatransfer.DataFlavor
 import java.awt.dnd.DnDConstants
@@ -93,7 +100,10 @@ fun main() {
     val processStart = ProcessHandle.current().info().startInstant().orElse(null)
     val platform = platformServices()
 
-    // Read launcher.toml / the data root before the first Compose frame.
+    // Read launcher.toml / the data root before the first Compose frame. A
+    // data folder chosen in settings applies on the next launch; the running
+    // core keeps its already-open root.
+    platform.preferences.dataRootOverride?.let { AppRuntime.dataRoot = it }
     val core = createCoreClient()
     // The shell owns the model so the menu bar can drive it; the shared App
     // composable only renders it.
@@ -104,6 +114,7 @@ fun main() {
     )
 
     application {
+        val state by model.state.collectAsState()
         val saved = remember { platform.preferences.windowFrame }
         val windowState = rememberWindowState(
             position = saved?.let { WindowPosition(it.x.dp, it.y.dp) } ?: WindowPosition.PlatformDefault,
@@ -121,7 +132,7 @@ fun main() {
                 platform.preferences.windowFrame = windowFrame(windowState)
                 exitApplication()
             },
-            title = "雾雨启动器",
+            title = windowTitle(state.language),
             icon = windowIcon,
             state = windowState,
         ) {
@@ -175,6 +186,7 @@ fun main() {
 
             WindowMenuBar(
                 model = model,
+                language = state.language,
                 onExit = {
                     platform.preferences.windowFrame = windowFrame(windowState)
                     exitApplication()
@@ -200,7 +212,13 @@ fun main() {
             }
 
             Box(Modifier.fillMaxSize()) {
-                App(model)
+                // Settings is an in-window page now; on macOS it owns the
+                // traffic-light strip exactly like the shell's left rail.
+                CompositionLocalProvider(
+                    LocalSettingsTopInset provides if (isMac) 38.dp else 0.dp,
+                ) {
+                    App(model)
+                }
                 if (isMac) {
                     // Full-window content hides the native drag area. Keep the
                     // title region right of the traffic lights and past the
@@ -220,43 +238,59 @@ fun main() {
                 }
             }
         }
+
     }
 }
 
 /** Native menu bar shared by the three desktop targets. */
 @Composable
-private fun FrameWindowScope.WindowMenuBar(model: AppModel, onExit: () -> Unit) {
+private fun FrameWindowScope.WindowMenuBar(
+    model: AppModel,
+    language: AppLanguage,
+    onExit: () -> Unit,
+) {
+    val labels = menuStrings(language)
     MenuBar {
-        Menu("文件", mnemonic = 'F') {
+        Menu(labels.file, mnemonic = 'F') {
             Item(
-                "新建实例",
+                labels.newInstance,
                 shortcut = shortcut(Key.N),
                 onClick = { model.openAddInstance() },
             )
             Item(
-                "导入 .minecraft 目录…",
+                labels.importMc,
                 shortcut = shortcut(Key.I),
                 onClick = { model.navigate(AppDestination.LIBRARY) },
             )
             Separator()
-            Item("退出", shortcut = shortcut(Key.Q), onClick = onExit)
-        }
-        Menu("编辑", mnemonic = 'E') {
             Item(
-                "全局搜索",
+                labels.settings,
+                shortcut = if (isMac) {
+                    KeyShortcut(Key.Comma, meta = true)
+                } else {
+                    KeyShortcut(Key.Comma, ctrl = true)
+                },
+                onClick = { model.openSettings() },
+            )
+            Separator()
+            Item(labels.quit, shortcut = shortcut(Key.Q), onClick = onExit)
+        }
+        Menu(labels.edit, mnemonic = 'E') {
+            Item(
+                labels.globalSearch,
                 shortcut = shortcut(Key.F),
                 onClick = { model.openGlobalSearch() },
             )
             Item(
-                "切换主题",
+                labels.toggleTheme,
                 shortcut = shortcut(Key.T, shift = true),
                 onClick = { model.toggleTheme() },
             )
         }
-        Menu("前往", mnemonic = 'V') {
+        Menu(labels.go, mnemonic = 'V') {
             AppDestination.entries.forEachIndexed { index, destination ->
                 Item(
-                    menuLabel(destination),
+                    menuLabel(destination, labels),
                     shortcut = shortcut(DESTINATION_KEYS[index]),
                     onClick = { model.navigate(destination) },
                 )
@@ -264,6 +298,67 @@ private fun FrameWindowScope.WindowMenuBar(model: AppModel, onExit: () -> Unit) 
         }
     }
 }
+
+/** Native menu labels. They live outside Compose resources because AWT menus
+ * are built outside the shared AppLocale tree. */
+private data class MenuStrings(
+    val file: String,
+    val edit: String,
+    val go: String,
+    val newInstance: String,
+    val importMc: String,
+    val settings: String,
+    val quit: String,
+    val globalSearch: String,
+    val toggleTheme: String,
+    val home: String,
+    val library: String,
+    val downloads: String,
+    val settingsTitle: String,
+)
+
+private fun menuStrings(language: AppLanguage): MenuStrings =
+    when (language.resolve(currentSystemLanguageTag())) {
+        AppLanguage.TRADITIONAL_CHINESE -> MenuStrings(
+            file = "檔案", edit = "編輯", go = "前往",
+            newInstance = "新增實例", importMc = "匯入 .minecraft 目錄…",
+            settings = "設定…", quit = "結束", globalSearch = "全域搜尋",
+            toggleTheme = "切換主題", home = "首頁", library = "實例",
+            downloads = "下載", settingsTitle = "設定",
+        )
+
+        AppLanguage.JAPANESE -> MenuStrings(
+            file = "ファイル", edit = "編集", go = "移動",
+            newInstance = "新しいインスタンス", importMc = ".minecraft フォルダーをインポート…",
+            settings = "設定…", quit = "終了", globalSearch = "全体検索",
+            toggleTheme = "テーマを切り替え", home = "ホーム", library = "インスタンス",
+            downloads = "ダウンロード", settingsTitle = "設定",
+        )
+
+        AppLanguage.ENGLISH -> MenuStrings(
+            file = "File", edit = "Edit", go = "Go",
+            newInstance = "New instance", importMc = "Import .minecraft folder…",
+            settings = "Settings…", quit = "Quit", globalSearch = "Global search",
+            toggleTheme = "Toggle theme", home = "Home", library = "Instances",
+            downloads = "Downloads", settingsTitle = "Settings",
+        )
+
+        else -> MenuStrings(
+            file = "文件", edit = "编辑", go = "前往",
+            newInstance = "新建实例", importMc = "导入 .minecraft 目录…",
+            settings = "设置…", quit = "退出", globalSearch = "全局搜索",
+            toggleTheme = "切换主题", home = "主页", library = "实例",
+            downloads = "下载", settingsTitle = "设置",
+        )
+    }
+
+private fun windowTitle(language: AppLanguage): String =
+    when (language.resolve(currentSystemLanguageTag())) {
+        AppLanguage.TRADITIONAL_CHINESE -> "霧雨啟動器"
+        AppLanguage.JAPANESE -> "霧雨ランチャー"
+        AppLanguage.ENGLISH -> "Fograin Launcher"
+        else -> "雾雨启动器"
+    }
 
 /** Drop filter shared with `DropTargetTest`: archives and MultiMC instance folders. */
 internal fun isSupportedDropFile(file: File): Boolean =
@@ -273,12 +368,13 @@ internal fun isSupportedDropFile(file: File): Boolean =
 
 private val DESTINATION_KEYS = listOf(Key.One, Key.Two, Key.Three, Key.Four)
 
-private fun menuLabel(destination: AppDestination): String = when (destination) {
-    AppDestination.HOME -> "主页"
-    AppDestination.LIBRARY -> "实例"
-    AppDestination.DOWNLOADS -> "下载"
-    AppDestination.SETTINGS -> "设置"
-}
+private fun menuLabel(destination: AppDestination, labels: MenuStrings): String =
+    when (destination) {
+        AppDestination.HOME -> labels.home
+        AppDestination.LIBRARY -> labels.library
+        AppDestination.DOWNLOADS -> labels.downloads
+        AppDestination.SETTINGS -> labels.settingsTitle
+    }
 
 /**
  * Snapshot for persistence. A maximized window keeps its floating size so
