@@ -76,6 +76,7 @@ const PENDING_LOGIN_TTL: Duration = Duration::from_secs(600);
 struct PendingLogin {
     server: YggdrasilServer,
     response: AuthResponse,
+    login_name: String,
     created: Instant,
 }
 
@@ -236,6 +237,8 @@ pub struct AccountRow {
     pub uuid: String,
     pub server: Option<String>,
     pub server_name: Option<String>,
+    /// Login email/username for third-party accounts; `None` for offline.
+    pub email: Option<String>,
     pub selected: bool,
 }
 
@@ -248,6 +251,7 @@ impl AccountRow {
             uuid: account.uuid.clone(),
             server: account.server.clone(),
             server_name: account.server_name.clone(),
+            email: account.email.clone(),
             selected: account.id == selected_id,
         }
     }
@@ -488,6 +492,7 @@ impl Service {
             "modpack.inspect" => self.modpack_inspect(&params).await,
             "modpack.install" => self.modpack_install(&params).await,
             "modpack.import" => self.modpack_import(&params).await,
+            "modpack.export.plan" => self.modpack_export_plan(&params).await,
             "modpack.export" => self.modpack_export(&params).await,
 
             "java.list" => self.java_list().await,
@@ -1544,24 +1549,62 @@ impl Service {
         }))
     }
 
+    async fn modpack_export_plan(&self, params: &Value) -> Result<Value> {
+        let request: InstanceOnlyRequest = from_value(params)?;
+        let instance = self.manager().load(&request.instance_id)?;
+        let game_dir = instance.game_dir(&self.layout);
+        let plan = tokio::task::spawn_blocking(move || fg_content::modpack::export_plan(&game_dir))
+            .await
+            .map_err(|error| {
+                Error::with_detail(
+                    ErrorKind::Internal,
+                    "error.modpack.export",
+                    error.to_string(),
+                )
+            })?;
+        to_value(plan)
+    }
+
     async fn modpack_export(&self, params: &Value) -> Result<Value> {
         let request: ModpackExportRequest = from_value(params)?;
         let instance = self.manager().load(&request.instance_id)?;
         let loader_kind = instance.loader.kind.clone();
         let loader_version = instance.loader.version.clone();
-        let name = instance.name.clone();
+        let name = non_empty(request.name.as_deref()).unwrap_or_else(|| instance.name.clone());
         let minecraft = instance.minecraft.clone();
+        let version = non_empty(request.version.as_deref()).unwrap_or_else(|| "1.0".to_string());
+        let author = request.author.unwrap_or_default();
+        let description = request.description.unwrap_or_default();
         let game_dir = instance.game_dir(&self.layout);
-        let exports_dir = self.root.join("exports");
+        let sections = request.sections.unwrap_or_else(|| {
+            fg_content::modpack::export_plan(&game_dir)
+                .sections
+                .into_iter()
+                .filter(|section| section.default)
+                .map(|section| section.id)
+                .collect()
+        });
+        let output = match request.output_path.filter(|path| !path.trim().is_empty()) {
+            Some(path) => std::path::PathBuf::from(path),
+            None => {
+                let exports_dir = self.root.join("exports");
+                fg_content::modpack::default_export_path(&exports_dir, &name, &version)
+            }
+        };
         let export = tokio::task::spawn_blocking(move || {
-            fg_content::modpack::export_mrpack(
-                &name,
-                &minecraft,
-                &loader_kind,
-                &loader_version,
-                &game_dir,
-                &exports_dir,
-            )
+            let config = fg_content::modpack::ExportConfig {
+                name: &name,
+                author: &author,
+                version: &version,
+                description: &description,
+                minecraft: &minecraft,
+                loader_kind: &loader_kind,
+                loader_version: &loader_version,
+                game_dir: &game_dir,
+                sections: &sections,
+                output: &output,
+            };
+            fg_content::modpack::export_mrpack(&config)
         })
         .await
         .map_err(|error| {
@@ -2665,7 +2708,7 @@ impl Service {
         if let Some(profile) = response.selected_profile.clone() {
             let mut store = self.accounts.lock().expect("accounts poisoned");
             let account = store
-                .upsert_yggdrasil(&server, &response, &profile)?
+                .upsert_yggdrasil(&server, &response, &profile, Some(request.username.trim()))?
                 .clone();
             store.save()?;
             let selected = store.selected_id().unwrap_or_default().to_string();
@@ -2688,6 +2731,7 @@ impl Service {
                 PendingLogin {
                     server: server.clone(),
                     response: response.clone(),
+                    login_name: request.username.trim().to_string(),
                     created: Instant::now(),
                 },
             );
@@ -2733,7 +2777,12 @@ impl Service {
 
         let mut store = self.accounts.lock().expect("accounts poisoned");
         let account = store
-            .upsert_yggdrasil(&pending.server, &response, &profile)?
+            .upsert_yggdrasil(
+                &pending.server,
+                &response,
+                &profile,
+                Some(&pending.login_name),
+            )?
             .clone();
         store.save()?;
         let selected = store.selected_id().unwrap_or_default().to_string();
@@ -3621,6 +3670,19 @@ struct ModpackImportRequest {
 #[serde(rename_all = "camelCase")]
 struct ModpackExportRequest {
     instance_id: String,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    author: Option<String>,
+    #[serde(default)]
+    version: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    sections: Option<Vec<String>>,
+    /// Full archive path chosen in the save dialog; absent writes to `exports/`.
+    #[serde(default)]
+    output_path: Option<String>,
 }
 
 fn default_content_limit() -> u32 {

@@ -1,7 +1,9 @@
 package com.fograin.launcher.desktop
 
 import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.ImageComposeScene
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.unit.Density
 import com.fograin.launcher.App
 import com.fograin.launcher.app.AppModel
@@ -14,14 +16,19 @@ import com.fograin.launcher.app.LibraryStage
 import com.fograin.launcher.model.DownloadsCategory
 import com.fograin.launcher.app.ModpackUiState
 import com.fograin.launcher.app.DiagUiState
+import com.fograin.launcher.app.ExportModpackUiState
+import com.fograin.launcher.app.ExportStep
 import com.fograin.launcher.model.GameLoaderKind
 import com.fograin.launcher.platform.CoreContentInstallItem
+import com.fograin.launcher.platform.CoreExportSection
 import com.fograin.launcher.platform.CoreModpack
 import com.fograin.launcher.platform.CorePackFile
 import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.settings.ThemeMode
 import com.fograin.launcher.ui.AppDestination
 import com.fograin.launcher.ui.FograinApp
+import com.fograin.launcher.ui.locale.AppLocale
+import com.fograin.launcher.ui.modpack.ModpackImportPage
 import com.fograin.launcher.ui.theme.FograinTheme
 import java.nio.file.Files
 import kotlin.test.Test
@@ -47,7 +54,7 @@ class ScreensRenderTest {
         val core = FakeCoreClient()
         val model = AppModel.create(
             core = core,
-            platform = platformServices(),
+            platform = testPlatform(),
             scope = CoroutineScope(Dispatchers.Unconfined),
         )
         model.loadDownloadVersions()
@@ -179,6 +186,32 @@ class ScreensRenderTest {
                 instanceId = instanceDetail.content.instanceId,
             ),
         )
+        val exportSections = listOf(
+            CoreExportSection("servers", "servers", 2, 4_096, default = false),
+            CoreExportSection("configs", "configs", 31, 262_144, default = true),
+            CoreExportSection("mods", "mods", 42, 134_217_728, default = true),
+            CoreExportSection("shaderpacks", "shaderpacks", 3, 5_242_880, default = true),
+            CoreExportSection("resourcepacks", "resourcepacks", 5, 20_971_520, default = true),
+            CoreExportSection("gameSettings", "gameSettings", 1, 8_192, default = false),
+            CoreExportSection("folder:kubejs", "kubejs", 12, 73_400, default = true, folder = true),
+        )
+        val exportForm = instanceDetail.copy(
+            libraryStage = LibraryStage.EXPORT,
+            modpackExport = ExportModpackUiState(
+                instanceId = "fog-forest",
+                name = "雾林生存",
+                author = "jerry@example.com",
+                version = "1.0",
+                description = "一个安静的 Fabric 生存整合包。\n\n- 含 **Sodium** 与 Lithium\n- 推荐 6 GB 内存",
+            ),
+        )
+        val exportContent = exportForm.copy(
+            modpackExport = exportForm.modpackExport.copy(
+                step = ExportStep.CONTENT,
+                sections = exportSections,
+                selected = setOf("configs", "mods", "shaderpacks", "resourcepacks", "folder:kubejs"),
+            ),
+        )
 
         val pages = listOf(
             "home" to base.copy(destination = AppDestination.HOME),
@@ -192,7 +225,9 @@ class ScreensRenderTest {
             "diagnostics" to diagnosticsPage,
             "diagnostics-clean" to diagnosticsClean,
             "diagnostics-exported" to diagnosticsExported,
-            "modpack-import-sheet" to modpackSheet,
+            "modpack-import-page" to modpackSheet,
+            "modpack-export-form" to exportForm,
+            "modpack-export-content" to exportContent,
             "instance-detail-empty" to instanceDetailEmpty,
             "instance-settings-page" to instanceDetail.copy(
                 libraryStage = LibraryStage.SETTINGS,
@@ -261,7 +296,7 @@ class ScreensRenderTest {
         val core = FakeCoreClient()
         val model = AppModel.create(
             core = core,
-            platform = platformServices(),
+            platform = testPlatform(),
             scope = CoroutineScope(Dispatchers.Unconfined),
         )
         model.loadDownloadVersions()
@@ -316,7 +351,7 @@ class ScreensRenderTest {
         val core = FakeCoreClient()
         val model = AppModel.create(
             core = core,
-            platform = platformServices(),
+            platform = testPlatform(),
             scope = CoroutineScope(Dispatchers.Unconfined),
         )
         model.loadDownloadVersions()
@@ -393,7 +428,7 @@ class ScreensRenderTest {
         val core = FakeCoreClient()
         val model = AppModel.create(
             core = core,
-            platform = platformServices(),
+            platform = testPlatform(),
             scope = CoroutineScope(Dispatchers.Unconfined),
         )
         model.openSettings()
@@ -432,7 +467,7 @@ class ScreensRenderTest {
         val core = FakeCoreClient()
         val model = AppModel.create(
             core = core,
-            platform = platformServices(),
+            platform = testPlatform(),
             scope = CoroutineScope(Dispatchers.Unconfined),
         )
         model.setLanguage(com.fograin.launcher.settings.AppLanguage.SIMPLIFIED_CHINESE)
@@ -461,11 +496,78 @@ class ScreensRenderTest {
     }
 
     @Test
+    fun rendersSettingsExitTransition() = runBlocking {
+        val model = AppModel.create(
+            core = FakeCoreClient(),
+            platform = testPlatform(),
+            scope = CoroutineScope(Dispatchers.Unconfined),
+        )
+        model.setLanguage(com.fograin.launcher.settings.AppLanguage.SIMPLIFIED_CHINESE)
+        repeat(4) { kotlinx.coroutines.yield() }
+        model.openSettings()
+        model.selectSettingsSection(com.fograin.launcher.app.SettingsSection.APPEARANCE)
+
+        val scene = ImageComposeScene(width = 1120, height = 780, density = Density(1f)) {
+            App(model)
+        }
+        try {
+            repeat(40) { scene.render(it * 16_000_000L) }
+            scene.render(700_000_000L)
+            model.closeSettings()
+            listOf(16L, 48L, 96L, 160L, 240L, 320L, 420L).forEach { offsetMs ->
+                val image = scene.render((700L + offsetMs) * 1_000_000L)
+                val bytes = image.encodeToData(EncodedImageFormat.PNG)?.bytes ?: byteArrayOf()
+                val output = Files.createTempFile("fograin-settings-exit-$offsetMs-", ".png")
+                output.toFile().writeBytes(bytes)
+                println("FOGRAIN_SETTINGS_EXIT_PNG_$offsetMs=$output")
+                assertTrue(bytes.size > 8_000, "settings exit frame at $offsetMs was blank")
+            }
+        } finally {
+            scene.close()
+        }
+        com.fograin.launcher.platform.applyAppLanguage(
+            com.fograin.launcher.settings.AppLanguage.SYSTEM,
+        )
+    }
+
+    @Test
+    fun rendersCompactSettingsTransition() = runBlocking {
+        val model = AppModel.create(
+            core = FakeCoreClient(),
+            platform = testPlatform(),
+            scope = CoroutineScope(Dispatchers.Unconfined),
+        )
+        model.setLanguage(com.fograin.launcher.settings.AppLanguage.SIMPLIFIED_CHINESE)
+        repeat(4) { kotlinx.coroutines.yield() }
+
+        val scene = ImageComposeScene(width = 420, height = 900, density = Density(1f)) {
+            App(model)
+        }
+        try {
+            scene.render(0L)
+            model.openSettings()
+            listOf(16L, 48L, 96L, 160L, 240L, 320L, 420L).forEach { offsetMs ->
+                val image = scene.render(offsetMs * 1_000_000L)
+                val bytes = image.encodeToData(EncodedImageFormat.PNG)?.bytes ?: byteArrayOf()
+                val output = Files.createTempFile("fograin-compact-settings-transition-$offsetMs-", ".png")
+                output.toFile().writeBytes(bytes)
+                println("FOGRAIN_COMPACT_SETTINGS_TRANSITION_PNG_$offsetMs=$output")
+                assertTrue(bytes.size > 6_000, "compact transition frame at $offsetMs was blank")
+            }
+        } finally {
+            scene.close()
+        }
+        com.fograin.launcher.platform.applyAppLanguage(
+            com.fograin.launcher.settings.AppLanguage.SYSTEM,
+        )
+    }
+
+    @Test
     fun rendersLightSettings() = runBlocking {
         val core = FakeCoreClient()
         val model = AppModel.create(
             core = core,
-            platform = platformServices(),
+            platform = testPlatform(),
             scope = CoroutineScope(Dispatchers.Unconfined),
         )
         model.openSettings()
@@ -482,11 +584,116 @@ class ScreensRenderTest {
     }
 
     @Test
+    fun rendersSettingsAtBothSplitterExtremes() = runBlocking {
+        val core = FakeCoreClient()
+        val model = AppModel.create(
+            core = core,
+            platform = testPlatform(),
+            scope = CoroutineScope(Dispatchers.Unconfined),
+        )
+        model.openSettings()
+        model.selectSettingsSection(com.fograin.launcher.app.SettingsSection.APPEARANCE)
+        repeat(4) { kotlinx.coroutines.yield() }
+
+        val preferences = platformServices().preferences
+        val original = preferences.settingsSidebarWidth
+        try {
+            listOf("sidebar-narrow" to 300f, "sidebar-wide" to 900f).forEach { (name, width) ->
+                preferences.settingsSidebarWidth = width
+                val bytes = renderSettings(model, width = 1120, height = 780)
+                val output = Files.createTempFile("fograin-settings-split-$name-", ".png")
+                output.toFile().writeBytes(bytes)
+                println("FOGRAIN_SETTINGS_SPLIT_PNG_$name=$output")
+                assertTrue(bytes.size > 8_000, "$name split rendered too small")
+            }
+        } finally {
+            preferences.settingsSidebarWidth = original
+        }
+    }
+
+    @Test
+    fun rendersSettingsSidebarCoveringWholeWindow() = runBlocking {
+        val model = AppModel.create(
+            core = FakeCoreClient(),
+            platform = testPlatform(),
+            scope = CoroutineScope(Dispatchers.Unconfined),
+        )
+        model.openSettings()
+        model.selectSettingsSection(com.fograin.launcher.app.SettingsSection.APPEARANCE)
+        repeat(4) { kotlinx.coroutines.yield() }
+
+        val preferences = platformServices().preferences
+        val original = preferences.settingsSidebarWidth
+        preferences.settingsSidebarWidth = 500f
+        val scene = ImageComposeScene(width = 1120, height = 780, density = Density(1f)) {
+            com.fograin.launcher.ui.settings.SettingsWindowRoot(model)
+        }
+        try {
+            repeat(30) { scene.render(it * 16_000_000L) }
+            scene.render(600_000_000L)
+            // Drag the divider all the way past the right window edge: the
+            // sidebar must cover the whole content pane without a leftover
+            // splitter-wide strip.
+            scene.sendPointerEvent(PointerEventType.Press, Offset(509f, 390f))
+            scene.render(620_000_000L)
+            scene.sendPointerEvent(PointerEventType.Move, Offset(1400f, 390f))
+            scene.render(650_000_000L)
+            val image = scene.render(680_000_000L)
+            val bytes = image.encodeToData(EncodedImageFormat.PNG)?.bytes ?: byteArrayOf()
+            val output = Files.createTempFile("fograin-settings-full-cover-", ".png")
+            output.toFile().writeBytes(bytes)
+            println("FOGRAIN_SETTINGS_FULL_COVER_PNG=$output")
+            assertTrue(bytes.size > 8_000, "full-cover settings rendered too small")
+        } finally {
+            scene.close()
+            preferences.settingsSidebarWidth = original
+        }
+    }
+
+    @Test
+    fun rendersSettingsRightPushMidDrag() = runBlocking {
+        val model = AppModel.create(
+            core = FakeCoreClient(),
+            platform = testPlatform(),
+            scope = CoroutineScope(Dispatchers.Unconfined),
+        )
+        model.openSettings()
+        model.selectSettingsSection(com.fograin.launcher.app.SettingsSection.APPEARANCE)
+        repeat(4) { kotlinx.coroutines.yield() }
+
+        val preferences = platformServices().preferences
+        val original = preferences.settingsSidebarWidth
+        preferences.settingsSidebarWidth = 500f
+        val scene = ImageComposeScene(width = 1120, height = 780, density = Density(1f)) {
+            com.fograin.launcher.ui.settings.SettingsWindowRoot(model)
+        }
+        try {
+            repeat(5) { scene.render(it * 16_000_000L) }
+            // Grab the splitter at x = 500 and drag far past the 68 % limit
+            // without releasing, so the content page's right-push state is
+            // captured.
+            scene.sendPointerEvent(PointerEventType.Press, Offset(509f, 390f))
+            scene.render(120_000_000L)
+            scene.sendPointerEvent(PointerEventType.Move, Offset(1000f, 390f))
+            scene.render(240_000_000L)
+            val image = scene.render(360_000_000L)
+            val bytes = image.encodeToData(EncodedImageFormat.PNG)?.bytes ?: byteArrayOf()
+            val output = Files.createTempFile("fograin-settings-right-push-", ".png")
+            output.toFile().writeBytes(bytes)
+            println("FOGRAIN_SETTINGS_RIGHT_PUSH_PNG=$output")
+            assertTrue(bytes.size > 8_000, "right-push settings rendered too small")
+        } finally {
+            scene.close()
+            preferences.settingsSidebarWidth = original
+        }
+    }
+
+    @Test
     fun rendersSettingsInEveryLanguage() = runBlocking {
         val core = FakeCoreClient()
         val model = AppModel.create(
             core = core,
-            platform = platformServices(),
+            platform = testPlatform(),
             scope = CoroutineScope(Dispatchers.Unconfined),
         )
         model.openSettings()
@@ -533,8 +740,9 @@ class ScreensRenderTest {
             }
         }
         return try {
-            repeat(30) { scene.render(it * 16L) }
-            scene.render(600L).encodeToData(EncodedImageFormat.PNG)?.bytes
+            // render() takes nanoseconds; the pane entrance runs for 420 ms.
+            repeat(30) { scene.render(it * 16_000_000L) }
+            scene.render(600_000_000L).encodeToData(EncodedImageFormat.PNG)?.bytes
                 ?: error("settings scene produced no PNG")
         } finally {
             scene.close()
@@ -548,11 +756,14 @@ class ScreensRenderTest {
         height: Int = 780,
     ): ByteArray {
         val scene = ImageComposeScene(width = width, height = height, density = Density(1f)) {
-            FograinTheme(themeMode = state.theme) {
-                FograinApp(
-                    model = model,
-                    state = state,
-                )
+            FograinTheme(themeMode = state.theme, accent = state.accent.value) {
+                AppLocale(state.language) {
+                    if (state.modpack.pack != null) {
+                        ModpackImportPage(model = model, state = state)
+                    } else {
+                        FograinApp(model = model, state = state)
+                    }
+                }
             }
         }
         return try {

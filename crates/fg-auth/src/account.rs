@@ -47,6 +47,9 @@ pub struct Account {
     pub user_id: Option<String>,
     /// `user.properties` JSON returned by Yggdrasil.
     pub properties: String,
+    /// Login name (usually an email) when the server returned one; used as the
+    /// default modpack author in the UI.
+    pub email: Option<String>,
     access_token: Option<String>,
     client_token: Option<String>,
     pub created_at_ms: u64,
@@ -69,6 +72,7 @@ impl Account {
             server_name: None,
             user_id: None,
             properties: "{}".to_string(),
+            email: None,
             access_token: None,
             client_token: None,
             created_at_ms: now_ms(),
@@ -433,6 +437,7 @@ impl AccountStore {
         server: &YggdrasilServer,
         response: &AuthResponse,
         profile: &YggdrasilProfile,
+        login_name: Option<&str>,
     ) -> Result<&Account> {
         let id = normalize_uuid(&profile.id);
         let properties =
@@ -447,6 +452,7 @@ impl AccountStore {
             account.server_name = Some(server.server_name());
             account.user_id = response.user_id.clone();
             account.properties = properties;
+            account.email = login_name.map(str::to_string);
             account.access_token = Some(response.access_token.clone());
             account.client_token = Some(response.client_token.clone());
         } else {
@@ -459,6 +465,7 @@ impl AccountStore {
                 server_name: Some(server.server_name()),
                 user_id: response.user_id.clone(),
                 properties,
+                email: login_name.map(str::to_string),
                 access_token: Some(response.access_token.clone()),
                 client_token: Some(response.client_token.clone()),
                 created_at_ms: now_ms(),
@@ -710,6 +717,7 @@ struct AccountMeta {
     server_name: Option<String>,
     user_id: Option<String>,
     properties: String,
+    email: Option<String>,
     created_at_ms: u64,
 }
 
@@ -724,6 +732,7 @@ impl Default for AccountMeta {
             server_name: None,
             user_id: None,
             properties: "{}".to_string(),
+            email: None,
             created_at_ms: 0,
         }
     }
@@ -740,6 +749,7 @@ impl From<&Account> for AccountMeta {
             server_name: account.server_name.clone(),
             user_id: account.user_id.clone(),
             properties: account.properties.clone(),
+            email: account.email.clone(),
             created_at_ms: account.created_at_ms,
         }
     }
@@ -765,6 +775,7 @@ impl From<AccountMeta> for Account {
             } else {
                 meta.properties
             },
+            email: meta.email,
             access_token: None,
             client_token: None,
             created_at_ms: meta.created_at_ms,
@@ -908,13 +919,14 @@ mod tests {
         let mut store = AccountStore::load_or_default(temp.path(), "Steve").expect("store");
         let profile = response().available_profiles[0].clone();
         store
-            .upsert_yggdrasil(&server(), &response(), &profile)
+            .upsert_yggdrasil(&server(), &response(), &profile, Some("jerry@example.com"))
             .expect("upsert");
         store.save().expect("save");
 
         let accounts = fs::read_to_string(temp.path().join(ACCOUNTS_FILE)).expect("accounts");
         assert!(accounts.contains("Fograin"));
         assert!(accounts.contains("\"kind\": \"yggdrasil\""));
+        assert!(accounts.contains("jerry@example.com"));
         assert!(!accounts.contains("access-1"));
         assert!(!accounts.contains("client-1"));
 
@@ -941,7 +953,7 @@ mod tests {
         let mut store = AccountStore::load_or_default(temp.path(), "Steve").expect("store");
         let profile = response().available_profiles[0].clone();
         let account_id = store
-            .upsert_yggdrasil(&server(), &response(), &profile)
+            .upsert_yggdrasil(&server(), &response(), &profile, Some("jerry@example.com"))
             .expect("upsert")
             .id
             .clone();

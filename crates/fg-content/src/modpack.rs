@@ -26,7 +26,6 @@ use fg_net::{DownloadRequest, Downloader, Integrity, Priority, ProgressSink};
 use fg_task::{TaskCx, TaskGraph};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use time::{OffsetDateTime, macros::format_description};
 use zip::ZipArchive;
 
 use crate::ContentClient;
@@ -107,6 +106,9 @@ pub struct Modpack {
     pub summary: Option<String>,
     #[serde(default)]
     pub author: Option<String>,
+    /// Plain-text/markdown README shipped with the pack, for the confirmation page.
+    #[serde(default)]
+    pub readme: Option<String>,
     pub files: Vec<PackFile>,
     /// Overrides directory inside the archive (`overrides`, `.minecraft`, …).
     #[serde(default)]
@@ -163,13 +165,25 @@ pub fn inspect(path: &Path) -> Result<Modpack> {
     })?;
 
     if let Some(text) = read_entry(&mut archive, MRPACK_INDEX)? {
-        return parse_mrpack(&text, path);
+        let mut pack = parse_mrpack(&text, path)?;
+        if let Some(readme) = read_archive_readme(&mut archive) {
+            pack.readme = Some(readme);
+        }
+        return Ok(pack);
     }
     if let Some(text) = read_entry(&mut archive, "manifest.json")? {
-        return parse_curseforge_or_hmcl(&text, path);
+        let mut pack = parse_curseforge_or_hmcl(&text, path)?;
+        if let Some(readme) = read_archive_readme(&mut archive) {
+            pack.readme = Some(readme);
+        }
+        return Ok(pack);
     }
     if let Some(text) = read_entry(&mut archive, "modpack.json")? {
-        return parse_hmcl(&text, path);
+        let mut pack = parse_hmcl(&text, path)?;
+        if let Some(readme) = read_archive_readme(&mut archive) {
+            pack.readme = Some(readme);
+        }
+        return Ok(pack);
     }
     Err(Error::with_detail(
         ErrorKind::Unsupported,
@@ -208,6 +222,59 @@ fn read_entry(archive: &mut ZipArchive<File>, name: &str) -> Result<Option<Strin
     Ok(Some(text))
 }
 
+/// Largest README copied into the import confirmation page.
+const MAX_README_BYTES: u64 = 64 * 1024;
+
+fn read_archive_readme(archive: &mut ZipArchive<File>) -> Option<String> {
+    const CANDIDATES: [&str; 8] = [
+        "README.md",
+        "readme.md",
+        "README.txt",
+        "readme.txt",
+        "README",
+        "overrides/README.md",
+        "overrides/readme.md",
+        "overrides/README.txt",
+    ];
+    for name in CANDIDATES {
+        let Ok(mut entry) = archive.by_name(name) else {
+            continue;
+        };
+        if entry.size() > MAX_README_BYTES {
+            continue;
+        }
+        let mut text = String::new();
+        if entry.read_to_string(&mut text).is_ok() && !text.trim().is_empty() {
+            return Some(text);
+        }
+    }
+    None
+}
+
+fn read_directory_readme(directory: &Path) -> Option<String> {
+    for name in [
+        "README.md",
+        "readme.md",
+        "README.txt",
+        "readme.txt",
+        "README",
+    ] {
+        let path = directory.join(name);
+        let Ok(metadata) = fs::metadata(&path) else {
+            continue;
+        };
+        if metadata.len() > MAX_README_BYTES {
+            continue;
+        }
+        if let Ok(text) = fs::read_to_string(&path)
+            && !text.trim().is_empty()
+        {
+            return Some(text);
+        }
+    }
+    None
+}
+
 #[derive(Debug, Deserialize)]
 struct MrpackIndex {
     #[serde(default)]
@@ -216,6 +283,12 @@ struct MrpackIndex {
     version_id: String,
     #[serde(default)]
     summary: Option<String>,
+    /// Author written by launchers that extend the Modrinth index.
+    #[serde(default)]
+    author: Option<String>,
+    /// Markdown description written by launchers that extend the index.
+    #[serde(default)]
+    description: Option<String>,
     #[serde(default)]
     files: Vec<MrpackFile>,
     #[serde(default)]
@@ -297,8 +370,15 @@ fn parse_mrpack(text: &str, path: &Path) -> Result<Modpack> {
         minecraft,
         loader_kind,
         loader_version,
-        summary: index.summary,
-        author: None,
+        summary: index.summary.clone().or_else(|| {
+            index
+                .description
+                .as_deref()
+                .map(|text| text.lines().next().unwrap_or_default().to_string())
+                .filter(|text| !text.trim().is_empty())
+        }),
+        author: index.author,
+        readme: index.description,
         files,
         overrides: Some("overrides".to_string()),
         source_path: path.display().to_string(),
@@ -399,6 +479,7 @@ fn curseforge_pack(manifest: CurseManifest, path: &Path) -> Modpack {
         loader_version,
         summary: None,
         author: manifest.author,
+        readme: None,
         files,
         overrides: Some(if manifest.overrides.trim().is_empty() {
             "overrides".to_string()
@@ -461,6 +542,7 @@ fn parse_hmcl(text: &str, path: &Path) -> Result<Modpack> {
         loader_version: pack.loader_version,
         summary: pack.description,
         author: pack.author,
+        readme: None,
         files: Vec::new(),
         overrides: Some(pack.overrides.unwrap_or_else(|| "overrides".to_string())),
         source_path: path.display().to_string(),
@@ -531,6 +613,7 @@ fn inspect_instance_dir(directory: &Path) -> Result<Modpack> {
             .map(|name| name.to_string_lossy().to_string())
             .unwrap_or_else(|| "MultiMC".to_string())
     });
+    let readme = read_directory_readme(&game_dir).or_else(|| read_directory_readme(directory));
     Ok(Modpack {
         kind: ModpackKind::MultiMc,
         name,
@@ -540,6 +623,7 @@ fn inspect_instance_dir(directory: &Path) -> Result<Modpack> {
         loader_version,
         summary: None,
         author: None,
+        readme,
         files: Vec::new(),
         overrides: None,
         source_path: directory.display().to_string(),
@@ -966,7 +1050,232 @@ pub struct Export {
     pub files: usize,
 }
 
-/// Writes a `.mrpack` with every local override under `overrides/`.
+/// One checkbox on the export confirmation page.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportSection {
+    /// `servers`, `configs`, `mods`, `shaderpacks`, `resourcepacks`,
+    /// `gameSettings`, or `folder:<name>` for a mod-generated root folder.
+    pub id: String,
+    /// Folder name for `folder:` sections; the fixed id otherwise.
+    pub label: String,
+    pub files: usize,
+    pub bytes: u64,
+    /// Checked when the wizard opens.
+    pub default: bool,
+    /// True for mod-generated root folders rather than a built-in category.
+    pub folder: bool,
+}
+
+/// Everything `modpack.export.plan` reports for one instance.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportPlan {
+    pub sections: Vec<ExportSection>,
+}
+
+/// Root folders that belong to the launcher or hold private data; they are
+/// never offered as mod-generated folders.
+const EXPORT_ROOT_EXCLUDES: [&str; 21] = [
+    "mods",
+    "config",
+    "defaultconfigs",
+    "resourcepacks",
+    "shaderpacks",
+    "saves",
+    "logs",
+    "crash-reports",
+    "screenshots",
+    "backups",
+    "versions",
+    "libraries",
+    "assets",
+    "runtime",
+    "jre",
+    "natives",
+    "downloads",
+    "diag",
+    "diagnostics",
+    "cache",
+    "tmp",
+];
+
+const GAME_SETTING_FILES: [&str; 3] = ["options.txt", "optionsof.txt", "optionsshaders.txt"];
+
+/// Scans the instance game directory for the export wizard's checkboxes.
+#[must_use]
+pub fn export_plan(game_dir: &Path) -> ExportPlan {
+    let mut sections = Vec::new();
+    let servers = count_file(&game_dir.join("servers.dat"));
+    sections.push(fixed_section("servers", servers.0, servers.1, false));
+
+    let mut configs = (0_usize, 0_u64);
+    for directory in ["config", "defaultconfigs"] {
+        let (files, bytes) = scan_tree(&game_dir.join(directory));
+        configs.0 += files;
+        configs.1 += bytes;
+    }
+    sections.push(fixed_section("configs", configs.0, configs.1, true));
+
+    for (id, directory) in [
+        ("mods", "mods"),
+        ("shaderpacks", "shaderpacks"),
+        ("resourcepacks", "resourcepacks"),
+    ] {
+        let (files, bytes) = scan_tree(&game_dir.join(directory));
+        sections.push(fixed_section(id, files, bytes, true));
+    }
+
+    let mut game_settings = (0_usize, 0_u64);
+    for name in GAME_SETTING_FILES {
+        let (files, bytes) = count_file(&game_dir.join(name));
+        game_settings.0 += files;
+        game_settings.1 += bytes;
+    }
+    sections.push(fixed_section(
+        "gameSettings",
+        game_settings.0,
+        game_settings.1,
+        false,
+    ));
+
+    let mut folders = Vec::new();
+    if let Ok(entries) = fs::read_dir(game_dir) {
+        for entry in entries.flatten() {
+            let Ok(metadata) = fs::symlink_metadata(entry.path()) else {
+                continue;
+            };
+            if !metadata.is_dir() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') || EXPORT_ROOT_EXCLUDES.contains(&name.as_str()) {
+                continue;
+            }
+            let (files, bytes) = scan_tree(&entry.path());
+            if files == 0 {
+                continue;
+            }
+            folders.push(ExportSection {
+                id: format!("folder:{name}"),
+                label: name,
+                files,
+                bytes,
+                default: true,
+                folder: true,
+            });
+        }
+    }
+    folders.sort_by(|left, right| left.label.cmp(&right.label));
+    sections.extend(folders);
+    ExportPlan { sections }
+}
+
+fn fixed_section(id: &str, files: usize, bytes: u64, default: bool) -> ExportSection {
+    ExportSection {
+        id: id.to_string(),
+        label: id.to_string(),
+        files,
+        bytes,
+        default,
+        folder: false,
+    }
+}
+
+fn count_file(path: &Path) -> (usize, u64) {
+    let Ok(metadata) = fs::metadata(path) else {
+        return (0, 0);
+    };
+    if metadata.is_file() {
+        (1, metadata.len())
+    } else {
+        (0, 0)
+    }
+}
+
+fn scan_tree(directory: &Path) -> (usize, u64) {
+    let mut files = 0_usize;
+    let mut bytes = 0_u64;
+    let mut stack = vec![directory.to_path_buf()];
+    while let Some(directory) = stack.pop() {
+        if files >= MAX_EXPORT_ENTRIES || bytes >= MAX_EXPORT_TOTAL {
+            break;
+        }
+        let Ok(entries) = fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') {
+                continue;
+            }
+            let Ok(metadata) = fs::symlink_metadata(entry.path()) else {
+                continue;
+            };
+            if metadata.file_type().is_symlink() {
+                continue;
+            }
+            if metadata.is_dir() {
+                stack.push(entry.path());
+            } else if metadata.is_file() {
+                files += 1;
+                bytes = bytes.saturating_add(metadata.len());
+            }
+        }
+    }
+    (files, bytes)
+}
+
+/// Everything the exporter needs. Passing one struct keeps the call sites
+/// readable and lets the CLI, the RPC service and the tests share it.
+pub struct ExportConfig<'a> {
+    pub name: &'a str,
+    pub author: &'a str,
+    pub version: &'a str,
+    pub description: &'a str,
+    pub minecraft: &'a str,
+    pub loader_kind: &'a str,
+    pub loader_version: &'a str,
+    pub game_dir: &'a Path,
+    /// Section ids from [`export_plan`]; unknown ids are ignored.
+    pub sections: &'a [String],
+    /// Full path of the archive to write.
+    pub output: &'a Path,
+}
+
+/// Suggested archive name for the save dialog.
+#[must_use]
+pub fn suggested_file_name(name: &str, version: &str) -> String {
+    let name = sanitize(name);
+    let version = sanitize(version);
+    if version.is_empty() {
+        format!("{name}.mrpack")
+    } else {
+        format!("{name}-{version}.mrpack")
+    }
+}
+
+/// Default location used by the CLI and by non-interactive callers.
+#[must_use]
+pub fn default_export_path(exports_dir: &Path, name: &str, version: &str) -> PathBuf {
+    let file_name = suggested_file_name(name, version);
+    let mut path = exports_dir.join(file_name);
+    if !path.exists() {
+        return path;
+    }
+    let stem = path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_string())
+        .unwrap_or_else(|| "pack".to_string());
+    let mut counter = 2;
+    while path.exists() {
+        path = exports_dir.join(format!("{stem}-{counter}.mrpack"));
+        counter += 1;
+    }
+    path
+}
+
+/// Writes a `.mrpack` with the selected sections under `overrides/`.
 ///
 /// Managed files go into `overrides/` too (not into `files[]`): the launcher
 /// does not keep the original download URLs in its content index, and a pack
@@ -974,40 +1283,19 @@ pub struct Export {
 ///
 /// # Errors
 ///
-/// Returns [`ErrorKind::Io`] when the export directory or archive cannot be
-/// written.
-pub fn export_mrpack(
-    instance_name: &str,
-    minecraft: &str,
-    loader_kind: &str,
-    loader_version: &str,
-    game_dir: &Path,
-    exports_dir: &Path,
-) -> Result<Export> {
-    fs::create_dir_all(exports_dir).map_err(|error| {
-        Error::with_detail(
-            ErrorKind::Io,
-            "error.modpack.export",
-            format!("{}: {error}", exports_dir.display()),
-        )
-    })?;
-    let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
-    let stamp = now
-        .format(&format_description!(
-            "[year][month][day]-[hour][minute][second]"
-        ))
-        .unwrap_or_else(|_| "pack".to_string());
-    let mut path = exports_dir.join(format!("{}-{stamp}.mrpack", sanitize(instance_name)));
-    let mut counter = 2;
-    while path.exists() {
-        path = exports_dir.join(format!(
-            "{}-{stamp}-{counter}.mrpack",
-            sanitize(instance_name)
-        ));
-        counter += 1;
+/// Returns [`ErrorKind::Io`] when the archive cannot be written.
+pub fn export_mrpack(config: &ExportConfig<'_>) -> Result<Export> {
+    if let Some(parent) = config.output.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            Error::with_detail(
+                ErrorKind::Io,
+                "error.modpack.export",
+                format!("{}: {error}", parent.display()),
+            )
+        })?;
     }
-
-    let file = File::create(&path).map_err(|error| {
+    let path = config.output;
+    let file = File::create(path).map_err(|error| {
         Error::with_detail(
             ErrorKind::Io,
             "error.modpack.export",
@@ -1018,14 +1306,33 @@ pub fn export_mrpack(
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
 
+    let version = config.version.trim();
+    let version_id = if version.is_empty() {
+        "1.0".to_string()
+    } else {
+        version.to_string()
+    };
+    let summary = config.description.trim();
     let index = serde_json::json!({
         "formatVersion": 1,
         "game": "minecraft",
-        "versionId": format!("fograin-{stamp}"),
-        "name": instance_name,
-        "summary": "由雾雨启动器导出",
+        "versionId": version_id,
+        "name": config.name.trim(),
+        // Unknown keys are ignored by other launchers but let Fograin restore
+        // the author and the markdown description on import.
+        "author": config.author.trim(),
+        "description": summary,
+        "summary": if summary.is_empty() {
+            "由雾雨启动器导出".to_string()
+        } else {
+            summary.lines().next().unwrap_or_default().to_string()
+        },
         "files": [],
-        "dependencies": dependencies(loader_kind, loader_version, minecraft),
+        "dependencies": dependencies(
+            config.loader_kind,
+            config.loader_version,
+            config.minecraft,
+        ),
     });
     writer
         .start_file(MRPACK_INDEX, options)
@@ -1036,35 +1343,92 @@ pub fn export_mrpack(
 
     let mut files = 0_usize;
     let mut total = 0_u64;
-    for directory in [
-        "mods",
-        "config",
-        "defaultconfigs",
-        "resourcepacks",
-        "shaderpacks",
-    ] {
-        let root = game_dir.join(directory);
-        if root.is_dir() {
-            add_tree(&mut writer, &root, directory, &mut files, &mut total)?;
+    let readme = readme_text(config);
+    writer
+        .start_file("overrides/README.md", options)
+        .map_err(export_error)?;
+    writer.write_all(readme.as_bytes()).map_err(export_error)?;
+    files += 1;
+
+    for section in config.sections {
+        if *section == "servers" {
+            let source = config.game_dir.join("servers.dat");
+            if source.is_file() {
+                add_file(&mut writer, &source, "overrides/servers.dat", &mut total)?;
+                files += 1;
+            }
+        } else if *section == "gameSettings" {
+            for name in GAME_SETTING_FILES {
+                let source = config.game_dir.join(name);
+                if source.is_file() {
+                    let archive_name = format!("overrides/{name}");
+                    add_file(&mut writer, &source, &archive_name, &mut total)?;
+                    files += 1;
+                }
+            }
+        } else if *section == "configs" {
+            for directory in ["config", "defaultconfigs"] {
+                let root = config.game_dir.join(directory);
+                if root.is_dir() {
+                    add_tree(&mut writer, &root, directory, &mut files, &mut total)?;
+                }
+            }
+        } else if let Some(directory) = section_directory(section) {
+            let root = config.game_dir.join(directory);
+            if root.is_dir() {
+                add_tree(&mut writer, &root, directory, &mut files, &mut total)?;
+            }
+        } else if let Some(folder) = section.strip_prefix("folder:")
+            && !folder.is_empty()
+            && !folder.starts_with('.')
+            && !folder.contains(['/', '\\'])
+            && folder != ".."
+        {
+            let root = config.game_dir.join(folder);
+            if root.is_dir() {
+                add_tree(&mut writer, &root, folder, &mut files, &mut total)?;
+            }
         }
     }
-    let options_txt = game_dir.join("options.txt");
-    if options_txt.is_file() {
-        add_file(
-            &mut writer,
-            &options_txt,
-            "overrides/options.txt",
-            &mut total,
-        )?;
-        files += 1;
-    }
     writer.finish().map_err(export_error)?;
-    let size_bytes = fs::metadata(&path).map_or(0, |metadata| metadata.len());
+    let size_bytes = fs::metadata(path).map_or(0, |metadata| metadata.len());
     Ok(Export {
         path: path.display().to_string(),
         size_bytes,
         files,
     })
+}
+
+fn section_directory(section: &str) -> Option<&'static str> {
+    match section {
+        "mods" => Some("mods"),
+        "shaderpacks" => Some("shaderpacks"),
+        "resourcepacks" => Some("resourcepacks"),
+        _ => None,
+    }
+}
+
+fn readme_text(config: &ExportConfig<'_>) -> String {
+    let mut text = format!("# {}\n\n", config.name.trim());
+    let description = config.description.trim();
+    if !description.is_empty() {
+        text.push_str(description);
+        text.push_str("\n\n");
+    }
+    text.push_str(&format!(
+        "- 作者：{}\n- 版本：{}\n- Minecraft：{}\n",
+        config.author.trim(),
+        config.version.trim(),
+        config.minecraft.trim()
+    ));
+    if !config.loader_kind.eq_ignore_ascii_case("vanilla") {
+        text.push_str(&format!(
+            "- 加载器：{} {}\n",
+            config.loader_kind.trim(),
+            config.loader_version.trim()
+        ));
+    }
+    text
 }
 
 fn dependencies(loader_kind: &str, loader_version: &str, minecraft: &str) -> Value {
@@ -1371,8 +1735,27 @@ mod tests {
         fs::write(game.join("config/fog.toml"), b"a=1").expect("config");
         fs::write(game.join("options.txt"), b"fov:0.5").expect("options");
         let exports = temp.path().join("exports");
-        let export =
-            export_mrpack("雾林", "1.21.4", "fabric", "0.16.9", &game, &exports).expect("export");
+        let sections = vec![
+            "servers".to_string(),
+            "configs".to_string(),
+            "mods".to_string(),
+            "shaderpacks".to_string(),
+            "resourcepacks".to_string(),
+            "gameSettings".to_string(),
+        ];
+        let config = ExportConfig {
+            name: "雾林",
+            author: "jerry@example.com",
+            version: "1.0",
+            description: "一个安静的整合包\n\n- 支持 **Markdown**",
+            minecraft: "1.21.4",
+            loader_kind: "fabric",
+            loader_version: "0.16.9",
+            game_dir: &game,
+            sections: &sections,
+            output: &exports.join("雾林-1.0.mrpack"),
+        };
+        let export = export_mrpack(&config).expect("export");
         assert!(export.files >= 3);
         assert!(export.path.ends_with(".mrpack"));
 
@@ -1400,5 +1783,56 @@ mod tests {
         assert!(names.contains(&"overrides/mods/sodium.jar".to_string()));
         assert!(names.contains(&"overrides/config/fog.toml".to_string()));
         assert!(names.contains(&"overrides/options.txt".to_string()));
+        assert!(names.contains(&"overrides/README.md".to_string()));
+        assert_eq!(index["author"], "jerry@example.com");
+        assert_eq!(index["versionId"], "1.0");
+        assert!(index["description"].as_str().unwrap().contains("Markdown"));
+    }
+
+    #[test]
+    fn plan_reports_defaults_and_extra_folders() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let game = temp.path().join("game");
+        fs::create_dir_all(game.join("mods")).expect("mods");
+        fs::create_dir_all(game.join("kubejs")).expect("kubejs");
+        fs::create_dir_all(game.join("saves")).expect("saves");
+        fs::write(game.join("mods/sodium.jar"), b"jar").expect("mod");
+        fs::write(game.join("kubejs/start.js"), b"x").expect("script");
+        fs::write(game.join("servers.dat"), b"servers").expect("servers");
+        fs::write(game.join("options.txt"), b"fov:0.5").expect("options");
+        let plan = export_plan(&game);
+        let section = |id: &str| plan.sections.iter().find(|row| row.id == id).expect(id);
+        assert!(!section("servers").default);
+        assert_eq!(section("servers").files, 1);
+        assert!(section("mods").default);
+        assert!(!section("gameSettings").default);
+        let kubejs = section("folder:kubejs");
+        assert!(kubejs.default);
+        assert!(kubejs.folder);
+        assert!(plan.sections.iter().all(|row| row.id != "folder:saves"));
+        assert_eq!(suggested_file_name("雾 林", "1.0"), "雾-林-1.0.mrpack");
+    }
+
+    #[test]
+    fn reads_readme_and_extended_author() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("pack.mrpack");
+        let file = File::create(&path).expect("create");
+        let mut writer = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+        writer.start_file(MRPACK_INDEX, options).expect("index");
+        writer
+            .write_all(
+                br##"{"formatVersion":1,"game":"minecraft","versionId":"2.0","name":"Pack",
+                "author":"someone@example.com","description":"# Hello","dependencies":{"minecraft":"1.21.4"}}"##,
+            )
+            .expect("write");
+        writer.start_file("README.md", options).expect("readme");
+        writer.write_all(b"## Readme body").expect("readme body");
+        writer.finish().expect("finish");
+        let pack = inspect(&path).expect("inspect");
+        assert_eq!(pack.author.as_deref(), Some("someone@example.com"));
+        assert_eq!(pack.version, "2.0");
+        assert_eq!(pack.readme.as_deref(), Some("## Readme body"));
     }
 }

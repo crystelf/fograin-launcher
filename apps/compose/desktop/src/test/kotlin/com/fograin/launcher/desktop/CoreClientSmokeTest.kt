@@ -7,7 +7,9 @@ import com.fograin.launcher.platform.CoreInstanceRow
 import com.fograin.launcher.platform.CoreDatapacks
 import com.fograin.launcher.platform.CoreDiagExport
 import com.fograin.launcher.platform.CoreDiagnostics
+import com.fograin.launcher.platform.CoreExportPlan
 import com.fograin.launcher.platform.CoreModpack
+import com.fograin.launcher.platform.CoreModpackExport
 import com.fograin.launcher.platform.CoreWorlds
 import com.fograin.launcher.platform.decode
 import com.fograin.launcher.platform.createCoreClient
@@ -294,6 +296,72 @@ class CoreClientSmokeTest {
         assertNotNull(row, "desktop core did not list the created instance")
         assertTrue(row.minecraft == "1.21.4")
     }
+    @Test
+    fun modpackExportWizardRoundTripsThroughJni() = runBlocking {
+        AppRuntime.dataRoot = TestDataRoot.path
+        val core = createCoreClient()
+        val id = "m10-export-jni-${System.nanoTime()}"
+        core.rpc(
+            "instances.create",
+            buildJsonObject {
+                put("id", id)
+                put("name", "Export JNI")
+                put("minecraft", "1.21.4")
+                put("loaderKind", "fabric")
+            },
+        )
+        val gameDir = File(TestDataRoot.path, "instances/$id/.minecraft")
+        File(gameDir, "mods").mkdirs()
+        File(gameDir, "mods/sodium.jar").writeText("jar")
+        File(gameDir, "config").mkdirs()
+        File(gameDir, "config/fog.toml").writeText("a=1")
+        File(gameDir, "kubejs").mkdirs()
+        File(gameDir, "kubejs/start.js").writeText("console.log(1)")
+        File(gameDir, "servers.dat").writeText("servers")
+        File(gameDir, "options.txt").writeText("fov:0.5")
+
+        val plan = core.rpc(
+            "modpack.export.plan",
+            buildJsonObject { put("instanceId", id) },
+        ).decode<CoreExportPlan>()
+        assertTrue(plan.sections.any { it.id == "mods" && it.default })
+        assertTrue(plan.sections.any { it.id == "folder:kubejs" && it.default })
+        assertTrue(plan.sections.any { it.id == "servers" && !it.default })
+
+        val output = File(TestDataRoot.path, "exports/$id.mrpack")
+        val exported = core.rpc(
+            "modpack.export",
+            buildJsonObject {
+                put("instanceId", id)
+                put("name", "Export JNI Pack")
+                put("author", "tester@example.com")
+                put("version", "2.1")
+                put("description", "# Export JNI\n\nMarkdown body")
+                put(
+                    "sections",
+                    kotlinx.serialization.json.buildJsonArray {
+                        add(kotlinx.serialization.json.JsonPrimitive("mods"))
+                        add(kotlinx.serialization.json.JsonPrimitive("configs"))
+                        add(kotlinx.serialization.json.JsonPrimitive("folder:kubejs"))
+                        add(kotlinx.serialization.json.JsonPrimitive("servers"))
+                    },
+                )
+                put("outputPath", output.absolutePath)
+            },
+        ).decode<CoreModpackExport>()
+        assertTrue(output.isFile)
+        assertTrue(exported.files >= 4, "expected README plus three sections")
+
+        val inspected = core.rpc(
+            "modpack.inspect",
+            buildJsonObject { put("path", output.absolutePath) },
+        ).decode<CoreModpack>()
+        assertEquals("Export JNI Pack", inspected.name)
+        assertEquals("2.1", inspected.version)
+        assertEquals("tester@example.com", inspected.author)
+        assertTrue(inspected.readme.orEmpty().contains("Markdown body"))
+    }
+
     @Test
     fun accountsRoundTripThroughJni() = runBlocking {
         AppRuntime.dataRoot = TestDataRoot.path

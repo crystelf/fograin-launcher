@@ -343,6 +343,17 @@ class FakeCoreClient : CoreClient {
         "modpack.import" -> json(
             """{"ok":true,"instanceId":"calmpack","taskId":"task-modpack","external":false,"pack":$MODPACK_JSON_BODY}""",
         )
+        "modpack.export.plan" -> json(
+            """{"ok":true,"sections":[
+              {"id":"servers","label":"servers","files":2,"bytes":4096,"default":false,"folder":false},
+              {"id":"configs","label":"configs","files":31,"bytes":262144,"default":true,"folder":false},
+              {"id":"mods","label":"mods","files":42,"bytes":134217728,"default":true,"folder":false},
+              {"id":"shaderpacks","label":"shaderpacks","files":3,"bytes":5242880,"default":true,"folder":false},
+              {"id":"resourcepacks","label":"resourcepacks","files":5,"bytes":20971520,"default":true,"folder":false},
+              {"id":"gameSettings","label":"gameSettings","files":1,"bytes":8192,"default":false,"folder":false},
+              {"id":"folder:kubejs","label":"kubejs","files":12,"bytes":73400,"default":true,"folder":true}
+            ]}""",
+        )
         "modpack.export" -> json(
             """{"ok":true,"path":"/tmp/fograin-test/exports/雾林生存-20261117-133100.mrpack","sizeBytes":24117248,"files":37}""",
         )

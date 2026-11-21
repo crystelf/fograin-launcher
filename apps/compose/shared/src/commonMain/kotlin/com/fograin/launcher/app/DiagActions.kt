@@ -5,6 +5,7 @@ import com.fograin.launcher.platform.CoreDiagExport
 import com.fograin.launcher.platform.CoreDiagLogs
 import com.fograin.launcher.platform.CoreDiagnostics
 import com.fograin.launcher.platform.CoreFinding
+import com.fograin.launcher.platform.FileSavePick
 import com.fograin.launcher.platform.decode
 import com.fograin.launcher.ui.AppDestination
 import kotlinx.coroutines.CancellationException
@@ -111,22 +112,75 @@ internal class DiagActions(private val model: AppModel) {
     }
 
     fun export() {
-        val instanceId = model.state.value.diag.instanceId ?: return
-        if (model.state.value.diag.isExporting) return
+        val state = model.state.value
+        val instanceId = state.diag.instanceId ?: return
+        if (state.diag.isExporting) return
+        val instanceName = state.libraryDetailInstance?.name.orEmpty()
+        val suggested = buildString {
+            append(
+                instanceName.takeIf { it.isNotBlank() }
+                    ?.map { if (it.isLetterOrDigit() || it in "-_.") it else '-' }
+                    ?.joinToString("")
+                    ?.trim('-', '.')
+                    ?.ifBlank { null }
+                    ?: "fograin",
+            )
+            append("-diagnostics.zip")
+        }
         model.setState {
             it.copy(diag = it.diag.copy(isExporting = true, error = null))
         }
         model.scope.launch {
+            val target = try {
+                model.platform.files.save("导出诊断包", suggested, listOf("zip"))
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                model.setState { it.copy(diag = it.diag.copy(isExporting = false)) }
+                model.showError("无法打开保存位置选择器", error)
+                return@launch
+            }
+            if (target is FileSavePick.Cancelled) {
+                model.setState { it.copy(diag = it.diag.copy(isExporting = false)) }
+                return@launch
+            }
+            if (target is FileSavePick.Unavailable) {
+                model.setState { it.copy(diag = it.diag.copy(isExporting = false)) }
+                model.showError("无法选择保存位置", target.reason)
+                return@launch
+            }
+            val picked = target as FileSavePick.Picked
+            val destination = if (picked.direct) {
+                picked.copy(
+                    path = ensureExtension(picked.path, "zip"),
+                    displayPath = ensureExtension(picked.displayPath, "zip"),
+                )
+            } else {
+                picked
+            }
             try {
                 val exported = model.core.rpc(
                     "diag.export",
                     buildJsonObject { put("instanceId", instanceId) },
                 ).decode<CoreDiagExport>()
+                // The core writes the bundle into `diagnostics/`; store the
+                // same bytes at the location the user picked and drop the
+                // intermediate copy.
+                val sameFile = destination.path == exported.bundle.path
+                if (!sameFile &&
+                    !model.platform.files.writePicked(destination, exported.bundle.path)
+                ) {
+                    model.setState { it.copy(diag = it.diag.copy(isExporting = false)) }
+                    model.showError("无法写入所选位置", "请检查目标文件夹是否可写，然后重试。")
+                    return@launch
+                }
+                if (!sameFile) model.platform.files.discard(exported.bundle.path)
+                val finalPath = destination.displayPath
                 model.setState {
                     it.copy(
                         diag = it.diag.copy(
                             isExporting = false,
-                            bundlePath = exported.bundle.path,
+                            bundlePath = finalPath,
                             analysis = exported.analysis,
                         ),
                     )
@@ -142,6 +196,9 @@ internal class DiagActions(private val model: AppModel) {
             }
         }
     }
+
+    private fun ensureExtension(path: String, extension: String): String =
+        if (path.endsWith(".$extension", ignoreCase = true)) path else "$path.$extension"
 
     fun copyBundlePath() {
         val path = model.state.value.diag.bundlePath ?: return

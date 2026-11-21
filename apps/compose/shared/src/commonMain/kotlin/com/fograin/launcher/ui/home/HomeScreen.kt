@@ -36,7 +36,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.SwapHoriz
-import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
@@ -590,11 +590,11 @@ private fun HomeInstanceRow(
                         },
                     )
                     DropdownMenuItem(
-                        text = { Text(stringResource(Res.string.action_copy_instance_dir)) },
-                        leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null) },
+                        text = { Text(stringResource(Res.string.action_open_instance_dir)) },
+                        leadingIcon = { Icon(Icons.Outlined.FolderOpen, contentDescription = null) },
                         onClick = {
                             menuExpanded = false
-                            model.copyInstanceDirectoryPath(instance)
+                            model.openInstanceDirectory(instance)
                         },
                     )
                     DropdownMenuItem(

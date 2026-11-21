@@ -19,8 +19,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -43,7 +43,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
-import com.fograin.launcher.app.ContentManagerTab
 import com.fograin.launcher.model.Instance
 import com.fograin.launcher.ui.versionLineText
 import com.fograin.launcher.platform.CoreInstanceSettings
@@ -312,39 +311,14 @@ fun InstanceSettingsPage(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            SettingsSection(title = stringResource(Res.string.instance_settings_content)) {
-                ContentManageRow(
-                    label = stringResource(Res.string.instance_settings_mods),
-                    onClick = { model.showInstanceContent(ContentManagerTab.MODS) },
-                )
-                ContentManageRow(
-                    label = stringResource(Res.string.instance_settings_resourcepacks),
-                    onClick = { model.showInstanceContent(ContentManagerTab.RESOURCE_PACKS) },
-                )
-                ContentManageRow(
-                    label = stringResource(Res.string.instance_settings_shaderpacks),
-                    onClick = { model.showInstanceContent(ContentManagerTab.SHADER_PACKS) },
-                )
-                ContentManageRow(
-                    label = stringResource(Res.string.instance_settings_worlds),
-                    onClick = { model.showInstanceContent(ContentManagerTab.WORLDS) },
-                )
-                ContentManageRow(
-                    label = stringResource(Res.string.content_tab_datapacks),
-                    onClick = { model.showInstanceContent(ContentManagerTab.DATAPACKS) },
-                )
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-            SettingsSection(title = stringResource(Res.string.instance_settings_more)) {
+            SettingsSection(title = stringResource(Res.string.instance_settings_manage)) {
                 ContentManageRow(
                     label = stringResource(Res.string.instance_settings_logs),
                     onClick = { model.openDiagnostics(instance) },
                 )
                 ContentManageRow(
                     label = stringResource(Res.string.modpack_export),
-                    onClick = { model.exportModpack(instance) },
+                    onClick = { model.beginModpackExport(instance) },
                 )
             }
 
@@ -352,10 +326,10 @@ fun InstanceSettingsPage(
 
             SettingsSection(title = stringResource(Res.string.instance_settings_maintenance)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { model.copyInstanceDirectoryPath(instance) }) {
-                        Icon(Icons.Outlined.ContentCopy, contentDescription = null)
+                    OutlinedButton(onClick = { model.openInstanceDirectory(instance) }) {
+                        Icon(Icons.Outlined.FolderOpen, contentDescription = null)
                         Spacer(Modifier.size(6.dp))
-                        Text(stringResource(Res.string.action_copy_instance_dir))
+                        Text(stringResource(Res.string.action_open_instance_dir))
                     }
                     OutlinedButton(onClick = { showDeleteConfirm = true }) {
                         Icon(Icons.Outlined.Delete, contentDescription = null)
@@ -363,11 +337,6 @@ fun InstanceSettingsPage(
                         Text(stringResource(Res.string.library_menu_delete))
                     }
                 }
-                Text(
-                    text = stringResource(Res.string.instance_settings_copy_note),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
     }

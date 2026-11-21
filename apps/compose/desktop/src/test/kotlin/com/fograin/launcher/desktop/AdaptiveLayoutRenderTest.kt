@@ -30,7 +30,7 @@ class AdaptiveLayoutRenderTest {
     fun rendersCompactAndExpandedWindows() = runBlocking {
         val model = AppModel.create(
             core = FakeCoreClient(),
-            platform = platformServices(),
+            platform = testPlatform(),
             scope = CoroutineScope(Dispatchers.Unconfined),
         )
         val state = model.state.value.copy(destination = AppDestination.LIBRARY)

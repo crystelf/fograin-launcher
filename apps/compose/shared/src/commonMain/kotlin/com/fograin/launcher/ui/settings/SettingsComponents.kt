@@ -21,7 +21,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -30,7 +29,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -115,9 +113,9 @@ internal fun SettingsPage(
 internal fun SettingsGroupHeader(title: String) {
     Text(
         text = title,
-        style = MaterialTheme.typography.labelMedium,
+        style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 2.dp, top = 22.dp, bottom = 4.dp),
+        modifier = Modifier.padding(start = 2.dp, top = 24.dp, bottom = 5.dp),
     )
 }
 
@@ -138,7 +136,7 @@ internal fun SettingsRow(
         modifier = modifier
             .fillMaxWidth()
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(vertical = 13.dp),
+            .padding(vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -209,34 +207,30 @@ internal fun SettingsChoiceRow(
         title = title,
         subtitle = subtitle,
         onClick = { if (enabled) expanded = true },
+        modifier = if (testTag != null) Modifier.testTag(testTag) else Modifier,
         trailing = {
             Box {
-                Surface(
-                    onClick = { if (enabled) expanded = true },
-                    enabled = enabled,
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    contentColor = MaterialTheme.colorScheme.primary,
-                    modifier = (if (testTag != null) Modifier.testTag(testTag) else Modifier)
-                        .widthIn(max = 280.dp),
+                // The reference layout has no secondary chrome here: the
+                // current value is highlighted text and the whole row opens
+                // the menu.
+                Row(
+                    modifier = Modifier
+                        .widthIn(max = 280.dp)
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    Row(
-                        modifier = Modifier.padding(start = 12.dp, end = 6.dp, top = 7.dp, bottom = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        Text(
-                            text = value,
-                            style = MaterialTheme.typography.labelLarge,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Icon(
-                            imageVector = Icons.Filled.ArrowDropDown,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
+                    Text(
+                        text = value,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (enabled) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
                 DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                     options.forEach { (label, action) ->
@@ -298,18 +292,17 @@ internal fun SettingsSliderRow(
                 color = MaterialTheme.colorScheme.primary,
             )
         }
-        Slider(
+        SettingsSlider(
             value = current,
+            valueRange = range,
             onValueChange = {
                 current = it
                 onValueChange(it)
             },
-            onValueChangeFinished = { onCommit(current) },
-            valueRange = range,
-            steps = steps,
+            onValueChangeFinished = { value -> onCommit(value) },
             enabled = enabled,
-            modifier = (if (testTag != null) Modifier.testTag(testTag) else Modifier)
-                .padding(top = 4.dp),
+            testTag = testTag,
+            modifier = Modifier.padding(top = 4.dp),
         )
     }
 }

@@ -25,6 +25,7 @@ import com.fograin.launcher.platform.CoreLocalContent
 import com.fograin.launcher.platform.CoreWorld
 import com.fograin.launcher.platform.CoreWorldBackup
 import com.fograin.launcher.platform.CoreLoaderVersion
+import com.fograin.launcher.platform.CoreExportSection
 import com.fograin.launcher.platform.CoreModpack
 import com.fograin.launcher.platform.CoreModpackExport
 import com.fograin.launcher.platform.CorePlanPreview
@@ -129,6 +130,7 @@ enum class LibraryStage {
     LIST,
     DETAIL,
     SETTINGS,
+    EXPORT,
     DIAGNOSTICS,
 }
 
@@ -388,17 +390,45 @@ data class DiagUiState(
         get() = if (tab in availableTabs) tab else availableTabs.first()
 }
 
-/** Modpack import/export state (M9). */
+/** Steps of the modpack export page. */
+enum class ExportStep {
+    FORM,
+    CONTENT,
+}
+
+/** Modpack export wizard state; one instance at a time. */
+data class ExportModpackUiState(
+    val instanceId: String? = null,
+    val step: ExportStep = ExportStep.FORM,
+    val name: String = "",
+    val author: String = "",
+    val version: String = "1.0",
+    val description: String = "",
+    val sections: List<CoreExportSection> = emptyList(),
+    val selected: Set<String> = emptySet(),
+    val isLoadingPlan: Boolean = false,
+    val isExporting: Boolean = false,
+    val error: String? = null,
+    /** Non-null after a successful write; drives the result dialog. */
+    val result: CoreModpackExport? = null,
+) {
+    val canContinue: Boolean
+        get() = name.isNotBlank() && !isExporting
+
+    val canExport: Boolean
+        get() = !isExporting && !isLoadingPlan
+}
+
+/** Modpack import state (M9/M10); export has its own wizard state. */
 data class ModpackUiState(
     val inspecting: Boolean = false,
-    /** Non-null while the confirmation sheet is open. */
+    /** Non-null while the import confirmation page is open. */
     val pack: CoreModpack? = null,
     val name: String = "",
     val isImporting: Boolean = false,
     val error: String? = null,
     val taskId: String? = null,
     val importedInstanceId: String? = null,
-    val exportResult: CoreModpackExport? = null,
     /** True while a file is dragged over the desktop window. */
     val dragActive: Boolean = false,
 ) {
@@ -498,6 +528,7 @@ data class AppUiState(
     val contentBrowser: ContentBrowserUiState = ContentBrowserUiState(),
     val diag: DiagUiState = DiagUiState(),
     val modpack: ModpackUiState = ModpackUiState(),
+    val modpackExport: ExportModpackUiState = ExportModpackUiState(),
     /** Library sub-page shown by [com.fograin.launcher.ui.library.LibraryScreen]. */
     val libraryStage: LibraryStage = LibraryStage.LIST,
     /**

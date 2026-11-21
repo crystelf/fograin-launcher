@@ -14,7 +14,7 @@ import kotlinx.serialization.json.put
 
 /**
  * Per-instance settings: read the effective values, persist one override, and
- * copy the game directory path (Android has no Finder for app-private storage).
+ * open the game directory in the host file manager.
  */
 internal class InstanceSettingsActions(private val model: AppModel) {
 
@@ -47,12 +47,8 @@ internal class InstanceSettingsActions(private val model: AppModel) {
         }
     }
 
-    /**
-     * The data root is the app's external files directory on Android and is
-     * reachable over USB, so the folder action copies the path instead of
-     * opening a file manager.
-     */
-    fun copyDirectoryPath(instance: Instance) {
+    /** Opens the instance game directory in the host file manager. */
+    fun openDirectory(instance: Instance) {
         model.scope.launch {
             try {
                 val payload = model.core.rpc(
@@ -61,12 +57,13 @@ internal class InstanceSettingsActions(private val model: AppModel) {
                 )
                 val directory = payload.stringOrNull("gameDir")
                     ?: "${model.state.value.settings.dataRoot}/instances/${instance.id}"
-                model.platform.clipboard.copy(directory)
-                model.showNotice("实例目录路径已复制")
+                if (!model.platform.links.revealDirectory(directory)) {
+                    model.showNotice("无法打开文件管理器，请从系统存储中手动进入实例目录")
+                }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                model.showError("无法复制实例目录路径", error)
+                model.showError("无法打开实例目录", error)
             }
         }
     }

@@ -118,18 +118,54 @@ sealed interface FilePick {
     data class Unavailable(val reason: String) : FilePick
 }
 
+/** Outcome of [FileBrowser.save]. */
+sealed interface FileSavePick {
+    /**
+     * A destination the caller can write to. [path] is what the platform needs
+     * to store the bytes; [displayPath] is the human-facing location.
+     * [direct] is true when the core may write [path] itself (desktop);
+     * Android SAF documents must be filled through [FileBrowser.writePicked].
+     */
+    data class Picked(
+        val path: String,
+        val displayPath: String = path,
+        val direct: Boolean = true,
+    ) : FileSavePick
+
+    /** The user dismissed the save dialog; nothing should happen. */
+    data object Cancelled : FileSavePick
+
+    /** No native save dialog, or a document that cannot be written. */
+    data class Unavailable(val reason: String) : FileSavePick
+}
+
 /**
- * 6b. Single-file picking for `.mrpack`/`.zip` imports and data packs.
+ * 6b. Single-file picking for `.mrpack`/`.zip` imports and data packs, plus
+ * the save dialog used by modpack / diagnostics export.
  *
- * The Rust core only reads filesystem paths, so Android copies the selected
- * document into the app cache before returning it; desktop returns the native
- * path untouched. [extensions] are lower-case without the dot and only drive
- * the filter, never validation.
+ * The Rust core only reads and writes filesystem paths, so Android copies the
+ * selected document into the app cache before returning it and writes exports
+ * through [writePicked]. Desktop returns the native path untouched.
+ * [extensions] are lower-case without the dot and only drive the filter, never
+ * validation.
  */
 interface FileBrowser {
     val isAvailable: Boolean
 
     suspend fun pick(title: String, extensions: List<String>): FilePick
+
+    /** Opens the platform save dialog; defaults point at Downloads. */
+    suspend fun save(
+        title: String,
+        suggestedName: String,
+        extensions: List<String>,
+    ): FileSavePick = FileSavePick.Unavailable("save-not-supported")
+
+    /** Stores [sourcePath] at [target] (no-op on desktop for a direct path). */
+    suspend fun writePicked(target: FileSavePick.Picked, sourcePath: String): Boolean = false
+
+    /** Removes an intermediate export file after it has been stored. */
+    suspend fun discard(path: String) = Unit
 }
 
 /** Outcome of [DirectoryPicker.pick]. */

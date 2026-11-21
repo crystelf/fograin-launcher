@@ -139,6 +139,9 @@ class AppModel internal constructor(
         state = _state.asStateFlow()
 
         scope.launch { refreshCoreData() }
+        // Warm the download/network settings so opening Settings does not pop
+        // a loading spinner in the middle of the entrance animation.
+        scope.launch { settingsPanel.load() }
         startEventPump()
 
         core.initError?.let { showNotice(it, Notice.Tone.WARNING) }
@@ -367,6 +370,7 @@ class AppModel internal constructor(
         val librarySubPage = current.destination == AppDestination.LIBRARY &&
             current.libraryStage != LibraryStage.LIST
         return current.alert != null ||
+            current.modpack.pack != null ||
             current.account.open ||
             current.downloadQueueOpen ||
             current.contentBrowser.selectedProject != null ||
@@ -382,6 +386,7 @@ class AppModel internal constructor(
         val current = state.value
         when {
             current.alert != null -> dismissAlert()
+            current.modpack.pack != null -> dismissModpackImport()
             current.settingsWindow.open -> settingsPanel.back()
             current.account.open -> account.back()
             current.downloadQueueOpen -> closeDownloadQueue()
@@ -389,6 +394,9 @@ class AppModel internal constructor(
             current.globalSearchOpen -> closeGlobalSearch()
             current.destination == AppDestination.LIBRARY &&
                 current.libraryStage == LibraryStage.DIAGNOSTICS -> closeDiagnostics()
+
+            current.destination == AppDestination.LIBRARY &&
+                current.libraryStage == LibraryStage.EXPORT -> backModpackExportStep()
 
             current.destination == AppDestination.LIBRARY &&
                 current.libraryStage == LibraryStage.SETTINGS -> closeInstanceSettings()
@@ -685,8 +693,8 @@ class AppModel internal constructor(
     fun configureInstance(id: String, setting: String, value: JsonElement?) =
         instanceSettings.configure(id, setting, value)
 
-    fun copyInstanceDirectoryPath(instance: Instance) =
-        instanceSettings.copyDirectoryPath(instance)
+    fun openInstanceDirectory(instance: Instance) =
+        instanceSettings.openDirectory(instance)
 
     // ------------------------------------------------------------------
     // Accounts (M7)
@@ -882,9 +890,29 @@ class AppModel internal constructor(
 
     fun confirmModpackImport() = modpack.confirmImport()
 
-    fun exportModpack(instance: Instance) = modpack.export(instance)
+    /** Opens the two-step export page for [instance]. */
+    fun beginModpackExport(instance: Instance) = modpack.beginExport(instance)
 
-    fun dismissModpackExport() = modpack.dismissExport()
+    fun setModpackExportName(name: String) = modpack.setExportName(name)
+
+    fun setModpackExportAuthor(author: String) = modpack.setExportAuthor(author)
+
+    fun setModpackExportVersion(version: String) = modpack.setExportVersion(version)
+
+    fun setModpackExportDescription(description: String) =
+        modpack.setExportDescription(description)
+
+    fun toggleModpackExportSection(id: String) = modpack.toggleExportSection(id)
+
+    fun nextModpackExportStep() = modpack.nextExportStep()
+
+    fun backModpackExportStep() = modpack.backExportStep()
+
+    fun cancelModpackExport() = modpack.cancelExport()
+
+    fun confirmModpackExport() = modpack.export()
+
+    fun dismissModpackExportResult() = modpack.dismissExportResult()
 
     fun copyModpackExportPath() = modpack.copyExportPath()
 

@@ -150,19 +150,13 @@ fun DiagnosticsPage(model: AppModel, state: AppUiState) {
             }
 
             if (analysis != null) {
-                val meta = stringResource(
-                    Res.string.diag_meta,
-                    analysis.scannedLines,
-                    analysis.rules,
-                )
                 val findings = analysis.findings
                 if (findings.isEmpty()) {
-                    CleanSummary(summary = analysis.summary, meta = meta)
+                    CleanSummary(summary = analysis.summary)
                 } else {
                     FindingSummary(
                         findings = findings,
                         summary = analysis.summary,
-                        meta = meta,
                         onFix = model::applyDiagFix,
                     )
                 }
@@ -253,7 +247,7 @@ fun DiagnosticsPage(model: AppModel, state: AppUiState) {
 }
 
 @Composable
-private fun CleanSummary(summary: String, meta: String) {
+private fun CleanSummary(summary: String) {
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -287,11 +281,6 @@ private fun CleanSummary(summary: String, meta: String) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Text(
-                    text = meta,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                )
             }
         }
     }
@@ -301,7 +290,6 @@ private fun CleanSummary(summary: String, meta: String) {
 private fun FindingSummary(
     findings: List<CoreFinding>,
     summary: String,
-    meta: String,
     onFix: (CoreFinding) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -309,11 +297,6 @@ private fun FindingSummary(
             text = summary,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
-        )
-        Text(
-            text = meta,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         // The three most confident findings are enough above the fold; the
         // full list is still reachable by scrolling the log pane's parent.

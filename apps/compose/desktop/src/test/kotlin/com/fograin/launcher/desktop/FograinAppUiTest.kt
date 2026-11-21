@@ -14,6 +14,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeRight
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import com.fograin.launcher.App
 import com.fograin.launcher.app.AppModel
@@ -68,7 +70,7 @@ import com.fograin.launcher.ui.library.libraryRowTag
 import com.fograin.launcher.ui.search.GlobalSearchFieldTag
 import com.fograin.launcher.ui.search.globalSearchCommandTag
 import com.fograin.launcher.ui.modpack.ModpackImportConfirmTag
-import com.fograin.launcher.ui.modpack.ModpackImportSheetTag
+import com.fograin.launcher.ui.modpack.ModpackImportPageTag
 import com.fograin.launcher.app.SettingsSection
 import com.fograin.launcher.ui.settings.JavaScreenTag
 import com.fograin.launcher.ui.settings.SettingsJavaOpenTag
@@ -78,6 +80,9 @@ import com.fograin.launcher.ui.settings.SettingsCompactListTag
 import com.fograin.launcher.ui.settings.SettingsLanguageRowTag
 import com.fograin.launcher.ui.settings.SettingsWindowBackTag
 import com.fograin.launcher.ui.settings.SettingsPageListTag
+import com.fograin.launcher.ui.settings.SettingsContentPageTag
+import com.fograin.launcher.ui.settings.SettingsContentTag
+import com.fograin.launcher.ui.settings.SettingsSidebarPageTag
 import com.fograin.launcher.ui.settings.SettingsSidebarTag
 import com.fograin.launcher.ui.settings.SettingsSplitterTag
 import com.fograin.launcher.ui.settings.SettingsWindowTag
@@ -86,6 +91,7 @@ import com.fograin.launcher.ui.components.PageHeaderBackTag
 import com.fograin.launcher.ui.navItemTag
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
@@ -110,7 +116,7 @@ class FograinAppUiTest {
     private fun model(): AppModel {
         val created = AppModel.create(
             core = FakeCoreClient(),
-            platform = platformServices(),
+            platform = testPlatform(),
             scope = CoroutineScope(Dispatchers.Unconfined),
         )
         created.setLanguage(com.fograin.launcher.settings.AppLanguage.SIMPLIFIED_CHINESE)
@@ -377,7 +383,7 @@ class FograinAppUiTest {
         }
 
     @Test
-    fun importEntryShowsTheModpackSheet() = runDesktopComposeUiTest(width = 1280, height = 900) {
+    fun importEntryShowsTheConfirmationPage() = runDesktopComposeUiTest(width = 1280, height = 900) {
         val appModel = model()
         setContent { App(appModel) }
         waitForIdle()
@@ -386,9 +392,53 @@ class FograinAppUiTest {
         appModel.importModpackPath("/tmp/Calm Pack.mrpack")
         waitForIdle()
 
-        onNodeWithTag(ModpackImportSheetTag).assertIsDisplayed()
+        onNodeWithTag(ModpackImportPageTag).assertIsDisplayed()
         onNodeWithTag(ModpackImportConfirmTag).assertIsDisplayed()
     }
+
+    @Test
+    fun instanceSettingsExportsThroughTheTwoStepWizard() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val appModel = model()
+            appModel.navigate(AppDestination.LIBRARY)
+            setContent { App(appModel) }
+            waitForIdle()
+
+            onNodeWithTag(libraryRowTag("fog-forest")).performClick()
+            waitForIdle()
+            onNodeWithTag(InstanceOverflowTag).performClick()
+            waitForIdle()
+            onNodeWithText("游戏设置").performClick()
+            waitForIdle()
+            onNodeWithText("导出整合包").performScrollTo().performClick()
+            waitForIdle()
+
+            assertEquals(LibraryStage.EXPORT, appModel.state.value.libraryStage)
+            onNodeWithTag(com.fograin.launcher.ui.modpack.ModpackExportPageTag)
+                .assertIsDisplayed()
+            assertEquals("雾林生存", appModel.state.value.modpackExport.name)
+
+            onNodeWithTag(com.fograin.launcher.ui.modpack.ModpackExportContinueTag)
+                .performClick()
+            waitForIdle()
+            assertEquals(
+                com.fograin.launcher.app.ExportStep.CONTENT,
+                appModel.state.value.modpackExport.step,
+            )
+            assertTrue(
+                appModel.state.value.modpackExport.sections.isNotEmpty(),
+                "modpack.export.plan was not applied",
+            )
+            assertTrue("mods" in appModel.state.value.modpackExport.selected)
+
+            onNodeWithTag(com.fograin.launcher.ui.modpack.ModpackExportConfirmTag)
+                .performClick()
+            waitForIdle()
+            assertNotNull(appModel.state.value.modpackExport.result)
+            onNodeWithText("好").performClick()
+            waitForIdle()
+            assertEquals(LibraryStage.SETTINGS, appModel.state.value.libraryStage)
+        }
 
     @Test
     fun instanceDetailHeaderCarriesLaunchFavoriteAndSettingsMenu() =
@@ -406,7 +456,7 @@ class FograinAppUiTest {
             onNodeWithTag(InstanceOverflowTag).performClick()
             waitForIdle()
             onNodeWithText("游戏设置").assertIsDisplayed()
-            onNodeWithText("复制实例目录路径").assertIsDisplayed()
+            onNodeWithText("打开实例目录").assertIsDisplayed()
         }
 
     @Test
@@ -718,6 +768,35 @@ class FograinAppUiTest {
         }
 
     @Test
+    fun settingsMemorySliderDragsToANewValue() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val appModel = model()
+            setContent { App(appModel) }
+            waitForIdle()
+
+            onNodeWithTag(navItemTag(AppDestination.SETTINGS)).performClick()
+            waitForIdle()
+            onNodeWithTag(
+                com.fograin.launcher.ui.settings.settingsNavTag(
+                    com.fograin.launcher.app.SettingsSection.GENERAL,
+                ),
+            ).performClick()
+            waitForIdle()
+
+            val before = appModel.state.value.gameConfig?.memoryMb
+            onNodeWithTag(com.fograin.launcher.ui.settings.SettingsMemorySliderTag)
+                .performTouchInput {
+                    down(center)
+                    moveBy(androidx.compose.ui.geometry.Offset(90f, 0f), delayMillis = 60)
+                    up()
+                }
+            waitForIdle()
+
+            val after = appModel.state.value.gameConfig?.memoryMb
+            assertTrue(after != null && after != before, "slider drag did not change memory")
+        }
+
+    @Test
     fun languageRowOpensTheLanguagePicker() =
         runDesktopComposeUiTest(width = 1280, height = 900) {
             val appModel = model()
@@ -750,7 +829,7 @@ class FograinAppUiTest {
             val preferences = platformServices().preferences
             val original = preferences.settingsSidebarWidth
             try {
-                preferences.settingsSidebarWidth = 0f
+                preferences.settingsSidebarWidth = 500f
                 val appModel = model()
                 setContent { App(appModel) }
                 waitForIdle()
@@ -769,6 +848,136 @@ class FograinAppUiTest {
                     .fetchSemanticsNode().boundsInRoot.width
                 assertTrue(after > before + 20f, "drag did not widen the sidebar: $before -> $after")
                 assertTrue(preferences.settingsSidebarWidth > 0f, "width was not persisted")
+            } finally {
+                preferences.settingsSidebarWidth = original
+            }
+        }
+
+    @Test
+    fun settingsSplitterBouncesBackFromTheLeftEdge() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val preferences = platformServices().preferences
+            val original = preferences.settingsSidebarWidth
+            try {
+                preferences.settingsSidebarWidth = 500f
+                val appModel = model()
+                setContent { App(appModel) }
+                waitForIdle()
+                onNodeWithTag(navItemTag(AppDestination.SETTINGS)).performClick()
+                waitForIdle()
+
+                // The splitter starts at x = 509; -500 puts the pointer at
+                // x = 9 while the sidebar reaches width 0 (the left edge).
+                onNodeWithTag(SettingsSplitterTag).performTouchInput {
+                    down(center)
+                    moveBy(Offset(-500f, 0f), delayMillis = 120)
+                    up()
+                }
+                waitForIdle()
+                mainClock.advanceTimeBy(1_200)
+                waitForIdle()
+
+                val after = onNodeWithTag(SettingsSidebarTag)
+                    .fetchSemanticsNode().boundsInRoot.width
+                // The left pane floor is 32 % of 1280 dp = 409.6 dp.
+                assertTrue(after in 408f..412f, "sidebar did not settle at the left ratio: $after")
+                assertEquals(409.6f, preferences.settingsSidebarWidth, 2f)
+            } finally {
+                preferences.settingsSidebarWidth = original
+            }
+        }
+
+    @Test
+    fun settingsSplitterResizesWithinTheBandAndFitsBothPagesAtTheLimits() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val preferences = platformServices().preferences
+            val original = preferences.settingsSidebarWidth
+            try {
+                preferences.settingsSidebarWidth = 500f
+                val appModel = model()
+                setContent { App(appModel) }
+                waitForIdle()
+                onNodeWithTag(navItemTag(AppDestination.SETTINGS)).performClick()
+                waitForIdle()
+
+                // Push the divider past the right-hand 32 % floor. While the
+                // divider travels through the band the content page resizes
+                // with its pane; only beyond the floor does it freeze and get
+                // covered. On release the splitter settles at the 68 % limit,
+                // so the page must fill the remaining pane again instead of
+                // staying at its default 2/3 width.
+                onNodeWithTag(SettingsSplitterTag).performTouchInput {
+                    down(center)
+                    moveBy(Offset(760f, 0f), delayMillis = 120)
+                    up()
+                }
+                waitForIdle()
+                mainClock.advanceTimeBy(1_200)
+                waitForIdle()
+
+                val contentPage = onNodeWithTag(SettingsContentPageTag)
+                    .fetchSemanticsNode().layoutInfo
+                // 1280 - (1280 - 18) * 0.32? No: the resting sidebar is 68 %,
+                // so the content pane is 427.6 dp wide at the floor.
+                assertEquals(427.6f, contentPage.width.toFloat(), 2f)
+                assertEquals(
+                    1280f,
+                    contentPage.coordinates.positionInRoot().x + contentPage.width,
+                    1.5f,
+                )
+
+                // Now push the divider the other way. On release it settles
+                // at the left 32 % floor; the sidebar page must fit that pane
+                // exactly and stay at x = 0, keeping its normal left padding
+                // instead of being frozen and clipped against the window edge.
+                onNodeWithTag(SettingsSplitterTag).performTouchInput {
+                    down(center)
+                    moveBy(Offset(-500f, 0f), delayMillis = 120)
+                    up()
+                }
+                waitForIdle()
+                mainClock.advanceTimeBy(1_200)
+                waitForIdle()
+
+                val sidebarPage = onNodeWithTag(SettingsSidebarPageTag)
+                    .fetchSemanticsNode().layoutInfo
+                assertEquals(409.6f, sidebarPage.width.toFloat(), 2f)
+                assertEquals(0f, sidebarPage.coordinates.positionInRoot().x, 1.5f)
+            } finally {
+                preferences.settingsSidebarWidth = original
+            }
+        }
+
+    @Test
+    fun settingsSplitterBouncesBackFromTheRightEdge() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val preferences = platformServices().preferences
+            val original = preferences.settingsSidebarWidth
+            try {
+                preferences.settingsSidebarWidth = 500f
+                val appModel = model()
+                setContent { App(appModel) }
+                waitForIdle()
+                onNodeWithTag(navItemTag(AppDestination.SETTINGS)).performClick()
+                waitForIdle()
+
+                // The pane can travel to the whole window width; +1000 clamps
+                // at 1280, so the sidebar covers the content completely before
+                // it springs back to the 68 % resting limit.
+                onNodeWithTag(SettingsSplitterTag).performTouchInput {
+                    down(center)
+                    moveBy(Offset(1_000f, 0f), delayMillis = 120)
+                    up()
+                }
+                waitForIdle()
+                mainClock.advanceTimeBy(1_200)
+                waitForIdle()
+
+                val after = onNodeWithTag(SettingsSidebarTag)
+                    .fetchSemanticsNode().boundsInRoot.width
+                // The right pane floor is 32 %, so the sidebar max is 852.4 dp.
+                assertTrue(after in 850f..855f, "sidebar did not settle at the right ratio: $after")
+                assertEquals(852.4f, preferences.settingsSidebarWidth, 2f)
             } finally {
                 preferences.settingsSidebarWidth = original
             }

@@ -23,7 +23,7 @@
     <string name="action_launching">Launching…</string>
     <string name="action_game_settings">Game settings</string>
     <string name="action_add_instance">Add instance</string>
-    <string name="action_copy_instance_dir">Copy instance folder path</string>
+    <string name="action_open_instance_dir">Open instance folder</string>
 
     <!-- Global search -->
     <string name="global_search_title">Global search</string>
@@ -378,8 +378,7 @@
     <string name="instance_settings_logs">Logs &amp; diagnostics</string>
     <string name="instance_settings_backup">Export &amp; backup</string>
     <string name="instance_settings_maintenance">Maintenance</string>
-    <string name="instance_settings_more">More features</string>
-    <string name="instance_settings_copy_note">The folder path is copied to the clipboard; paste it into a file manager.</string>
+    <string name="instance_settings_manage">Manage</string>
     <string name="instance_settings_delete_title">Delete instance?</string>
     <string name="instance_settings_delete_body">“%1$s” and its game folder will be deleted. A running game cannot be deleted.</string>
 
@@ -537,11 +536,11 @@
     <string name="modpack_files_label">Files</string>
     <string name="modpack_overrides">%1$d override files imported with the pack</string>
     <string name="modpack_total">About %1$s</string>
-    <string name="modpack_import_action">Import</string>
+    <string name="modpack_import_action">Install</string>
     <string name="modpack_importing">Creating task…</string>
     <string name="modpack_inspecting">Reading modpack…</string>
     <string name="modpack_external_note">This is an external instance folder: it is registered in place and files are not copied.</string>
-    <string name="modpack_export">Export modpack…</string>
+    <string name="modpack_export">Export modpack</string>
     <string name="modpack_export_title">Modpack exported</string>
     <string name="modpack_export_body">Wrote %1$s (%2$d files). Share the .mrpack with others to import.</string>
     <string name="modpack_copy_path">Copy path</string>
@@ -711,4 +710,30 @@
     <string name="settings_about_license_value">GPL-3.0-only</string>
     <string name="settings_about_data">Data folder</string>
     <string name="settings_about_config">Config file</string>
+    <string name="modpack_author_label">Author</string>
+    <string name="modpack_version_label">Version</string>
+    <string name="modpack_readme_title">Pack description</string>
+    <string name="modpack_readme_empty">This pack has no README.</string>
+    <string name="modpack_export_page_title">Export modpack</string>
+    <string name="modpack_export_subtitle">Fill in the Modrinth metadata; the export writes a .mrpack file.</string>
+    <string name="modpack_export_summary">Pack details</string>
+    <string name="modpack_export_name">Pack name</string>
+    <string name="modpack_export_author">Author</string>
+    <string name="modpack_export_version">Version</string>
+    <string name="modpack_export_description">Description</string>
+    <string name="modpack_export_description_hint">Markdown supported; also written to README.md</string>
+    <string name="modpack_export_continue">Continue</string>
+    <string name="modpack_export_content_title">Choose what to include</string>
+    <string name="modpack_export_content_body">The defaults cover what players usually need; server lists and game settings may contain personal data.</string>
+    <string name="modpack_export_empty">This instance has nothing to export.</string>
+    <string name="modpack_export_loading">Reading instance contents…</string>
+    <string name="modpack_export_files">%1$d files · %2$s</string>
+    <string name="modpack_export_back">Back</string>
+    <string name="modpack_export_action">Export</string>
+    <string name="modpack_export_section_servers">Multiplayer server list</string>
+    <string name="modpack_export_section_configs">Mod config files</string>
+    <string name="modpack_export_section_mods">Mods</string>
+    <string name="modpack_export_section_shaderpacks">Shaders</string>
+    <string name="modpack_export_section_resourcepacks">Resource packs</string>
+    <string name="modpack_export_section_game_settings">Game settings</string>
 </resources>

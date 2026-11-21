@@ -12,6 +12,7 @@ import com.fograin.launcher.platform.DirectoryBrowser
 import com.fograin.launcher.platform.DirectoryEntry
 import com.fograin.launcher.platform.DirectoryPick
 import com.fograin.launcher.platform.FileBrowser
+import com.fograin.launcher.platform.FileSavePick
 import com.fograin.launcher.platform.FilePick
 import com.fograin.launcher.platform.DeviceInfoProvider
 import com.fograin.launcher.platform.LocalPreferences
@@ -347,6 +348,16 @@ internal class FakeCore : CoreClient {
                 """{"ok":true,"instanceId":"calm","taskId":"task-modpack","external":false}""",
             )
 
+            "modpack.export.plan" -> json(
+                """{"ok":true,"sections":[
+                  {"id":"servers","label":"servers","files":1,"bytes":100,"default":false,"folder":false},
+                  {"id":"configs","label":"configs","files":2,"bytes":200,"default":true,"folder":false},
+                  {"id":"mods","label":"mods","files":3,"bytes":300,"default":true,"folder":false},
+                  {"id":"gameSettings","label":"gameSettings","files":1,"bytes":50,"default":false,"folder":false},
+                  {"id":"folder:kubejs","label":"kubejs","files":4,"bytes":400,"default":true,"folder":true}
+                ]}""",
+            )
+
             "modpack.export" -> json(
                 """{"ok":true,"path":"/tmp/exports/calm.mrpack","sizeBytes":100,"files":2}""",
             )
@@ -418,6 +429,21 @@ internal class FakePlatform(
 
         override suspend fun pick(title: String, extensions: List<String>): FilePick =
             nextFilePick?.let { FilePick.Picked(it) } ?: FilePick.Cancelled
+
+        override suspend fun save(
+            title: String,
+            suggestedName: String,
+            extensions: List<String>,
+        ): FileSavePick = FileSavePick.Picked(
+            path = "/tmp/fograin-test-$suggestedName",
+            displayPath = suggestedName,
+            direct = true,
+        )
+
+        override suspend fun writePicked(
+            target: FileSavePick.Picked,
+            sourcePath: String,
+        ): Boolean = true
     }
 
     val services: PlatformServices = PlatformServices(

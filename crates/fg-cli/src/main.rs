@@ -2469,7 +2469,9 @@ async fn command_account(
                     )
                     .await?
             };
-            let account = store.upsert_yggdrasil(&server, &bound, &profile)?.clone();
+            let account = store
+                .upsert_yggdrasil(&server, &bound, &profile, Some(args.username.trim()))?
+                .clone();
             store.save()?;
             if args.json {
                 let selected = store.selected_id().unwrap_or_default().to_string();
@@ -3533,14 +3535,29 @@ async fn command_modpack(
         }
         ModpackCommand::Export(args) => {
             let instance = Instance::load(&layout, &args.instance)?;
-            let export = fg_content::modpack::export_mrpack(
-                &instance.name,
-                &instance.minecraft,
-                &instance.loader.kind,
-                &instance.loader.version,
-                &instance.game_dir(&layout),
-                &root.join("exports"),
-            )?;
+            let game_dir = instance.game_dir(&layout);
+            let plan = fg_content::modpack::export_plan(&game_dir);
+            let sections: Vec<String> = plan
+                .sections
+                .iter()
+                .filter(|section| section.default)
+                .map(|section| section.id.clone())
+                .collect();
+            let exports = root.join("exports");
+            let output = fg_content::modpack::default_export_path(&exports, &instance.name, "1.0");
+            let config = fg_content::modpack::ExportConfig {
+                name: &instance.name,
+                author: "",
+                version: "1.0",
+                description: "",
+                minecraft: &instance.minecraft,
+                loader_kind: &instance.loader.kind,
+                loader_version: &instance.loader.version,
+                game_dir: &game_dir,
+                sections: &sections,
+                output: &output,
+            };
+            let export = fg_content::modpack::export_mrpack(&config)?;
             println!(
                 "wrote {} ({} file(s), {})",
                 export.path,

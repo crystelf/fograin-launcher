@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Search
@@ -39,10 +38,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Surface
-import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -67,17 +63,16 @@ import com.fograin.launcher.resources.modpack_drop_body
 import com.fograin.launcher.resources.modpack_drop_title
 import com.fograin.launcher.ui.accounts.AccountSheet
 import com.fograin.launcher.ui.components.AnimatedSheetHost
+import com.fograin.launcher.ui.components.FograinSnackbarHost
 import com.fograin.launcher.ui.components.LocalPageHeaderTopInset
 import com.fograin.launcher.ui.components.PageHeaderMetrics
 import com.fograin.launcher.ui.components.fograinPageTransition
-import com.fograin.launcher.ui.components.windowContentShape
+import com.fograin.launcher.ui.components.contentPanelShape
 import com.fograin.launcher.ui.content.ContentProjectSheet
 import com.fograin.launcher.ui.downloads.DownloadQueueScreen
 import com.fograin.launcher.ui.downloads.DownloadsScreen
 import com.fograin.launcher.ui.home.HomeScreen
 import com.fograin.launcher.ui.library.LibraryScreen
-import com.fograin.launcher.ui.modpack.ModpackExportDialog
-import com.fograin.launcher.ui.modpack.ModpackImportSheet
 import com.fograin.launcher.ui.search.GlobalSearchSheet
 import org.jetbrains.compose.resources.stringResource
 
@@ -125,11 +120,7 @@ fun FograinApp(
 
     LaunchedEffect(state.notice?.id) {
         val notice = state.notice ?: return@LaunchedEffect
-        snackbarHostState.showSnackbar(
-            message = notice.message,
-            duration = SnackbarDuration.Short,
-            withDismissAction = true,
-        )
+        snackbarHostState.showSnackbar(message = notice.message)
         model.consumeNotice(notice.id)
     }
 
@@ -149,20 +140,12 @@ fun FograinApp(
             modifier = Modifier.fillMaxSize(),
             containerColor = MaterialTheme.colorScheme.surface,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            snackbarHost = {
-                SnackbarHost(snackbarHostState) { data ->
-                    Snackbar(
-                        snackbarData = data,
-                        containerColor = MaterialTheme.colorScheme.inverseSurface,
-                        contentColor = MaterialTheme.colorScheme.inverseOnSurface,
-                    )
-                }
-            },
+            snackbarHost = { FograinSnackbarHost(snackbarHostState) },
             bottomBar = {
                 if (!expanded) {
                     NavigationBar(
                         modifier = Modifier.testTag(NavBarTag),
-                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        containerColor = MaterialTheme.colorScheme.surface,
                     ) {
                         AppDestination.entries.forEach { item ->
                             val selected = !state.downloadQueueOpen && item == state.destination
@@ -196,11 +179,24 @@ fun FograinApp(
                 CompositionLocalProvider(
                     LocalPageHeaderTopInset provides pageHeaderTopInset,
                 ) {
-                    Row(modifier = Modifier.fillMaxSize()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            // Painted before the content pane so the pane's
+                            // rounded left corners reveal the rail colour, not
+                            // a third background shade.
+                            .then(
+                                if (expanded) {
+                                    Modifier.background(MaterialTheme.colorScheme.surface)
+                                } else {
+                                    Modifier
+                                },
+                            ),
+                    ) {
                         if (expanded) {
                             NavigationRail(
                                 modifier = Modifier.testTag(NavRailTag),
-                                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                                containerColor = MaterialTheme.colorScheme.surface,
                             ) {
                                 Column(
                                     modifier = Modifier.fillMaxHeight(),
@@ -273,8 +269,15 @@ fun FograinApp(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight(),
-                            shape = if (expanded) windowContentShape() else RectangleShape,
-                            color = MaterialTheme.colorScheme.surface,
+                            shape = contentPanelShape(inset = expanded),
+                            // Wide: a lighter content card cut out of the
+                            // darker rail. Compact: the page is the window
+                            // itself, so it keeps the window surface colour.
+                            color = if (expanded) {
+                                MaterialTheme.colorScheme.surfaceContainer
+                            } else {
+                                MaterialTheme.colorScheme.surface
+                            },
                             contentColor = MaterialTheme.colorScheme.onSurface,
                         ) {
                             AnimatedContent(
@@ -387,30 +390,9 @@ fun FograinApp(
     }
 
     // Each host keeps its payload composed through the slide-out animation.
-    // Instance management lives on library sub-pages now, so only the project
-    // inspector, global search, account panel and modpack confirmation remain
-    // sheets.
-    AnimatedSheetHost(
-        value = state.modpack.pack,
-        onDismissRequest = model::dismissModpackImport,
-    ) { pack ->
-        ModpackImportSheet(
-            pack = pack,
-            state = state.modpack,
-            onNameChange = model::setModpackName,
-            onDismiss = model::dismissModpackImport,
-            onImport = model::confirmModpackImport,
-        )
-    }
-
-    state.modpack.exportResult?.let { result ->
-        ModpackExportDialog(
-            result = result,
-            onCopy = model::copyModpackExportPath,
-            onDismiss = model::dismissModpackExport,
-        )
-    }
-
+    // Instance management and modpack import/export live on in-window pages
+    // now, so only the project inspector, global search and account panel
+    // remain sheets.
     AnimatedSheetHost(
         value = state.contentBrowser.selectedProject,
         onDismissRequest = model::closeContentProject,

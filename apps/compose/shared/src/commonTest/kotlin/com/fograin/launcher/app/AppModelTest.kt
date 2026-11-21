@@ -783,7 +783,10 @@ class AppModelTest {
 
         model.exportDiagnostics()
         runCurrent()
-        assertEquals("/tmp/diag.zip", model.state.value.diag.bundlePath)
+        assertTrue(
+            model.state.value.diag.bundlePath.orEmpty().endsWith(".zip"),
+            "the diagnostics export did not report a destination",
+        )
 
         model.back()
         assertEquals(LibraryStage.SETTINGS, model.state.value.libraryStage)
@@ -827,6 +830,57 @@ class AppModelTest {
         runCurrent()
         assertEquals("task-modpack", model.state.value.modpack.taskId)
         assertEquals("calm", model.state.value.modpack.importedInstanceId)
+    }
+
+    @Test
+    fun modpackExportWizardPreparesMetadataAndContent() = runTest {
+        val model = model(backgroundScope)
+        runCurrent()
+        val instance = model.state.value.instances.first()
+
+        model.beginModpackExport(instance)
+        runCurrent()
+        val export = model.state.value.modpackExport
+        assertEquals(LibraryStage.EXPORT, model.state.value.libraryStage)
+        assertEquals(instance.id, export.instanceId)
+        assertEquals(instance.name, export.name)
+        assertEquals("1.0", export.version)
+        assertEquals(ExportStep.FORM, export.step)
+        assertTrue(export.sections.isNotEmpty(), "modpack.export.plan was not applied")
+        assertTrue("mods" in export.selected)
+        assertTrue("configs" in export.selected)
+        assertTrue("folder:kubejs" in export.selected)
+        assertTrue("servers" !in export.selected)
+        assertTrue("gameSettings" !in export.selected)
+
+        model.nextModpackExportStep()
+        assertEquals(ExportStep.CONTENT, model.state.value.modpackExport.step)
+        model.toggleModpackExportSection("servers")
+        assertTrue("servers" in model.state.value.modpackExport.selected)
+        model.backModpackExportStep()
+        assertEquals(ExportStep.FORM, model.state.value.modpackExport.step)
+
+        model.confirmModpackExport()
+        runCurrent()
+        assertEquals("/tmp/exports/calm.mrpack", model.state.value.modpackExport.result?.path)
+        model.dismissModpackExportResult()
+        assertEquals(LibraryStage.SETTINGS, model.state.value.libraryStage)
+    }
+
+    @Test
+    fun modpackExportBackWalksTheWizardThenReturnsToSettings() = runTest {
+        val model = model(backgroundScope)
+        runCurrent()
+        val instance = model.state.value.instances.first()
+        model.beginModpackExport(instance)
+        runCurrent()
+        model.nextModpackExportStep()
+        assertEquals(ExportStep.CONTENT, model.state.value.modpackExport.step)
+
+        model.back()
+        assertEquals(ExportStep.FORM, model.state.value.modpackExport.step)
+        model.back()
+        assertEquals(LibraryStage.SETTINGS, model.state.value.libraryStage)
     }
 
     @Test

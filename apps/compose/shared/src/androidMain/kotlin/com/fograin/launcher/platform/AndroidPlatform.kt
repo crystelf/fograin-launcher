@@ -78,6 +78,31 @@ object AndroidPlatform {
     @Volatile
     private var pendingFilePick: ((Uri?) -> Unit)? = null
 
+    // ---------------------------------------------------------------------
+    // SAF save dialog (`CreateDocument`). The result is a content URI; the
+    // shared layer writes the exported bytes through it.
+    // ---------------------------------------------------------------------
+
+    @Volatile
+    internal var savePickerLauncher: ((String) -> Unit)? = null
+
+    @Volatile
+    private var pendingSavePick: ((Uri?) -> Unit)? = null
+
+    fun attachSavePicker(launch: (String) -> Unit) {
+        savePickerLauncher = launch
+    }
+
+    fun onSavePicked(uri: Uri?) {
+        val sink = pendingSavePick
+        pendingSavePick = null
+        sink?.invoke(uri)
+    }
+
+    internal fun setPendingSavePick(sink: (Uri?) -> Unit) {
+        pendingSavePick = sink
+    }
+
     fun attachFilePicker(launch: (Array<String>) -> Unit) {
         filePickerLauncher = launch
     }

@@ -23,7 +23,7 @@
     <string name="action_launching">起動中…</string>
     <string name="action_game_settings">ゲーム設定</string>
     <string name="action_add_instance">インスタンスを追加</string>
-    <string name="action_copy_instance_dir">インスタンスのパスをコピー</string>
+    <string name="action_open_instance_dir">インスタンスフォルダーを開く</string>
 
     <!-- Global search -->
     <string name="global_search_title">全体検索</string>
@@ -378,8 +378,7 @@
     <string name="instance_settings_logs">ログと診断</string>
     <string name="instance_settings_backup">エクスポートとバックアップ</string>
     <string name="instance_settings_maintenance">メンテナンス</string>
-    <string name="instance_settings_more">その他の機能</string>
-    <string name="instance_settings_copy_note">フォルダーのパスをクリップボードにコピーします。ファイルマネージャーに貼り付けて開けます。</string>
+    <string name="instance_settings_manage">管理</string>
     <string name="instance_settings_delete_title">インスタンスを削除しますか？</string>
     <string name="instance_settings_delete_body">「%1$s」のインスタンス記録とゲームフォルダーを削除します。実行中のゲームは削除できません。</string>
 
@@ -537,11 +536,11 @@
     <string name="modpack_files_label">ファイル</string>
     <string name="modpack_overrides">%1$d 個の上書きファイルを一緒にインポート</string>
     <string name="modpack_total">約 %1$s</string>
-    <string name="modpack_import_action">インポート</string>
+    <string name="modpack_import_action">インストール</string>
     <string name="modpack_importing">タスクを作成中…</string>
     <string name="modpack_inspecting">MOD パックを読み込み中…</string>
     <string name="modpack_external_note">これは外部インスタンスフォルダーです。その場で登録され、ファイルはコピーされません。</string>
-    <string name="modpack_export">MOD パックを書き出す…</string>
+    <string name="modpack_export">MOD パックを書き出す</string>
     <string name="modpack_export_title">MOD パックを書き出しました</string>
     <string name="modpack_export_body">%1$s（%2$d 個のファイル）に書き出しました。.mrpack を他の人に共有してインポートできます。</string>
     <string name="modpack_copy_path">パスをコピー</string>
@@ -711,4 +710,30 @@
     <string name="settings_about_license_value">GPL-3.0-only</string>
     <string name="settings_about_data">データフォルダー</string>
     <string name="settings_about_config">設定ファイル</string>
+    <string name="modpack_author_label">作者</string>
+    <string name="modpack_version_label">バージョン</string>
+    <string name="modpack_readme_title">パックの説明</string>
+    <string name="modpack_readme_empty">このパックには README がありません。</string>
+    <string name="modpack_export_page_title">整合パックを書き出す</string>
+    <string name="modpack_export_subtitle">Modrinth 用のメタデータを入力すると、.mrpack ファイルを書き出します。</string>
+    <string name="modpack_export_summary">パック情報</string>
+    <string name="modpack_export_name">パック名</string>
+    <string name="modpack_export_author">作者</string>
+    <string name="modpack_export_version">バージョン</string>
+    <string name="modpack_export_description">説明</string>
+    <string name="modpack_export_description_hint">Markdown に対応。README.md にも書き込みます</string>
+    <string name="modpack_export_continue">次へ</string>
+    <string name="modpack_export_content_title">含める内容を選択</string>
+    <string name="modpack_export_content_body">既定の項目は配布向けです。サーバー一覧とゲーム設定には個人情報が含まれる場合があります。</string>
+    <string name="modpack_export_empty">このインスタンスには書き出せる内容がありません。</string>
+    <string name="modpack_export_loading">インスタンスの内容を読み込み中…</string>
+    <string name="modpack_export_files">%1$d 個のファイル · %2$s</string>
+    <string name="modpack_export_back">戻る</string>
+    <string name="modpack_export_action">書き出す</string>
+    <string name="modpack_export_section_servers">マルチプレイサーバー一覧</string>
+    <string name="modpack_export_section_configs">MOD 設定ファイル</string>
+    <string name="modpack_export_section_mods">MOD</string>
+    <string name="modpack_export_section_shaderpacks">シェーダー</string>
+    <string name="modpack_export_section_resourcepacks">リソースパック</string>
+    <string name="modpack_export_section_game_settings">ゲーム設定</string>
 </resources>

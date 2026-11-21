@@ -45,6 +45,52 @@ internal object AndroidFilePicker : FileBrowser {
         return withContext(Dispatchers.IO) { copyToCache(uri) }
     }
 
+    override suspend fun save(
+        title: String,
+        suggestedName: String,
+        extensions: List<String>,
+    ): FileSavePick {
+        val launch = AndroidPlatform.savePickerLauncher
+            ?: return FileSavePick.Unavailable("no-activity")
+        val uri = suspendCancellableCoroutine<Uri?> { continuation ->
+            AndroidPlatform.setPendingSavePick { picked ->
+                if (continuation.isActive) continuation.resume(picked)
+            }
+            launch(suggestedName)
+        }
+        if (uri == null) {
+            AndroidPlatform.setPendingSavePick {}
+            return FileSavePick.Cancelled
+        }
+        // External-storage documents expose a readable `primary:Download/…`
+        // segment; providers with opaque ids fall back to the file name.
+        val segment = uri.lastPathSegment.orEmpty()
+        val readable = segment.takeIf { it.contains(':') || it.contains('/') }
+            ?: displayName(uri).ifBlank { suggestedName }
+        return FileSavePick.Picked(
+            path = uri.toString(),
+            displayPath = readable,
+            direct = false,
+        )
+    }
+
+    override suspend fun writePicked(target: FileSavePick.Picked, sourcePath: String): Boolean =
+        withContext(Dispatchers.IO) {
+            if (target.direct) return@withContext true
+            val context = AndroidPlatform.contextOrNull() ?: return@withContext false
+            runCatching {
+                val source = File(sourcePath)
+                val uri = Uri.parse(target.path)
+                context.contentResolver.openOutputStream(uri, "w")?.use { sink ->
+                    source.inputStream().use { input -> input.copyTo(sink) }
+                } != null
+            }.getOrDefault(false)
+        }
+
+    override suspend fun discard(path: String) {
+        withContext(Dispatchers.IO) { runCatching { File(path).delete() } }
+    }
+
     private fun copyToCache(uri: Uri): FilePick {
         val context = AndroidPlatform.contextOrNull()
             ?: return FilePick.Unavailable("no-context")

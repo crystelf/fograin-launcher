@@ -65,6 +65,8 @@ import com.fograin.launcher.ui.components.fograinPageTransition
 import com.fograin.launcher.ui.diagnostics.DiagnosticsPage
 import com.fograin.launcher.ui.instances.InstanceDetailPage
 import com.fograin.launcher.ui.instances.InstanceSettingsPage
+import com.fograin.launcher.ui.modpack.ModpackExportDialog
+import com.fograin.launcher.ui.modpack.ModpackExportPage
 import com.fograin.launcher.ui.title
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
@@ -117,7 +119,7 @@ fun LibraryScreen(model: AppModel, state: AppUiState) {
         when (stage) {
             LibraryStage.DETAIL -> detailSearchExpanded = state.content.query.isNotEmpty()
             LibraryStage.LIST -> detailSearchExpanded = false
-            LibraryStage.SETTINGS, LibraryStage.DIAGNOSTICS -> Unit
+            LibraryStage.SETTINGS, LibraryStage.EXPORT, LibraryStage.DIAGNOSTICS -> Unit
         }
     }
     // A deleted or externally removed instance must not leave a blank page.
@@ -163,6 +165,8 @@ fun LibraryScreen(model: AppModel, state: AppUiState) {
             )
 
             LibraryStage.SETTINGS -> InstanceSettingsRoute(model = model, state = state)
+
+            LibraryStage.EXPORT -> ModpackExportRoute(model = model, state = state)
 
             LibraryStage.DIAGNOSTICS -> DiagnosticsPage(model = model, state = state)
         }
@@ -365,6 +369,29 @@ private fun LibraryListPage(
                 showDirectoryPicker = false
                 model.importMinecraftDirectory(directory)
             },
+        )
+    }
+}
+
+/** Header + two-step export wizard for the library's export stage. */
+@Composable
+private fun ModpackExportRoute(model: AppModel, state: AppUiState) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        PageHeader(
+            title = stringResource(Res.string.modpack_export_page_title),
+            onBack = model::backModpackExportStep,
+        )
+        ModpackExportPage(
+            model = model,
+            state = state,
+            modifier = Modifier.weight(1f),
+        )
+    }
+    state.modpackExport.result?.let { result ->
+        ModpackExportDialog(
+            result = result,
+            onCopy = model::copyModpackExportPath,
+            onDismiss = model::dismissModpackExportResult,
         )
     }
 }

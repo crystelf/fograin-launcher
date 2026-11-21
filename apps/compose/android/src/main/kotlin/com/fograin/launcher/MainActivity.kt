@@ -32,6 +32,12 @@ class MainActivity : ComponentActivity() {
             AndroidPlatform.onFilePicked(uri)
         }
 
+    /** SAF save dialog for exported modpacks and diagnostic bundles. */
+    private val savePicker =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+            AndroidPlatform.onSavePicked(uri)
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -41,6 +47,7 @@ class MainActivity : ComponentActivity() {
         AndroidPlatform.install(this)
         AndroidPlatform.attachTreePicker { treePicker.launch(null) }
         AndroidPlatform.attachFilePicker { types -> filePicker.launch(types) }
+        AndroidPlatform.attachSavePicker { name -> savePicker.launch(name) }
         AppRuntime.dataRoot = AndroidPlatform.installedDataRootOverride()
             ?: (getExternalFilesDir(null) ?: filesDir).absolutePath
         val core = createCoreClient()

@@ -23,7 +23,7 @@
     <string name="action_launching">启动中…</string>
     <string name="action_game_settings">游戏设置</string>
     <string name="action_add_instance">添加实例</string>
-    <string name="action_copy_instance_dir">复制实例目录路径</string>
+    <string name="action_open_instance_dir">打开实例目录</string>
 
     <!-- Global search -->
     <string name="global_search_title">全局搜索</string>
@@ -378,8 +378,7 @@
     <string name="instance_settings_logs">日志与诊断</string>
     <string name="instance_settings_backup">导出与备份</string>
     <string name="instance_settings_maintenance">维护</string>
-    <string name="instance_settings_more">更多功能</string>
-    <string name="instance_settings_copy_note">目录路径会复制到剪贴板，可在文件管理器中粘贴打开。</string>
+    <string name="instance_settings_manage">管理</string>
     <string name="instance_settings_delete_title">删除实例？</string>
     <string name="instance_settings_delete_body">将删除“%1$s”的实例记录与游戏目录。正在运行的游戏无法删除。</string>
 
@@ -537,11 +536,11 @@
     <string name="modpack_files_label">文件</string>
     <string name="modpack_overrides">%1$d 个覆盖文件随包导入</string>
     <string name="modpack_total">约 %1$s</string>
-    <string name="modpack_import_action">导入</string>
+    <string name="modpack_import_action">安装</string>
     <string name="modpack_importing">正在创建任务…</string>
     <string name="modpack_inspecting">正在读取整合包…</string>
     <string name="modpack_external_note">这是一个外部实例目录：会原地注册，不复制文件。</string>
-    <string name="modpack_export">导出整合包…</string>
+    <string name="modpack_export">导出整合包</string>
     <string name="modpack_export_title">已导出整合包</string>
     <string name="modpack_export_body">已写入 %1$s（%2$d 个文件）。可以把 .mrpack 分享给其他人导入。</string>
     <string name="modpack_copy_path">复制路径</string>
@@ -711,4 +710,30 @@
     <string name="settings_about_license_value">GPL-3.0-only</string>
     <string name="settings_about_data">数据目录</string>
     <string name="settings_about_config">配置文件</string>
+    <string name="modpack_author_label">作者</string>
+    <string name="modpack_version_label">版本</string>
+    <string name="modpack_readme_title">整合包说明</string>
+    <string name="modpack_readme_empty">这个整合包没有附带 README。</string>
+    <string name="modpack_export_page_title">导出整合包</string>
+    <string name="modpack_export_subtitle">填写 Modrinth 整合包的元数据，导出后会生成 .mrpack 文件。</string>
+    <string name="modpack_export_summary">整合包信息</string>
+    <string name="modpack_export_name">整合包名称</string>
+    <string name="modpack_export_author">作者</string>
+    <string name="modpack_export_version">版本</string>
+    <string name="modpack_export_description">整合包描述</string>
+    <string name="modpack_export_description_hint">支持 Markdown，同时写入 README.md</string>
+    <string name="modpack_export_continue">继续</string>
+    <string name="modpack_export_content_title">选择要包含的内容</string>
+    <string name="modpack_export_content_body">默认勾选的项通常需要分享；服务器列表和游戏设置可能包含个人信息。</string>
+    <string name="modpack_export_empty">这个实例没有可导出的内容。</string>
+    <string name="modpack_export_loading">正在读取实例内容…</string>
+    <string name="modpack_export_files">%1$d 个文件 · %2$s</string>
+    <string name="modpack_export_back">上一步</string>
+    <string name="modpack_export_action">导出</string>
+    <string name="modpack_export_section_servers">多人游戏服务器列表</string>
+    <string name="modpack_export_section_configs">模组配置文件</string>
+    <string name="modpack_export_section_mods">模组</string>
+    <string name="modpack_export_section_shaderpacks">光影</string>
+    <string name="modpack_export_section_resourcepacks">资源包</string>
+    <string name="modpack_export_section_game_settings">游戏设置</string>
 </resources>

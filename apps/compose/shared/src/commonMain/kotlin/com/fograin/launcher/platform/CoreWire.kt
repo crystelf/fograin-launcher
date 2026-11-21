@@ -436,6 +436,8 @@ data class CoreAccount(
     val uuid: String = "",
     val server: String? = null,
     val serverName: String? = null,
+    /** Login email/username for third-party accounts; null for offline. */
+    val email: String? = null,
     val selected: Boolean = false,
 )
 
@@ -849,6 +851,8 @@ data class CoreModpack(
     val loaderVersion: String = "",
     val summary: String? = null,
     val author: String? = null,
+    /** Markdown/plain-text README shown on the import confirmation page. */
+    val readme: String? = null,
     val files: List<CorePackFile> = emptyList(),
     val overrides: String? = null,
     val sourcePath: String = "",
@@ -880,6 +884,23 @@ data class CoreModpackInstallTask(
     val versionId: String = "",
     val versionNumber: String = "",
     val source: String = "modrinth",
+)
+
+/** One checkbox on the modpack export wizard. */
+@Serializable
+data class CoreExportSection(
+    val id: String,
+    val label: String = id,
+    val files: Int = 0,
+    val bytes: Long = 0,
+    val default: Boolean = false,
+    val folder: Boolean = false,
+)
+
+/** `modpack.export.plan` result. */
+@Serializable
+data class CoreExportPlan(
+    val sections: List<CoreExportSection> = emptyList(),
 )
 
 /** `modpack.export` result. */
