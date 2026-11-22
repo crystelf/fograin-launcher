@@ -252,8 +252,8 @@ class FakeCoreClient : CoreClient {
             {"ok":true,"indexPath":"/tmp/fograin-test/instances/fog-forest/content.json",
              "counts":{"mod":2,"resourcepack":1,"shaderpack":1,"enabled":3},
              "items":[
-               {"kind":"mod","fileName":"sodium-fabric-0.6.13.jar","displayName":"sodium-fabric-0.6.13.jar","enabled":true,"sizeBytes":1306799,"title":"Sodium","version":"0.6.13","loader":"fabric","description":"Modern rendering engine for Minecraft.","source":"modrinth","projectId":"AANobbMI","projectName":"Sodium","versionId":"c3YkZvne"},
-               {"kind":"mod","fileName":"fabric-api-0.115.0.jar.disabled","displayName":"fabric-api-0.115.0.jar","enabled":false,"sizeBytes":2200000,"title":"Fabric API","version":"0.115.0","loader":"fabric","description":"Core API for Fabric mods.","source":"modrinth","projectId":"P7dR8mSH","projectName":"Fabric API","versionId":"api-v"},
+               {"kind":"mod","fileName":"sodium-fabric-0.6.13.jar","displayName":"sodium-fabric-0.6.13.jar","enabled":true,"sizeBytes":1306799,"title":"Sodium","version":"0.6.13","loader":"fabric","description":"Modern rendering engine for Minecraft.","source":"modrinth","projectId":"AANobbMI","projectName":"Sodium","versionId":"c3YkZvne","iconUrl":"https://cdn.modrinth.com/data/AANobbMI/295862f4724dc3f78df3447ad6072b2dcd3ef0c9_96.webp"},
+               {"kind":"mod","fileName":"fabric-api-0.115.0.jar.disabled","displayName":"fabric-api-0.115.0.jar","enabled":false,"sizeBytes":2200000,"title":"Fabric API","version":"0.115.0","loader":"fabric","description":"Core API for Fabric mods.","source":"modrinth","projectId":"P7dR8mSH","projectName":"Fabric API","versionId":"api-v","iconUrl":"https://cdn.modrinth.com/data/P7dR8mSH/icon.png"},
                {"kind":"resourcepack","fileName":"fograin-ui.zip","displayName":"fograin-ui.zip","enabled":true,"sizeBytes":5400000,"title":"Fograin UI","packFormat":34,"description":"A calm, forest-toned interface pack."},
                {"kind":"shaderpack","fileName":"bsl-shaders.zip","displayName":"bsl-shaders.zip","enabled":true,"sizeBytes":3800000,"title":"BSL Shaders","description":"Warm lighting with soft shadows."}
              ]}
@@ -477,9 +477,9 @@ Caused by: java.lang.OutOfMemoryError: Java heap space
             """
             {"ok":true,"source":"modrinth","total":3,"offset":0,"limit":50,
              "projects":[
-               {"source":"modrinth","projectId":"AANobbMI","slug":"sodium","title":"Sodium","description":"A modern rendering engine that greatly improves frame rates.","downloads":252637937,"follows":42812,"categories":["fabric","optimization"],"updated":"2026-11-12T00:00:00Z"},
-               {"source":"modrinth","projectId":"P7dR8mSH","slug":"fabric-api","title":"Fabric API","description":"Lightweight and modular API for Fabric mods.","downloads":180000000,"follows":12000,"categories":["fabric","library"],"updated":"2026-11-01T00:00:00Z"},
-               {"source":"modrinth","projectId":"YL57xq9U","slug":"iris","title":"Iris Shaders","description":"Modern shader pack loader for Minecraft.","downloads":90000000,"follows":8000,"categories":["fabric","neoforge"],"updated":"2026-10-20T00:00:00Z"}
+               {"source":"modrinth","projectId":"AANobbMI","slug":"sodium","title":"Sodium","description":"A modern rendering engine that greatly improves frame rates.","downloads":252637937,"follows":42812,"iconUrl":"https://cdn.modrinth.com/data/AANobbMI/295862f4724dc3f78df3447ad6072b2dcd3ef0c9_96.webp","categories":["fabric","optimization"],"updated":"2026-11-12T00:00:00Z"},
+               {"source":"modrinth","projectId":"P7dR8mSH","slug":"fabric-api","title":"Fabric API","description":"Lightweight and modular API for Fabric mods.","downloads":180000000,"follows":12000,"iconUrl":"https://cdn.modrinth.com/data/P7dR8mSH/icon.png","categories":["fabric","library"],"updated":"2026-11-01T00:00:00Z"},
+               {"source":"modrinth","projectId":"YL57xq9U","slug":"iris","title":"Iris Shaders","description":"Modern shader pack loader for Minecraft.","downloads":90000000,"follows":8000,"iconUrl":"https://cdn.modrinth.com/data/YL57xq9U/18d0e7f076d3d6ed5bedd472b853909aac5da202_96.webp","categories":["fabric","neoforge"],"updated":"2026-10-20T00:00:00Z"}
              ]}
             """.trimIndent()
 
@@ -505,8 +505,8 @@ Caused by: java.lang.OutOfMemoryError: Java heap space
             """
             {"ok":true,"source":"modrinth","total":2,"offset":0,"limit":50,
              "projects":[
-               {"source":"modrinth","projectId":"fresh-animations","slug":"fresh-animations","title":"Fresh Animations","description":"Dynamic animated entities that bring the world to life.","downloads":52000000,"follows":18000,"categories":["resourcepack","entities"],"updated":"2026-11-14T00:00:00Z"},
-               {"source":"modrinth","projectId":"better-leaves","slug":"better-leaves","title":"Motschen's Better Leaves","description":"Improved leaf shapes with high mod compatibility.","downloads":21000000,"follows":6000,"categories":["resourcepack","decoration"],"updated":"2026-11-05T00:00:00Z"}
+               {"source":"modrinth","projectId":"fresh-animations","slug":"fresh-animations","title":"Fresh Animations","description":"Dynamic animated entities that bring the world to life.","downloads":52000000,"follows":18000,"iconUrl":"https://cdn.modrinth.com/data/50dA9Sha/3132c10e9e3c73fde9799720fd3da5561071708c_96.webp","categories":["resourcepack","entities"],"updated":"2026-11-14T00:00:00Z"},
+               {"source":"modrinth","projectId":"better-leaves","slug":"better-leaves","title":"Motschen's Better Leaves","description":"Improved leaf shapes with high mod compatibility.","downloads":21000000,"follows":6000,"iconUrl":"https://cdn.modrinth.com/data/uvpymuxq/fe1a61998ae57dc6ad1a4bb028334c3c3925d22f_96.webp","categories":["resourcepack","decoration"],"updated":"2026-11-05T00:00:00Z"}
              ]}
             """.trimIndent()
 

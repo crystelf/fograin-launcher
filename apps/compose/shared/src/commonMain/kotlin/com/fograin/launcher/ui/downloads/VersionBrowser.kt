@@ -55,6 +55,7 @@ import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.platform.CoreVersionEntry
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.components.SkeletonBox
+import com.fograin.launcher.ui.components.VersionKindGlyph
 import com.fograin.launcher.ui.emptyMessage
 import org.jetbrains.compose.resources.stringResource
 
@@ -256,19 +257,7 @@ private fun VersionRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .background(kindTint.copy(alpha = 0.15f), RoundedCornerShape(11.dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = versionIcon(version.kind),
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                    tint = kindTint,
-                )
-            }
+            VersionKindGlyph(kind = version.kind, size = 36.dp)
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(2.dp),

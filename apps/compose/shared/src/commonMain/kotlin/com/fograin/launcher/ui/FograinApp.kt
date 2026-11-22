@@ -74,6 +74,9 @@ import com.fograin.launcher.ui.downloads.DownloadsScreen
 import com.fograin.launcher.ui.home.HomeScreen
 import com.fograin.launcher.ui.library.LibraryScreen
 import com.fograin.launcher.ui.search.GlobalSearchSheet
+import coil3.ImageLoader
+import coil3.compose.setSingletonImageLoaderFactory
+import coil3.request.crossfade
 import org.jetbrains.compose.resources.stringResource
 
 /** Window width at which the shell swaps the bottom bar for a navigation rail. */
@@ -103,6 +106,14 @@ fun FograinApp(
     model: AppModel,
     state: AppUiState,
 ) {
+    // Network artwork (version posters and content icons) shares one loader so
+    // requests, memory cache and crossfades are process-wide. The factory is a
+    // no-op after the first composition.
+    setSingletonImageLoaderFactory { context ->
+        ImageLoader.Builder(context)
+            .crossfade(true)
+            .build()
+    }
     val snackbarHostState = remember { SnackbarHostState() }
     val services = remember { platformServices() }
     val backDispatcher = remember { services.backDispatcher }

@@ -51,6 +51,7 @@ kotlin {
         implementation(libs.kotlinx.coroutines.core)
         implementation(libs.kotlinx.serialization.json)
         implementation(libs.kotlinx.datetime)
+        implementation(libs.coil.compose)
     }
 
     sourceSets.commonTest.dependencies {
@@ -63,6 +64,11 @@ kotlin {
     sourceSets.getByName("androidMain").dependencies {
         implementation(libs.androidx.activity.compose)
         implementation(libs.kotlinx.coroutines.android)
+    }
+
+    // Coil's OkHttp network fetcher is JVM-only; `jvmMain` covers Android and desktop.
+    sourceSets.getByName("jvmMain").dependencies {
+        implementation(libs.coil.network.okhttp)
     }
 
     sourceSets.getByName("desktopMain").dependencies {

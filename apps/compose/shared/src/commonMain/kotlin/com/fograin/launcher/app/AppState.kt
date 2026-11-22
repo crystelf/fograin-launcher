@@ -189,9 +189,6 @@ data class AccountUiState(
     /** Display name for the greeting and avatar; stable before the first load. */
     val displayName: String
         get() = selected?.name ?: "Steve"
-
-    val initial: String
-        get() = displayName.firstOrNull()?.uppercaseChar()?.toString() ?: "?"
 }
 
 /** Scope of the home instance list, matching the pen's recent filter. *//** Scope of the home instance list, matching the pen's recent filter. */

@@ -71,6 +71,7 @@ import com.fograin.launcher.platform.CoreLocalContent
 import com.fograin.launcher.platform.CoreWorld
 import com.fograin.launcher.platform.CoreWorldBackup
 import com.fograin.launcher.resources.*
+import com.fograin.launcher.ui.components.ContentArtwork
 import com.fograin.launcher.ui.components.SegmentedTabRail
 import com.fograin.launcher.ui.components.fograinTabTransition
 import com.fograin.launcher.ui.emptyTitle
@@ -454,6 +455,12 @@ private fun LocalContentRow(
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                ContentArtwork(
+                    iconUrl = item.iconUrl,
+                    fallback = contentFallbackIcon(item.kind),
+                    size = 38.dp,
+                )
+                Spacer(Modifier.size(9.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = item.title,
@@ -783,6 +790,12 @@ private fun DatapackRow(
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                ContentArtwork(
+                    iconUrl = null,
+                    fallback = Icons.Outlined.FolderZip,
+                    size = 38.dp,
+                )
+                Spacer(Modifier.size(9.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = item.title,

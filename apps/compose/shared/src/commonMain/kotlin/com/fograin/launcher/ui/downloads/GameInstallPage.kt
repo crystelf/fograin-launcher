@@ -58,6 +58,7 @@ import com.fograin.launcher.model.InstanceFormat
 import com.fograin.launcher.platform.CoreVersionEntry
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.components.SkeletonBox
+import com.fograin.launcher.ui.components.VersionKindGlyph
 import com.fograin.launcher.ui.titleText
 import org.jetbrains.compose.resources.stringResource
 
@@ -164,22 +165,7 @@ private fun InstallHero(version: CoreVersionEntry) {
                 verticalAlignment = Alignment.Top,
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(58.dp)
-                        .background(
-                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-                            RoundedCornerShape(18.dp),
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = versionIcon(version.kind),
-                        contentDescription = null,
-                        modifier = Modifier.size(28.dp),
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                }
+                VersionKindGlyph(kind = version.kind, size = 58.dp)
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(5.dp),

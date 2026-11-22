@@ -45,6 +45,7 @@ import com.fograin.launcher.platform.CoreContentInstallItem
 import com.fograin.launcher.platform.CoreContentProject
 import com.fograin.launcher.platform.CoreContentVersion
 import com.fograin.launcher.resources.*
+import com.fograin.launcher.ui.components.ContentArtwork
 import com.fograin.launcher.ui.components.DropdownField
 import com.fograin.launcher.ui.downloadsCountText
 import com.fograin.launcher.ui.title
@@ -103,36 +104,50 @@ fun ContentProjectSheet(
             .padding(start = 16.dp, end = 16.dp, bottom = 20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            text = project.title,
-            style = MaterialTheme.typography.titleLarge,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = buildString {
-                append(sourceLabel)
-                append(" · ")
-                append(downloadsCountText(project.downloads))
-                project.categories.take(4).takeIf { it.isNotEmpty() }?.let { categories ->
-                    append(" · ")
-                    append(categories.joinToString(" / "))
-                }
-            },
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        if (project.description.isNotBlank()) {
-            Text(
-                text = project.description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 4,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-
         val category = state.download.category
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            ContentArtwork(
+                iconUrl = project.iconUrl,
+                fallback = category.fallbackIcon(),
+                size = 58.dp,
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = project.title,
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = buildString {
+                        append(sourceLabel)
+                        append(" · ")
+                        append(downloadsCountText(project.downloads))
+                        project.categories.take(4).takeIf { it.isNotEmpty() }?.let { categories ->
+                            append(" · ")
+                            append(categories.joinToString(" / "))
+                        }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (project.description.isNotBlank()) {
+                    Text(
+                        text = project.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,

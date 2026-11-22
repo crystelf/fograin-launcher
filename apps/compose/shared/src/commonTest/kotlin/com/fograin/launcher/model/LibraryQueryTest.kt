@@ -26,7 +26,6 @@ class LibraryQueryTest {
         sizeBytes = size,
         lastPlayedEpochMillis = lastPlayedDaysAgo?.let { now - it * day },
         isFavorite = favorite,
-        palette = Instance.InstancePalette.FOREST,
     )
 
     private val instances = listOf(

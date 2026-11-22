@@ -51,6 +51,8 @@ pub struct LocalContent {
     pub project_id: Option<String>,
     pub project_name: Option<String>,
     pub version_id: Option<String>,
+    /// Project artwork URL remembered at install time.
+    pub icon_url: Option<String>,
 }
 
 impl LocalContent {
@@ -74,6 +76,7 @@ impl LocalContent {
             project_id: None,
             project_name: None,
             version_id: None,
+            icon_url: None,
         }
     }
 
@@ -83,6 +86,7 @@ impl LocalContent {
         self.project_id = Some(entry.project_id.clone());
         self.project_name = Some(entry.project_name.clone());
         self.version_id = Some(entry.version_id.clone());
+        self.icon_url.clone_from(&entry.icon_url);
         if self.version.is_none() {
             self.version = Some(entry.version_number.clone());
         }
@@ -711,6 +715,7 @@ description="View items and recipes"
             version_id: "c3YkZvne".into(),
             version_number: "0.6.13".into(),
             sha1: None,
+            icon_url: None,
             installed_at_ms: 1,
         });
         let items = scan_local(temp.path(), ContentKind::Mod, Some(&index)).expect("scan");

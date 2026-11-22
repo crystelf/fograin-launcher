@@ -44,6 +44,8 @@ pub struct PlannedFile {
     pub url: String,
     pub sha1: Option<String>,
     pub sha512: Option<String>,
+    /// Project artwork from the source site, copied into the instance index.
+    pub icon_url: Option<String>,
 }
 
 /// Request used by the FFI layer and the CLI.
@@ -197,6 +199,7 @@ impl ContentPlan {
                         version_id: item.version_id.clone(),
                         version_number: item.version_number.clone(),
                         sha1: item.sha1.clone(),
+                        icon_url: item.icon_url.clone(),
                         installed_at_ms: now_ms(),
                     });
                 }
@@ -263,8 +266,10 @@ pub async fn plan_install(client: &ContentClient, request: InstallRequest) -> Re
     };
 
     let installed: HashSet<String> = request.installed_projects.into_iter().collect();
-    let mut project_names: HashMap<String, String> =
-        HashMap::from([(root_project_id.clone(), root_project.title)]);
+    let mut project_meta: HashMap<String, (String, Option<String>)> = HashMap::from([(
+        root_project_id.clone(),
+        (root_project.title, root_project.icon_url),
+    )]);
     let mut seen: HashSet<String> = HashSet::new();
     let mut queue: VecDeque<(String, Option<String>, PlannedFileKind, usize)> = VecDeque::new();
     queue.push_back((
@@ -313,20 +318,20 @@ pub async fn plan_install(client: &ContentClient, request: InstallRequest) -> Re
             continue;
         }
 
-        if !project_names.contains_key(&project_id) {
-            let title = match fetch_project_title(client, request.source, &project_id).await {
-                Ok(title) => title,
+        if !project_meta.contains_key(&project_id) {
+            let project = match fetch_project(client, request.source, &project_id).await {
+                Ok(project) => project,
                 Err(error) => {
                     warnings.push(format!("无法读取前置 {project_id} 的信息：{error}"));
                     continue;
                 }
             };
-            project_names.insert(project_id.clone(), title);
+            project_meta.insert(project_id.clone(), (project.title, project.icon_url));
         }
-        let project_name = project_names
+        let (project_name, project_icon) = project_meta
             .get(&project_id)
             .cloned()
-            .unwrap_or_else(|| project_id.clone());
+            .unwrap_or_else(|| (project_id.clone(), None));
 
         let mut file = match version.file.clone() {
             Some(file) => file,
@@ -389,6 +394,7 @@ pub async fn plan_install(client: &ContentClient, request: InstallRequest) -> Re
             url: file.url,
             sha1: file.sha1,
             sha512: file.sha512,
+            icon_url: project_icon,
         });
 
         if request.install_dependencies {
@@ -470,20 +476,14 @@ async fn resolve_version(
     }
 }
 
-async fn fetch_project_title(
+async fn fetch_project(
     client: &ContentClient,
     source: ContentSource,
     project_id: &str,
-) -> Result<String> {
+) -> Result<crate::model::Project> {
     match source {
-        ContentSource::Modrinth => client
-            .modrinth_project(project_id)
-            .await
-            .map(|project| project.title),
-        ContentSource::Curseforge => client
-            .curseforge_project(project_id)
-            .await
-            .map(|project| project.title),
+        ContentSource::Modrinth => client.modrinth_project(project_id).await,
+        ContentSource::Curseforge => client.curseforge_project(project_id).await,
     }
 }
 

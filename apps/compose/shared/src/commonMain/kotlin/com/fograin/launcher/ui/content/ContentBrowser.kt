@@ -41,6 +41,7 @@ import com.fograin.launcher.app.ContentSourceOption
 import com.fograin.launcher.model.DownloadsCategory
 import com.fograin.launcher.platform.CoreContentProject
 import com.fograin.launcher.resources.*
+import com.fograin.launcher.ui.components.ContentArtwork
 import com.fograin.launcher.ui.components.DropdownField
 import com.fograin.launcher.ui.downloadsCountText
 import com.fograin.launcher.ui.titleText
@@ -253,6 +254,7 @@ fun ContentBrowser(
                     items(browser.projects, key = { "${it.source}-${it.projectId}" }) { project ->
                         ProjectCard(
                             project = project,
+                            fallback = category.fallbackIcon(),
                             onClick = { model.contentBrowser.openProject(project) },
                         )
                     }
@@ -263,7 +265,11 @@ fun ContentBrowser(
 }
 
 @Composable
-private fun ProjectCard(project: CoreContentProject, onClick: () -> Unit) {
+private fun ProjectCard(
+    project: CoreContentProject,
+    fallback: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+) {
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(18.dp),
@@ -276,21 +282,11 @@ private fun ProjectCard(project: CoreContentProject, onClick: () -> Unit) {
             modifier = Modifier.padding(14.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .background(
-                        MaterialTheme.colorScheme.primaryContainer,
-                        RoundedCornerShape(14.dp),
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = project.title.firstOrNull()?.uppercase() ?: "?",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
-            }
+            ContentArtwork(
+                iconUrl = project.iconUrl,
+                fallback = fallback,
+                size = 46.dp,
+            )
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(3.dp),

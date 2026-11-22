@@ -353,6 +353,7 @@ data class CoreLocalContent(
     val projectId: String? = null,
     val projectName: String? = null,
     val versionId: String? = null,
+    val iconUrl: String? = null,
 )
 
 /** Per-kind counts included in `content.local`. */

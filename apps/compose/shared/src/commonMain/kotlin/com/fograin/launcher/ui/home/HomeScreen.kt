@@ -11,7 +11,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -66,7 +65,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -82,6 +80,7 @@ import com.fograin.launcher.ui.components.PageHeader
 import com.fograin.launcher.ui.components.SectionHeader
 import com.fograin.launcher.ui.components.StatusPill
 import com.fograin.launcher.ui.components.StatusTone
+import com.fograin.launcher.ui.components.VersionBackdrop
 import com.fograin.launcher.ui.components.ThinProgressBar
 import com.fograin.launcher.ui.downloadSpeedText
 import com.fograin.launcher.ui.metaText
@@ -92,7 +91,6 @@ import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
-import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
 /** Test tag for the top-bar account entry. */
@@ -130,7 +128,6 @@ fun HomeScreen(model: AppModel, state: AppUiState) {
             ),
             actions = {
                 AccountAvatarButton(
-                    initial = account.initial,
                     label = stringResource(Res.string.home_account_format, account.displayName),
                     onClick = model.account::open,
                     modifier = Modifier.testTag(AccountAvatarTag),
@@ -289,21 +286,19 @@ private fun HeroCard(model: AppModel, state: AppUiState, instance: Instance) {
         ),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp),
     ) {
-        Box(modifier = Modifier.height(248.dp)) {
-            Image(
-                painter = painterResource(Res.drawable.hero_forest),
-                contentDescription = null,
+        Box(modifier = Modifier.height(300.dp)) {
+            VersionBackdrop(
+                minecraftVersion = instance.minecraftVersion,
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
             )
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            0.0f to Color.Black.copy(alpha = 0.10f),
-                            0.40f to Color.Transparent,
-                            1.0f to Color.Black.copy(alpha = 0.86f),
+                            0.0f to Color.Black.copy(alpha = 0.16f),
+                            0.34f to Color.Transparent,
+                            1.0f to Color.Black.copy(alpha = 0.72f),
                         ),
                     ),
             )
@@ -525,7 +520,7 @@ private fun HomeInstanceRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            InstanceTile(instance = instance, size = 40.dp)
+            InstanceTile(instance = instance, size = 46.dp)
             Column(modifier = Modifier.weight(1f)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

@@ -221,6 +221,7 @@ async fn install_plan_resolves_dependencies_and_writes_the_index() {
                 "description": "",
                 "downloads": 1,
                 "followers": 1,
+                "icon_url": format!("https://cdn.example/{project}.png"),
                 "categories": []
             })))
             .mount(&server)
@@ -360,10 +361,21 @@ async fn install_plan_resolves_dependencies_and_writes_the_index() {
     );
     let index = ContentIndex::load(&instance_dir).expect("index");
     assert_eq!(index.items.len(), 2);
+    let sodium = index
+        .items
+        .iter()
+        .find(|entry| entry.project_id == "sodium")
+        .expect("sodium index entry");
+    assert_eq!(sodium.version_id, "sodium-v");
+    assert_eq!(
+        sodium.icon_url.as_deref(),
+        Some("https://cdn.example/sodium.png")
+    );
     assert!(
         index
             .items
             .iter()
-            .any(|entry| entry.project_id == "sodium" && entry.version_id == "sodium-v")
+            .any(|entry| entry.project_id == "fabric-api"
+                && entry.icon_url.as_deref() == Some("https://cdn.example/fabric-api.png"))
     );
 }

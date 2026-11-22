@@ -7,7 +7,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,13 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.ChevronRight
-import androidx.compose.material.icons.outlined.Extension
-import androidx.compose.material.icons.outlined.GridView
-import androidx.compose.material.icons.outlined.LocalFireDepartment
-import androidx.compose.material.icons.outlined.ViewInAr
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +32,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.model.GameLoaderKind
 import com.fograin.launcher.resources.*
+import com.fograin.launcher.ui.components.LoaderGlyph
 import com.fograin.launcher.ui.subtitleText
 import com.fograin.launcher.ui.titleText
 import org.jetbrains.compose.resources.stringResource
@@ -155,12 +149,6 @@ internal fun LoaderOptionCard(
         animationSpec = tween(170),
         label = "loader-card-border",
     )
-    val accent = if (selected) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    }
-
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -171,13 +159,10 @@ internal fun LoaderOptionCard(
         horizontalArrangement = Arrangement.spacedBy(9.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        Icon(
-            imageVector = loaderIcon(option),
-            contentDescription = null,
-            modifier = Modifier
-                .padding(top = 1.dp)
-                .size(18.dp),
-            tint = accent,
+        LoaderGlyph(
+            kind = option,
+            modifier = Modifier.padding(top = 1.dp),
+            size = 28.dp,
         )
         Column(
             modifier = Modifier.weight(1f),
@@ -273,33 +258,8 @@ internal fun LoaderVersionRow(
     }
 }
 
-/** Icon shown by loader cards, rows and the loader-version page. */
-internal fun loaderIcon(kind: GameLoaderKind): ImageVector = when (kind) {
-    GameLoaderKind.VANILLA -> Icons.Outlined.ViewInAr
-    GameLoaderKind.FABRIC -> Icons.Outlined.Extension
-    GameLoaderKind.QUILT -> Icons.Outlined.GridView
-    GameLoaderKind.FORGE -> Icons.Outlined.Build
-    GameLoaderKind.NEOFORGE -> Icons.Outlined.LocalFireDepartment
-    GameLoaderKind.OPTIFINE -> Icons.Outlined.AutoAwesome
-}
-
 /** Loader badge shared by the loader-version page header and its rows. */
 @Composable
-internal fun LoaderIconTile(kind: GameLoaderKind, size: Int = 36, iconSize: Int = 18) {
-    Box(
-        modifier = Modifier
-            .size(size.dp)
-            .background(
-                MaterialTheme.colorScheme.surfaceContainerHigh,
-                RoundedCornerShape((size / 3).dp),
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = loaderIcon(kind),
-            contentDescription = null,
-            modifier = Modifier.size(iconSize.dp),
-            tint = MaterialTheme.colorScheme.primary,
-        )
-    }
+internal fun LoaderIconTile(kind: GameLoaderKind, size: Int = 36) {
+    LoaderGlyph(kind = kind, size = size.dp)
 }

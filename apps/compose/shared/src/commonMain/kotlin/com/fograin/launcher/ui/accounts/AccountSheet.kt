@@ -1,6 +1,5 @@
 package com.fograin.launcher.ui.accounts
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,7 +11,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -56,6 +54,7 @@ import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.platform.CoreAccount
 import com.fograin.launcher.resources.*
+import com.fograin.launcher.ui.components.SteveAvatar
 import org.jetbrains.compose.resources.stringResource
 
 const val AccountSheetTag: String = "account-sheet"
@@ -276,10 +275,7 @@ private fun AccountRow(model: AppModel, account: CoreAccount, onDelete: () -> Un
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            AccountAvatar(
-                initial = account.name.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-                selected = selected,
-            )
+            SteveAvatar(size = 36.dp, selected = selected)
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = account.name,
@@ -486,10 +482,7 @@ private fun ProfileStage(model: AppModel, state: AppUiState) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                AccountAvatar(
-                    initial = profile.name.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-                    selected = false,
-                )
+                SteveAvatar(size = 36.dp)
                 Column(modifier = Modifier.weight(1f)) {
                     Text(text = profile.name, style = MaterialTheme.typography.bodyLarge)
                     Text(
@@ -539,33 +532,6 @@ private fun MicrosoftLoginCard() {
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun AccountAvatar(initial: String, selected: Boolean) {
-    Box(
-        modifier = Modifier
-            .size(36.dp)
-            .background(
-                color = if (selected) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.tertiaryContainer
-                },
-                shape = CircleShape,
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = initial,
-            style = MaterialTheme.typography.labelLarge,
-            color = if (selected) {
-                MaterialTheme.colorScheme.onPrimary
-            } else {
-                MaterialTheme.colorScheme.onTertiaryContainer
-            },
-        )
     }
 }
 

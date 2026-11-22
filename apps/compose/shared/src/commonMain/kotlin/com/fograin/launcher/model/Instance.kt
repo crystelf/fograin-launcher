@@ -5,8 +5,8 @@ import com.fograin.launcher.platform.CoreInstanceRow
 /**
  * One launcher instance, backed by `instances.list` from the shared Rust core.
  *
- * Presentation-only fields (palette, formatted strings) are derived here so
- * the screens stay free of wire types.
+ * Presentation-only fields (loader labels, formatted values) are derived here
+ * so the screens stay free of wire types.
  */
 data class Instance(
     val id: String,
@@ -18,38 +18,9 @@ data class Instance(
     val sizeBytes: Long,
     val lastPlayedEpochMillis: Long?,
     val isFavorite: Boolean = false,
-    val palette: InstancePalette,
     val playSeconds: Long = 0,
     val isInstalled: Boolean = false,
 ) {
-    /** Accent family for the generated instance tile, from `tokens.json`. */
-    enum class InstancePalette {
-        FOREST,
-        COPPER,
-        SLATE,
-        VIOLET,
-        CLAY,
-        LAGOON,
-        SAND,
-        MOSS,
-        ASH,
-        ;
-
-        companion object {
-            /**
-             * Assigns tile palettes in the pen's order so every instance gets a
-             * stable accent color derived from its id (djb2 hash).
-             */
-            fun forId(id: String): InstancePalette {
-                var hash = 5381
-                for (character in id) {
-                    hash = (hash shl 5) + hash + character.code
-                }
-                return entries[(hash and Int.MAX_VALUE) % entries.size]
-            }
-        }
-    }
-
     val group: LibraryGroup
         get() = loader.libraryGroup
 
@@ -100,7 +71,6 @@ data class Instance(
                 sizeBytes = row.sizeBytes,
                 lastPlayedEpochMillis = row.lastPlayedMs,
                 isFavorite = row.favorite,
-                palette = InstancePalette.forId(row.id),
                 playSeconds = row.playSeconds,
                 isInstalled = row.installed,
             )

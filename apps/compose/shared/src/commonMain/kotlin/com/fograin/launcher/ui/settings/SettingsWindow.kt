@@ -95,6 +95,7 @@ import com.fograin.launcher.resources.settings_title
 import com.fograin.launcher.resources.settings_window_title
 import com.fograin.launcher.ui.components.FograinSnackbarHost
 import com.fograin.launcher.ui.components.SettingsRootTransitionMillis
+import com.fograin.launcher.ui.components.SteveAvatar
 import com.fograin.launcher.ui.components.contentPanelShape
 import com.fograin.launcher.ui.components.fograinSettingsTransition
 import com.fograin.launcher.ui.locale.AppLocale
@@ -596,7 +597,6 @@ private fun SettingsSidebar(
             SettingsProfileCard(
                 name = account.displayName,
                 subtitle = accountSubtitle(account.selected?.kind, account.selected?.serverName),
-                initial = account.initial,
                 modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
             )
 
@@ -726,7 +726,6 @@ private fun SettingsNavItem(
 private fun SettingsProfileCard(
     name: String,
     subtitle: String,
-    initial: String,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -734,19 +733,7 @@ private fun SettingsProfileCard(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .size(54.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primaryContainer),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = initial,
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-        }
+        SteveAvatar(size = 54.dp)
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 text = name,
@@ -941,7 +928,6 @@ private fun CompactSettingsList(model: AppModel, state: AppUiState) {
         SettingsProfileCard(
             name = account.displayName,
             subtitle = accountSubtitle(account.selected?.kind, account.selected?.serverName),
-            initial = account.initial,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
         )
         Column(

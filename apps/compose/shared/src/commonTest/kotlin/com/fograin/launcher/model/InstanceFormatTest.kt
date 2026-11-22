@@ -76,7 +76,6 @@ class InstanceFormatTest {
             modCount = 42,
             sizeBytes = 0,
             lastPlayedEpochMillis = null,
-            palette = Instance.InstancePalette.FOREST,
         )
         assertEquals("1.21.4 · Fabric · 42 模组", instance.meta)
         assertEquals("1.21.4 · Fabric 0.16.9", instance.versionLine)

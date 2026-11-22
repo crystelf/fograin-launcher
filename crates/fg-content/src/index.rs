@@ -37,6 +37,9 @@ pub struct IndexEntry {
     pub version_id: String,
     pub version_number: String,
     pub sha1: Option<String>,
+    /// Project artwork from the source site; `None` for legacy entries.
+    #[serde(default)]
+    pub icon_url: Option<String>,
     pub installed_at_ms: u64,
 }
 
@@ -191,6 +194,7 @@ mod tests {
             version_id: "c3YkZvne".into(),
             version_number: "0.6.13".into(),
             sha1: Some("aa".into()),
+            icon_url: Some("https://cdn.modrinth.com/data/AANobbMI/icon.png".into()),
             installed_at_ms: 1,
         }
     }

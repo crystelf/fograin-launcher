@@ -92,7 +92,7 @@ internal fun LoaderVersionsPage(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                LoaderIconTile(kind = loader, size = 44, iconSize = 22)
+                LoaderIconTile(kind = loader, size = 44)
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(3.dp),
@@ -237,7 +237,7 @@ private fun LoaderVersionRowCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            LoaderIconTile(kind = loader, size = 36, iconSize = 18)
+            LoaderIconTile(kind = loader, size = 36)
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(3.dp),
