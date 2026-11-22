@@ -9,7 +9,7 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs,
-    io::{Read as _, Write as _},
+    io::Write as _,
     path::{Path, PathBuf},
     process::Stdio,
     sync::{
@@ -1360,19 +1360,6 @@ pub fn verify_installed(
     Ok(())
 }
 
-/// Small helper for the CLI: ensures the fixed log4j config exists.
-///
-/// # Errors
-///
-/// Returns I/O errors when the config cannot be written.
-pub fn ensure_log4j_fix(layout: &Layout) -> Result<PathBuf> {
-    let path = layout.log_configs().join(LOG4J_FIX_FILE);
-    if !path.is_file() {
-        write_atomic(&path, LOG4J_FIX_XML.as_bytes())?;
-    }
-    Ok(path)
-}
-
 /// Removes a stale argfile/pathing jar after a successful start.
 pub fn cleanup_launch_artifacts(plan: &LaunchPlan) {
     for path in [plan.argfile.as_ref(), plan.pathing_jar.as_ref()]
@@ -1385,17 +1372,6 @@ pub fn cleanup_launch_artifacts(plan: &LaunchPlan) {
             warn!(path = %path.display(), %error, "cannot remove launch artifact");
         }
     }
-}
-
-/// Reads a file into memory for tests and diagnostics.
-///
-/// # Errors
-///
-/// Returns I/O errors.
-pub fn read_file(path: &Path) -> Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    fs::File::open(path)?.read_to_end(&mut bytes)?;
-    Ok(bytes)
 }
 
 #[cfg(test)]

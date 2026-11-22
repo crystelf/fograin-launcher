@@ -451,11 +451,6 @@ impl TaskGraph {
         &self.name
     }
 
-    #[must_use]
-    pub fn node_count(&self) -> usize {
-        self.nodes.len()
-    }
-
     /// Current aggregated progress.
     #[must_use]
     pub fn progress(&self) -> GraphProgress {

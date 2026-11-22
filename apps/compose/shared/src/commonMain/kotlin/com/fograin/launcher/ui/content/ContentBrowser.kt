@@ -39,12 +39,11 @@ import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.app.ContentSourceOption
 import com.fograin.launcher.model.DownloadsCategory
-import com.fograin.launcher.model.InstanceFormat
-import com.fograin.launcher.ui.downloadsCountText
-import com.fograin.launcher.ui.titleText
 import com.fograin.launcher.platform.CoreContentProject
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.components.DropdownField
+import com.fograin.launcher.ui.downloadsCountText
+import com.fograin.launcher.ui.titleText
 import org.jetbrains.compose.resources.stringResource
 
 /** Stable test tag for one content project card. */
@@ -86,7 +85,7 @@ fun ContentBrowser(
             ContentSourceOption.entries.forEach { option ->
                 FilterChip(
                     selected = option == browser.source,
-                    onClick = { model.setContentSource(option) },
+                    onClick = { model.contentBrowser.setSource(option) },
                     label = {
                         Text(
                             stringResource(
@@ -128,7 +127,7 @@ fun ContentBrowser(
                     value = selectedWorld?.let { it.levelName ?: it.name }
                         ?: stringResource(Res.string.datapack_no_world_title),
                     options = browser.worlds.map { world ->
-                        (world.levelName ?: world.name) to { model.selectContentWorld(world.name) }
+                        (world.levelName ?: world.name) to { model.contentBrowser.selectWorld(world.name) }
                     },
                     enabled = browser.worlds.isNotEmpty(),
                     modifier = Modifier.weight(1f),
@@ -186,7 +185,7 @@ fun ContentBrowser(
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.weight(1f),
                         )
-                        TextButton(onClick = { model.openContentCategory(category) }) {
+                        TextButton(onClick = { model.contentBrowser.openCategory(category) }) {
                             Text(stringResource(Res.string.downloads_retry))
                         }
                     }
@@ -254,7 +253,7 @@ fun ContentBrowser(
                     items(browser.projects, key = { "${it.source}-${it.projectId}" }) { project ->
                         ProjectCard(
                             project = project,
-                            onClick = { model.openContentProject(project) },
+                            onClick = { model.contentBrowser.openProject(project) },
                         )
                     }
                 }

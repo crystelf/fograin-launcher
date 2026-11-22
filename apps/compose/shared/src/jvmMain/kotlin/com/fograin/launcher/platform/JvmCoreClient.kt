@@ -65,7 +65,7 @@ internal class JvmCoreClient : CoreClient {
             }
         } catch (t: Throwable) {
             failure = t.message ?: t::class.simpleName
-            println("Fograin core initialization failed: ${t.message ?: t::class.simpleName}")
+            JvmLogger.error("Core", "initialization failed", t)
         }
 
         initError = failure
@@ -125,21 +125,21 @@ internal class JvmCoreClient : CoreClient {
         val raw = try {
             CoreNative.nativeEventsNext()
         } catch (error: Throwable) {
-            println("Fograin events_next failed: ${error.message}")
+            JvmLogger.warn("Core", "events_next failed: ${error.message}", error)
             return emptyList()
         } ?: return emptyList()
         return try {
             when (val element = CoreJson.parseToJsonElement(raw)) {
                 is JsonArray -> element.mapNotNull { it as? JsonObject }
                 is JsonObject -> {
-                    println("Fograin events_next error: ${element.errorPayload()?.localizedDescription}")
+                    JvmLogger.warn("Core", "events_next error: ${element.errorPayload()?.localizedDescription}", null)
                     emptyList()
                 }
 
                 else -> emptyList()
             }
         } catch (error: Throwable) {
-            println("Fograin malformed event payload: $raw")
+            JvmLogger.warn("Core", "malformed event payload: $raw", null)
             emptyList()
         }
     }

@@ -8,7 +8,6 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 use fg_core::{Error, ErrorKind, Result};
@@ -92,12 +91,7 @@ impl PersistedGraph {
 }
 
 /// Unix milliseconds.
-#[must_use]
-pub fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_millis() as u64)
-}
+pub use fg_core::now_ms;
 
 /// Path used for a graph id inside the task directory.
 #[must_use]

@@ -16,7 +16,7 @@ import kotlinx.serialization.json.put
  * The active filter/search/sort live in [AppUiState] and are pure view state,
  * so they stay on [AppModel]; everything that crosses the RPC boundary is here.
  */
-internal class LibraryActions(private val model: AppModel) {
+class LibraryActions(private val model: AppModel) {
 
     /** 新建实例 / 添加实例 routes to the download page (HMCL/PCL behaviour). */
     fun openAddInstance() {

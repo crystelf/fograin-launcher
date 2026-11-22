@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.dp
 
 /**
  * Account entry in a top app bar. Uses a 48dp native touch target around the
- * 32dp avatar circle; the account page itself lands in M7.
+ * 32dp avatar circle used by the home header and the account panel.
  */
 @Composable
 fun AccountAvatarButton(

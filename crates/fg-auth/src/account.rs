@@ -5,18 +5,18 @@
 //! split keeps the public file safe to inspect and copies the account model
 //! from the launcher technical specification without ever storing a password.
 //!
-//! M7 ships a file-backed credential store. The OS keyring / Android Keystore
-//! migration is tracked in `docs/backlog.md` and does not change this API.
+//! The store is file-backed. Moving the tokens into the OS keyring (macOS
+//! Keychain, Windows Credential Manager, Linux Secret Service, Android Keystore)
+//! would not change this API.
 
 use std::{
     collections::BTreeMap,
     fs,
     io::Write as _,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
 };
 
-use fg_core::{Error, ErrorKind, Result};
+use fg_core::{Error, ErrorKind, Result, now_ms, write_atomic};
 use serde::{Deserialize, Serialize};
 
 use crate::offline::{AccountKind, OfflineAccount, validate_name};
@@ -475,42 +475,6 @@ impl AccountStore {
         Ok(self.account(&id).expect("account was inserted or updated"))
     }
 
-    /// Applies a refreshed token pair (and optional bound profile) to an
-    /// existing account.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ErrorKind::NotFound`] when the id is unknown.
-    pub fn update_auth(
-        &mut self,
-        id: &str,
-        response: &AuthResponse,
-        profile: Option<&YggdrasilProfile>,
-    ) -> Result<&Account> {
-        let index = self
-            .accounts
-            .iter()
-            .position(|account| account.id == id)
-            .ok_or_else(|| {
-                Error::with_detail(
-                    ErrorKind::NotFound,
-                    "error.auth.account_not_found",
-                    id.to_string(),
-                )
-            })?;
-        let account = &mut self.accounts[index];
-        account.access_token = Some(response.access_token.clone());
-        account.client_token = Some(response.client_token.clone());
-        account.user_id = response.user_id.clone();
-        if let Ok(properties) = serde_json::to_string(&response.user_properties) {
-            account.properties = properties;
-        }
-        if let Some(profile) = profile {
-            account.name = profile.name.clone();
-        }
-        Ok(account)
-    }
-
     /// Selects an existing account.
     ///
     /// # Errors
@@ -575,20 +539,6 @@ impl AccountStore {
         })?;
         account.session(injector)
     }
-
-    /// Builds the launch session for the selected account.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ErrorKind::NotFound`] with `error.auth.no_account` when the
-    /// store is empty.
-    pub fn selected_session(&self, injector: Option<AuthlibInjector>) -> Result<AuthSession> {
-        let id = self
-            .selected_id
-            .as_deref()
-            .ok_or_else(|| Error::new(ErrorKind::NotFound, "error.auth.no_account"))?;
-        self.session_for(id, injector)
-    }
 }
 
 /// Generates a random RFC 4122 v4 UUID-shaped token.
@@ -643,12 +593,6 @@ fn format_uuid(bytes: &[u8; 16]) -> String {
         bytes[14],
         bytes[15]
     )
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_millis() as u64)
 }
 
 /// Metadata file shape (`accounts.json`).
@@ -781,33 +725,6 @@ impl From<AccountMeta> for Account {
             created_at_ms: meta.created_at_ms,
         }
     }
-}
-
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| {
-            Error::with_detail(
-                ErrorKind::Io,
-                "error.auth.accounts_write",
-                format!("{}: {error}", parent.display()),
-            )
-        })?;
-    }
-    let temporary = path.with_extension("tmp");
-    fs::write(&temporary, bytes).map_err(|error| {
-        Error::with_detail(
-            ErrorKind::Io,
-            "error.auth.accounts_write",
-            format!("{}: {error}", temporary.display()),
-        )
-    })?;
-    fs::rename(&temporary, path).map_err(|error| {
-        Error::with_detail(
-            ErrorKind::Io,
-            "error.auth.accounts_write",
-            format!("{}: {error}", path.display()),
-        )
-    })
 }
 
 fn write_private_atomic(path: &Path, bytes: &[u8]) -> Result<()> {

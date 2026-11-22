@@ -1,5 +1,6 @@
 package com.fograin.launcher.app
 
+import com.fograin.launcher.model.TaskState
 import com.fograin.launcher.platform.CoreEvent
 import com.fograin.launcher.platform.CoreJavaCatalog
 import com.fograin.launcher.platform.CoreJavaList
@@ -12,13 +13,13 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * Java runtime inventory, policy and downloads (M6).
+ * Java runtime inventory, policy and downloads.
  *
  * The settings destination owns a Java sub-page instead of a fifth top-level
  * tab: it is a launcher-maintenance surface, and keeping it inside Settings
- * means the bottom bar keeps its four M4 destinations.
+ * means the bottom bar keeps its four destinations.
  */
-internal class JavaActions(private val model: AppModel) {
+class JavaActions(private val model: AppModel) {
 
     private var generation = 0
     private var loading = false
@@ -196,7 +197,8 @@ internal class JavaActions(private val model: AppModel) {
             )
         }
         when (event.state) {
-            "failed" -> {
+            TaskState.RUNNING -> Unit
+            TaskState.FAILED -> {
                 val detail = event.detail.firstOrNull() ?: "未知原因"
                 model.showError(
                     "Java 运行时下载失败",
@@ -205,8 +207,9 @@ internal class JavaActions(private val model: AppModel) {
                 )
             }
 
-            "cancelled" -> model.showNotice("已取消 Java 下载")
-            "succeeded" -> model.showNotice("Java 运行时安装完成", Notice.Tone.SUCCESS)
+            TaskState.CANCELLED -> model.showNotice("已取消 Java 下载")
+            TaskState.SUCCEEDED -> model.showNotice("Java 运行时安装完成", Notice.Tone.SUCCESS)
+            TaskState.PAUSED, TaskState.UNKNOWN -> Unit
         }
         model.scope.launch {
             load(includeCatalog = true)

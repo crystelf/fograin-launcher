@@ -16,8 +16,8 @@
 //! The safe `*_json` functions below build the same payloads for the C ABI and
 //! for the Android JNI shim in `bindings/fg-ffi-jni`.
 //!
-//! Everything crosses the boundary as JSON. The contract is documented in
-//! `bindings/README.md`; UI clients own their presentation types, so no Swift,
+//! Everything crosses the boundary as JSON. The method table lives in
+//! [`Service::rpc`]; UI clients own their presentation types, so no Swift,
 //! Kotlin or C# types belong here.
 
 use std::{
@@ -35,6 +35,7 @@ use fg_core::{
 use serde::Serialize;
 
 mod events;
+mod logging;
 mod service;
 pub use events::EventQueue;
 pub use service::{InstanceRow, Service, SettingUpdate, TaskRow};

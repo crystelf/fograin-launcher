@@ -1,4 +1,4 @@
-//! Managed Java runtime catalog (§5.5, M6).
+//! Managed Java runtime catalog.
 //!
 //! Mojang publishes the exact JRE builds the official launcher uses at
 //! `launchermeta.mojang.com/v1/products/java-runtime/.../all.json`. The index

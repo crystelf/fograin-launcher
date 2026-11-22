@@ -16,9 +16,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.ErrorOutline
@@ -56,7 +56,6 @@ import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.platform.CoreAccount
 import com.fograin.launcher.resources.*
-import com.fograin.launcher.ui.components.MilestoneChip
 import org.jetbrains.compose.resources.stringResource
 
 const val AccountSheetTag: String = "account-sheet"
@@ -74,7 +73,7 @@ fun accountRowTag(id: String): String = "account-row-$id"
 fun accountProfileTag(id: String): String = "account-profile-$id"
 
 /**
- * Account panel (M7): offline and third-party identities only. There is no
+ * Account panel: offline and third-party identities only. There is no
  * skin section by design; textures are provided by the third-party server and
  * authlib-injector at game time.
  */
@@ -96,7 +95,7 @@ fun AccountSheet(model: AppModel, state: AppUiState) {
         AccountHeader(
             stage = account.stage,
             onBack = model::back,
-            onClose = model::closeAccounts,
+            onClose = model.account::close,
         )
 
         if (account.isLoading && account.accounts.isEmpty()) {
@@ -148,7 +147,7 @@ fun AccountSheet(model: AppModel, state: AppUiState) {
             confirmButton = {
                 TextButton(
                     onClick = {
-                        model.removeAccount(target.id)
+                        model.account.remove(target.id)
                         deleteTarget = null
                     },
                 ) {
@@ -235,7 +234,7 @@ private fun AccountListStage(
 
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Button(
-            onClick = model::showOfflineAccountForm,
+            onClick = model.account::showOfflineForm,
             modifier = Modifier
                 .weight(1f)
                 .testTag(AccountAddOfflineTag),
@@ -245,7 +244,7 @@ private fun AccountListStage(
             Text(stringResource(Res.string.account_add_offline))
         }
         OutlinedButton(
-            onClick = model::showYggdrasilAccountForm,
+            onClick = model.account::showYggdrasilForm,
             modifier = Modifier
                 .weight(1f)
                 .testTag(AccountAddYggdrasilTag),
@@ -261,7 +260,7 @@ private fun AccountListStage(
 private fun AccountRow(model: AppModel, account: CoreAccount, onDelete: () -> Unit) {
     val selected = account.selected
     Surface(
-        onClick = { model.selectAccount(account.id) },
+        onClick = { model.account.select(account.id) },
         modifier = Modifier
             .fillMaxWidth()
             .testTag(accountRowTag(account.id)),
@@ -310,7 +309,7 @@ private fun AccountRow(model: AppModel, account: CoreAccount, onDelete: () -> Un
                 )
             }
             if (account.kind == "yggdrasil") {
-                IconButton(onClick = { model.refreshAccount(account.id) }) {
+                IconButton(onClick = { model.account.refreshAccount(account.id) }) {
                     Icon(
                         Icons.Outlined.Refresh,
                         contentDescription = stringResource(Res.string.account_refresh_login),
@@ -338,7 +337,7 @@ private fun OfflineAccountStage(model: AppModel, state: AppUiState) {
         value = name,
         onValueChange = {
             name = it
-            model.clearAccountError()
+            model.account.clearError()
         },
         modifier = Modifier
             .fillMaxWidth()
@@ -349,7 +348,7 @@ private fun OfflineAccountStage(model: AppModel, state: AppUiState) {
         enabled = !submitting,
     )
     Button(
-        onClick = { model.addOfflineAccount(name) },
+        onClick = { model.account.addOffline(name) },
         modifier = Modifier
             .fillMaxWidth()
             .testTag(AccountOfflineSubmitTag),
@@ -387,7 +386,7 @@ private fun YggdrasilAccountStage(model: AppModel, state: AppUiState) {
         AssistChip(
             onClick = {
                 server = "https://littleskin.cn/api/yggdrasil"
-                model.clearAccountError()
+                model.account.clearError()
             },
             label = { Text(stringResource(Res.string.account_preset_littleskin)) },
         )
@@ -396,7 +395,7 @@ private fun YggdrasilAccountStage(model: AppModel, state: AppUiState) {
         value = server,
         onValueChange = {
             server = it
-            model.clearAccountError()
+            model.account.clearError()
         },
         modifier = Modifier
             .fillMaxWidth()
@@ -412,7 +411,7 @@ private fun YggdrasilAccountStage(model: AppModel, state: AppUiState) {
         value = username,
         onValueChange = {
             username = it
-            model.clearAccountError()
+            model.account.clearError()
         },
         modifier = Modifier
             .fillMaxWidth()
@@ -426,7 +425,7 @@ private fun YggdrasilAccountStage(model: AppModel, state: AppUiState) {
         value = password,
         onValueChange = {
             password = it
-            model.clearAccountError()
+            model.account.clearError()
         },
         modifier = Modifier
             .fillMaxWidth()
@@ -441,7 +440,7 @@ private fun YggdrasilAccountStage(model: AppModel, state: AppUiState) {
         ),
     )
     Button(
-        onClick = { model.loginYggdrasil(server, username, password) },
+        onClick = { model.account.loginYggdrasil(server, username, password) },
         modifier = Modifier
             .fillMaxWidth()
             .testTag(AccountLoginTag),
@@ -475,7 +474,7 @@ private fun ProfileStage(model: AppModel, state: AppUiState) {
     )
     account.pendingProfiles.forEach { profile ->
         Surface(
-            onClick = { model.selectYggdrasilProfile(profile.id) },
+            onClick = { model.account.selectYggdrasilProfile(profile.id) },
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag(accountProfileTag(profile.id)),
@@ -539,7 +538,6 @@ private fun MicrosoftLoginCard() {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            MilestoneChip("M11")
         }
     }
 }

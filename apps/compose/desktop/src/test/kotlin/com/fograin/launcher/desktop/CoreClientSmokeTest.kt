@@ -3,17 +3,25 @@ package com.fograin.launcher.desktop
 import com.fograin.launcher.platform.AppRuntime
 import com.fograin.launcher.platform.CoreAccount
 import com.fograin.launcher.platform.CoreContentLocal
-import com.fograin.launcher.platform.CoreInstanceRow
 import com.fograin.launcher.platform.CoreDatapacks
 import com.fograin.launcher.platform.CoreDiagExport
 import com.fograin.launcher.platform.CoreDiagnostics
 import com.fograin.launcher.platform.CoreExportPlan
+import com.fograin.launcher.platform.CoreInstanceRow
 import com.fograin.launcher.platform.CoreModpack
 import com.fograin.launcher.platform.CoreModpackExport
 import com.fograin.launcher.platform.CoreWorlds
-import com.fograin.launcher.platform.decode
 import com.fograin.launcher.platform.createCoreClient
+import com.fograin.launcher.platform.decode
 import com.fograin.launcher.platform.resultRows
+import java.io.File
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
@@ -22,14 +30,6 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import java.io.File
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
-import kotlin.test.Test
-import kotlin.test.assertNotNull
-import kotlin.test.assertEquals
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
 
 /**
  * Smoke tests: load the desktop JNI library from classpath resources and run

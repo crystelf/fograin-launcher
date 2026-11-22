@@ -1,5 +1,6 @@
 package com.fograin.launcher.platform
 
+import com.fograin.launcher.model.TaskState
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -18,7 +19,7 @@ sealed interface CoreEvent {
     data class TaskFinished(
         val taskId: String,
         val name: String,
-        val state: String,
+        val state: TaskState,
         val detail: List<String>,
     ) : CoreEvent
 
@@ -51,7 +52,7 @@ sealed interface CoreEvent {
                 TaskFinished(
                     taskId = taskId,
                     name = json.stringOrNull("name") ?: taskId,
-                    state = json.stringOrNull("state") ?: "succeeded",
+                    state = TaskState.fromWire(json.stringOrNull("state") ?: "succeeded"),
                     detail = json.stringRows("detail"),
                 )
             }

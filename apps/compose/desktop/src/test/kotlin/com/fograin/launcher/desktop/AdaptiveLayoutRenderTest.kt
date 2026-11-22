@@ -5,7 +5,6 @@ import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.unit.Density
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
-import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.ui.AppDestination
 import com.fograin.launcher.ui.FograinApp
 import com.fograin.launcher.ui.theme.FograinTheme
@@ -18,7 +17,7 @@ import kotlinx.coroutines.runBlocking
 import org.jetbrains.skia.EncodedImageFormat
 
 /**
- * R4 acceptance: the two desktop window sizes from the backlog must both
+ * The two desktop window sizes must both
  * render, with the rail instead of the bottom bar once the window is wide.
  *
  * Writes one PNG per size and prints the paths so the reviewer can compare.

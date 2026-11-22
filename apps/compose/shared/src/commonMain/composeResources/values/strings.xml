@@ -110,7 +110,7 @@
     <string name="account_profile_body">%1$s 返回了多个角色，选择本次启动使用的角色。</string>
     <string name="account_profile_action">使用这个角色</string>
     <string name="account_microsoft_title">正版登录</string>
-    <string name="account_microsoft_body">将在后续版本提供（M11）。</string>
+    <string name="account_microsoft_body">将在后续版本提供。</string>
     <string name="account_error_title">账户操作没有完成</string>
 
     <!-- Instance summaries -->
@@ -222,7 +222,6 @@
     <string name="downloads_size">体积</string>
     <string name="downloads_plan_error">无法计算安装内容：%1$s</string>
     <string name="downloads_install_running">任务进行中…</string>
-    <string name="downloads_milestone_chip">%1$s 接入</string>
     <string name="downloads_kind_release">正式版</string>
     <string name="downloads_kind_snapshot">快照</string>
     <string name="downloads_category_game">游戏</string>
@@ -247,7 +246,6 @@
     <string name="downloads_resourcepack_body">浏览资源包并按实例的 MC 版本过滤兼容性。</string>
     <string name="downloads_shaderpack_body">为已安装光影加载器的实例选择光影包。</string>
     <string name="downloads_datapack_body">把数据包放进存档或世界的 datapacks 目录。</string>
-    <string name="downloads_milestone_later">后续</string>
 
     <!-- Install page and loader version picker -->
     <string name="install_title">安装游戏</string>

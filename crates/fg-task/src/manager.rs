@@ -105,13 +105,6 @@ impl TaskManager {
         }
     }
 
-    /// Caps how many nodes run at once across a single graph.
-    #[must_use]
-    pub fn with_max_parallel(mut self, max_parallel: usize) -> Self {
-        self.max_parallel = max_parallel.max(1);
-        self
-    }
-
     /// Subscribes to progress/state events.
     #[must_use]
     pub fn subscribe(&self) -> broadcast::Receiver<TaskEvent> {

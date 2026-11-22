@@ -110,14 +110,7 @@ pub(crate) async fn plan(
     }
 
     if let Some(install) = &profile.install {
-        plan_legacy_install(
-            planner,
-            &mut plan,
-            &archive,
-            &mut embedded,
-            install,
-            request.minecraft,
-        )?;
+        plan_legacy_install(planner, &mut plan, &archive, &mut embedded, install)?;
     }
 
     let install_libraries = parse_install_libraries(&profile.libraries)?;
@@ -196,7 +189,6 @@ fn plan_legacy_install(
     archive: &InstallerArchive,
     embedded: &mut BTreeSet<String>,
     install: &LegacyInstall,
-    minecraft: &str,
 ) -> Result<()> {
     let Some(file_path) = install.file_path.as_deref() else {
         return Ok(());
@@ -217,7 +209,6 @@ fn plan_legacy_install(
         embedded,
         "legacy universal",
     );
-    let _ = minecraft;
     Ok(())
 }
 

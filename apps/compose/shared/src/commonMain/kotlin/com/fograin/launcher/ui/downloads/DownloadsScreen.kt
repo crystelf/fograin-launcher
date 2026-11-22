@@ -24,15 +24,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.LazyGridState
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AssistChip
@@ -44,7 +44,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -59,7 +58,6 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
@@ -74,10 +72,10 @@ import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.components.PageHeader
 import com.fograin.launcher.ui.components.SegmentedTabRail
+import com.fograin.launcher.ui.components.ThinProgressBar
 import com.fograin.launcher.ui.components.fograinPageTransition
 import com.fograin.launcher.ui.components.fograinTabTransition
 import com.fograin.launcher.ui.content.ContentBrowser
-import com.fograin.launcher.ui.components.ThinProgressBar
 import com.fograin.launcher.ui.downloadSpeedText
 import com.fograin.launcher.ui.stateText
 import com.fograin.launcher.ui.title
@@ -111,7 +109,7 @@ fun DownloadsScreen(model: AppModel, state: AppUiState) {
 
     val closeSearch: () -> Unit = {
         searchExpanded = false
-        model.setDownloadQuery("")
+        model.downloads.setQuery("")
         focusManager.clearFocus(force = true)
     }
 
@@ -120,13 +118,13 @@ fun DownloadsScreen(model: AppModel, state: AppUiState) {
         // compact search field instead of showing a silently filtered list.
         if (state.download.query.isNotEmpty()) searchExpanded = true
         if (category == DownloadsCategory.GAME) {
-            model.loadDownloadVersions()
+            model.downloads.loadVersions()
         }
     }
     LaunchedEffect(category) {
         if (!searchAvailable) {
             searchExpanded = false
-            model.setDownloadQuery("")
+            model.downloads.setQuery("")
             focusManager.clearFocus(force = true)
         }
     }
@@ -169,7 +167,7 @@ fun DownloadsScreen(model: AppModel, state: AppUiState) {
                         else -> null
                     },
                     searchQuery = state.download.query,
-                    onSearchQueryChange = model::setDownloadQuery,
+                    onSearchQueryChange = model.downloads::setQuery,
                     searchExpanded = searchExpanded,
                     onSearchExpandedChange = { expanded ->
                         if (expanded) searchExpanded = true else closeSearch()
@@ -179,7 +177,7 @@ fun DownloadsScreen(model: AppModel, state: AppUiState) {
                             category == DownloadsCategory.GAME -> {
                                 ChannelFilterChip(
                                     channel = state.download.channel,
-                                    onSelect = model::setDownloadChannel,
+                                    onSelect = model.downloads::setChannel,
                                 )
                             }
 
@@ -195,7 +193,7 @@ fun DownloadsScreen(model: AppModel, state: AppUiState) {
                                         label = loader.title(),
                                         selected = loader == selectedLoader,
                                         onClick = {
-                                            model.setDownloadContentLoader(loader)
+                                            model.downloads.setContentLoader(loader)
                                         },
                                     )
                                 },
@@ -205,7 +203,7 @@ fun DownloadsScreen(model: AppModel, state: AppUiState) {
                                 ContentTargetChip(
                                     instances = state.instances,
                                     selectedId = state.contentBrowser.targetInstanceId,
-                                    onSelect = model::setContentTargetInstance,
+                                    onSelect = model.contentBrowser::setTargetInstance,
                                 )
                             }
                         }
@@ -242,7 +240,7 @@ fun DownloadsScreen(model: AppModel, state: AppUiState) {
                                     modifier = Modifier.testTag(DownloadsQueueMenuTag),
                                     onClick = {
                                         menuExpanded = false
-                                        model.openDownloadQueue()
+                                        model.downloads.openQueue()
                                     },
                                 )
                                 DropdownMenuItem(
@@ -271,7 +269,7 @@ fun DownloadsScreen(model: AppModel, state: AppUiState) {
             DownloadStage.INSTALL -> Column(modifier = Modifier.fillMaxSize()) {
                 PageHeader(
                     title = stringResource(Res.string.install_title),
-                    onBack = model::closeInstallPage,
+                    onBack = model.downloads::closeInstallPage,
                 )
                 GameInstallPage(model = model, state = state)
             }
@@ -282,7 +280,7 @@ fun DownloadsScreen(model: AppModel, state: AppUiState) {
                         Res.string.install_loader_versions,
                         state.download.installLoader.title,
                     ),
-                    onBack = model::closeLoaderVersionPicker,
+                    onBack = model.downloads::closeLoaderVersionPicker,
                 )
                 LoaderVersionsPage(model = model, state = state)
             }
@@ -462,7 +460,7 @@ private fun DownloadsBody(
 
             DownloadToolbar(
                 category = category,
-                onCategoryChange = model::setDownloadCategory,
+                onCategoryChange = model.downloads::setCategory,
             )
 
             Spacer(Modifier.height(14.dp))
@@ -476,7 +474,7 @@ private fun DownloadsBody(
                     ActiveDownloadsCard(
                         rows = state.activeDownloads,
                         speedText = downloadSpeedText(state),
-                        onOpen = model::openDownloadQueue,
+                        onOpen = model.downloads::openQueue,
                     )
                     Spacer(Modifier.height(14.dp))
                 }
@@ -499,7 +497,7 @@ private fun DownloadsBody(
                             wide = wide,
                             listState = listState,
                             gridState = gridState,
-                            onRetryVersions = { scope.launch { model.reloadDownloadVersions() } },
+                            onRetryVersions = { scope.launch { model.downloads.reloadVersions() } },
                         )
 
                         else -> ContentBrowser(

@@ -9,6 +9,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
+import com.fograin.launcher.model.TaskState
 
 class CoreWireTest {
     private fun json(raw: String): JsonObject =
@@ -142,7 +143,7 @@ class CoreWireTest {
             json("""{"type":"task.finished","taskId":"task-1","name":"install:1.21.4","state":"succeeded","detail":["a","b"]}"""),
         )
         assertEquals(
-            CoreEvent.TaskFinished("task-1", "install:1.21.4", "succeeded", listOf("a", "b")),
+            CoreEvent.TaskFinished("task-1", "install:1.21.4", TaskState.SUCCEEDED, listOf("a", "b")),
             finished,
         )
 

@@ -486,6 +486,7 @@ dependencies = [
  "dirs",
  "serde",
  "serde_json",
+ "tempfile",
  "toml",
 ]
 
@@ -494,7 +495,6 @@ name = "fg-diag"
 version = "0.1.0"
 dependencies = [
  "fg-core",
- "flate2",
  "regex",
  "serde",
  "serde_json",
@@ -526,6 +526,7 @@ dependencies = [
  "tokio",
  "toml",
  "tracing",
+ "tracing-subscriber",
  "wiremock",
 ]
 
@@ -575,7 +576,6 @@ dependencies = [
  "sha1",
  "tempfile",
  "tokio",
- "tracing",
  "wiremock",
 ]
 

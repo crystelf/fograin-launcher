@@ -330,11 +330,6 @@ fn to_epoch_ms(time: std::time::SystemTime) -> Option<i64> {
         .and_then(|duration| i64::try_from(duration.as_millis()).ok())
 }
 
-/// Reads the `pack.mcmeta` of a `.zip` data pack; exposed for content scan tests.
-pub fn read_pack_meta(path: &Path) -> (Option<u32>, Option<String>) {
-    read_meta(path)
-}
-
 /// Writes a minimal `.zip` data pack. Tests and the CLI use it.
 ///
 /// # Errors

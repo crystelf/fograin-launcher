@@ -17,8 +17,8 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
@@ -95,7 +95,7 @@ fun InstanceDetailPage(
                 onBack = model::closeInstanceDetail,
                 searchPlaceholder = stringResource(Res.string.instance_detail_search_placeholder),
                 searchQuery = state.content.query,
-                onSearchQueryChange = model::setContentQuery,
+                onSearchQueryChange = model.content::setQuery,
                 searchExpanded = searchExpanded,
                 onSearchExpandedChange = onSearchExpandedChange,
                 actions = {
@@ -139,7 +139,7 @@ fun InstanceDetailPage(
                                 },
                                 onClick = {
                                     menuExpanded = false
-                                    model.openInstanceDirectory(instance)
+                                    model.instanceSettings.openDirectory(instance)
                                 },
                             )
                             DropdownMenuItem(
@@ -184,7 +184,7 @@ fun InstanceDetailPage(
                 TextButton(
                     onClick = {
                         showDeleteConfirm = false
-                        model.deleteInstance(instance)
+                        model.library.deleteInstance(instance)
                     },
                 ) {
                     Text(stringResource(Res.string.action_delete))
@@ -216,7 +216,7 @@ private fun LaunchAction(
         },
     )
     val onClick = {
-        if (running) model.stopGame() else model.startGame(instance)
+        if (running) model.launch.stop() else model.launch.start(instance)
     }
     if (compact) {
         FilledIconButton(
@@ -255,7 +255,7 @@ private fun LaunchAction(
 @Composable
 private fun FavoriteAction(model: AppModel, instance: Instance) {
     IconButton(
-        onClick = { model.toggleFavorite(instance) },
+        onClick = { model.library.toggleFavorite(instance) },
         modifier = Modifier
             .size(40.dp)
             .testTag(InstanceFavoriteTag),

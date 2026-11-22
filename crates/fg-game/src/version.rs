@@ -46,18 +46,6 @@ impl VersionManifest {
     pub fn find(&self, id: &str) -> Option<&VersionSummary> {
         self.versions.iter().find(|version| version.id == id)
     }
-
-    /// Latest stable release id from `latest.release`.
-    #[must_use]
-    pub fn latest_release(&self) -> Option<&VersionSummary> {
-        self.find(&self.latest.release)
-    }
-
-    /// Latest snapshot id from `latest.snapshot`.
-    #[must_use]
-    pub fn latest_snapshot(&self) -> Option<&VersionSummary> {
-        self.find(&self.latest.snapshot)
-    }
 }
 
 /// `latest` block.
@@ -614,7 +602,7 @@ impl ResolvedVersion {
     /// Mojang runtime component declared by `javaVersion.component`
     /// (`jre-legacy`, `java-runtime-gamma`, …).
     ///
-    /// M6 uses this to download the exact JRE the official launcher would use,
+    /// Used to download the exact JRE the official launcher would use,
     /// which matters for 1.8–1.16 on Apple Silicon (x86_64 under Rosetta).
     #[must_use]
     pub fn java_component(&self) -> Option<&str> {

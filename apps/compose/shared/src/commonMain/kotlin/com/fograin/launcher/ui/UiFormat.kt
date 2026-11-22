@@ -14,25 +14,26 @@ import com.fograin.launcher.model.DownloadsCategory
 import com.fograin.launcher.model.GameLoaderKind
 import com.fograin.launcher.model.Instance
 import com.fograin.launcher.model.InstanceFormat
+import com.fograin.launcher.model.LibraryGroup
+import com.fograin.launcher.model.LibraryScope
+import com.fograin.launcher.model.LibrarySort
 import com.fograin.launcher.model.LoaderKind
+import com.fograin.launcher.model.TaskState
+import com.fograin.launcher.resources.*
+import com.fograin.launcher.settings.ThemeMode
+import kotlin.math.roundToLong
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 import kotlin.time.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.number
 import kotlinx.datetime.toLocalDateTime
-import com.fograin.launcher.model.LibraryGroup
-import com.fograin.launcher.model.LibraryScope
-import com.fograin.launcher.model.LibrarySort
-import com.fograin.launcher.resources.*
-import com.fograin.launcher.settings.ThemeMode
 import org.jetbrains.compose.resources.stringResource
-import kotlin.math.roundToLong
 
 /**
  * Resource-backed presentation helpers shared by the four pages. Keeping the
  * Chinese copy in `composeResources` means the screens themselves contain no
- * user-facing literals; M10 can add locales without touching layout code.
+ * user-facing literals, so a new locale only adds a values-* resource set.
  */
 
 @Composable
@@ -272,11 +273,11 @@ fun DownloadRow.titleText(): String {
 
 @Composable
 fun DownloadRow.stateText(): String = when (state) {
-    "succeeded" -> stringResource(Res.string.status_succeeded)
-    "failed" -> stringResource(Res.string.status_failed)
-    "paused" -> stringResource(Res.string.status_paused)
-    "cancelled" -> stringResource(Res.string.status_cancelled)
-    else -> "${(fraction * 100).toInt()}%"
+    TaskState.SUCCEEDED -> stringResource(Res.string.status_succeeded)
+    TaskState.FAILED -> stringResource(Res.string.status_failed)
+    TaskState.PAUSED -> stringResource(Res.string.status_paused)
+    TaskState.CANCELLED -> stringResource(Res.string.status_cancelled)
+    TaskState.RUNNING, TaskState.UNKNOWN -> "${(fraction * 100).toInt()}%"
 }
 
 @Composable

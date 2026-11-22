@@ -1,8 +1,8 @@
 package com.fograin.launcher.model
 
+import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
-import kotlin.test.Test
 
 class LibraryQueryTest {
     private val now = 1_800_000_000_000L

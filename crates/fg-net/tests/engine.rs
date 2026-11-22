@@ -1,4 +1,4 @@
-//! End-to-end tests for the download engine (§6.2, §14 M2).
+//! End-to-end tests for the download engine.
 //!
 //! `wiremock` covers well-formed servers; a tiny raw TCP server covers protocol
 //! abuse (truncated bodies, 416) that a mocking library purposely does not

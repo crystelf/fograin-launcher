@@ -337,3 +337,87 @@ mod tests {
         assert_eq!(error.message_key, "error.java.none_installed");
     }
 }
+
+/// What an install or launch path needs from a runtime.
+///
+/// `require_arch` is set for Apple Silicon legacy versions: those can only run
+/// under an x86_64 Java 8 through Rosetta, so a matching major alone must not
+/// satisfy the requirement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JavaRequirement {
+    pub major: u32,
+    pub arch: JavaArch,
+    pub require_arch: bool,
+}
+
+impl JavaRequirement {
+    #[must_use]
+    pub const fn new(major: u32, arch: JavaArch, require_arch: bool) -> Self {
+        Self {
+            major,
+            arch,
+            require_arch,
+        }
+    }
+}
+
+/// True when `selection` satisfies `requirement`.
+#[must_use]
+pub fn satisfies(selection: &JavaSelection, requirement: JavaRequirement) -> bool {
+    !requirement.require_arch
+        || (selection.exact && selection.runtime.arch.is_compatible(requirement.arch))
+}
+
+/// Selects an already-installed runtime that satisfies `requirement`.
+///
+/// Unlike [`select`], an architecture mismatch is an error instead of a
+/// warning: the caller asked for a runtime it can actually execute.
+///
+/// # Errors
+///
+/// Propagates [`select`] failures and returns [`ErrorKind::Unsupported`] with
+/// `error.java.x86_64_required` when the closest runtime has the wrong
+/// architecture.
+pub fn select_available(
+    runtimes: &[JavaRuntime],
+    requirement: JavaRequirement,
+) -> Result<JavaSelection> {
+    match select(runtimes, requirement.major, requirement.arch) {
+        Ok(selection) if satisfies(&selection, requirement) => Ok(selection),
+        Ok(_) => Err(Error::with_detail(
+            ErrorKind::Unsupported,
+            "error.java.x86_64_required",
+            format!(
+                "need an exact {} Java {} for this version",
+                requirement.arch, requirement.major
+            ),
+        )),
+        Err(error) => Err(error),
+    }
+}
+
+/// Rejects a runtime that was just installed for the wrong architecture.
+///
+/// # Errors
+///
+/// Returns the same `error.java.x86_64_required` key as [`select_available`],
+/// with the installed runtime in the detail so the log explains the mismatch.
+pub fn verify_downloaded(selection: &JavaSelection, requirement: JavaRequirement) -> Result<()> {
+    if satisfies(selection, requirement) {
+        return Ok(());
+    }
+    Err(Error::with_detail(
+        ErrorKind::Unsupported,
+        "error.java.x86_64_required",
+        format!(
+            "downloaded Java {} is {}, but this version needs {}",
+            selection
+                .runtime
+                .version
+                .as_ref()
+                .map_or("?", |value| value.full.as_str()),
+            selection.runtime.arch,
+            requirement.arch,
+        ),
+    ))
+}

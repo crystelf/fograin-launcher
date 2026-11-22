@@ -3,7 +3,7 @@
 //! Launch argument construction must not know whether a player signed in
 //! offline or against a Yggdrasil server. [`AuthSession`] carries exactly the
 //! values the game needs plus the optional authlib-injector JVM arguments, and
-//! [`AuthSession::offline`] keeps the M3 offline behaviour unchanged.
+//! [`AuthSession::offline`] keeps the offline behaviour unchanged.
 
 use std::path::PathBuf;
 
@@ -152,7 +152,7 @@ impl AuthSession {
 
     /// Legacy `${auth_session}` value.
     ///
-    /// Offline sessions keep the `token:<token>:<uuid>` form from M3. Yggdrasil
+    /// Offline sessions keep the `token:<token>:<uuid>` form. Yggdrasil
     /// sessions follow the authlib-injector launcher spec, which substitutes
     /// the access token directly.
     #[must_use]

@@ -11,7 +11,7 @@ import java.util.prefs.Preferences
 /**
  * Desktop implementation of the shared platform layer.
  *
- * Window state, menus and FileKit land in R4; for now the shell only needs the
+ * Window state and menus live in the shell; this object only needs the
  * JNI loader, clipboard, logging, a preferences node and the data-root path
  * the Rust core resolves itself.
  */

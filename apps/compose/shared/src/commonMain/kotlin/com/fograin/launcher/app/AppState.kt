@@ -7,9 +7,9 @@ import com.fograin.launcher.model.GameLoaderKind
 import com.fograin.launcher.model.Instance
 import com.fograin.launcher.model.LibraryScope
 import com.fograin.launcher.model.LibrarySort
+import com.fograin.launcher.model.TaskState
 import com.fograin.launcher.platform.CoreAccount
 import com.fograin.launcher.platform.CoreAppSnapshot
-import com.fograin.launcher.platform.CoreGameConfig
 import com.fograin.launcher.platform.CoreContentCounts
 import com.fograin.launcher.platform.CoreContentInstallItem
 import com.fograin.launcher.platform.CoreContentProject
@@ -18,22 +18,23 @@ import com.fograin.launcher.platform.CoreContentVersion
 import com.fograin.launcher.platform.CoreDatapack
 import com.fograin.launcher.platform.CoreDiagLogs
 import com.fograin.launcher.platform.CoreDiagnostics
+import com.fograin.launcher.platform.CoreDownloadSettings
+import com.fograin.launcher.platform.CoreExportSection
 import com.fograin.launcher.platform.CoreFinding
+import com.fograin.launcher.platform.CoreGameConfig
 import com.fograin.launcher.platform.CoreJavaCatalogEntry
 import com.fograin.launcher.platform.CoreJavaRuntime
-import com.fograin.launcher.platform.CoreLocalContent
-import com.fograin.launcher.platform.CoreWorld
-import com.fograin.launcher.platform.CoreWorldBackup
 import com.fograin.launcher.platform.CoreLoaderVersion
-import com.fograin.launcher.platform.CoreExportSection
+import com.fograin.launcher.platform.CoreLocalContent
 import com.fograin.launcher.platform.CoreModpack
 import com.fograin.launcher.platform.CoreModpackExport
+import com.fograin.launcher.platform.CoreNetworkSettings
 import com.fograin.launcher.platform.CorePlanPreview
 import com.fograin.launcher.platform.CoreSettings
 import com.fograin.launcher.platform.CoreVersionEntry
+import com.fograin.launcher.platform.CoreWorld
+import com.fograin.launcher.platform.CoreWorldBackup
 import com.fograin.launcher.platform.CoreYggdrasilProfile
-import com.fograin.launcher.platform.CoreDownloadSettings
-import com.fograin.launcher.platform.CoreNetworkSettings
 import com.fograin.launcher.settings.AccentPreference
 import com.fograin.launcher.settings.AppLanguage
 import com.fograin.launcher.settings.InitialPage
@@ -70,7 +71,7 @@ data class DownloadRow(
     val title: String,
     val fraction: Double,
     val speed: Double,
-    val state: String,
+    val state: TaskState,
     /** Raw task graph name such as `install:1.21.5`; used for localization. */
     val graphName: String = "",
 )
@@ -158,7 +159,7 @@ data class JavaUiState(
 }
 
 /**
- * Sub-pages of the account panel. Skins are deliberately absent from M7: the
+ * Sub-pages of the account panel. Skins are deliberately absent: the
  * panel only manages identities (offline and third-party sign-in).
  */
 enum class AccountStage {
@@ -269,7 +270,7 @@ enum class ContentSourceOption(val wire: String) {
     CURSEFORGE("curseforge"),
 }
 
-/** Instance content manager state (M8). */
+/** Instance content manager state. */
 data class ContentManagerUiState(
     val instanceId: String? = null,
     val tab: ContentManagerTab = ContentManagerTab.MODS,
@@ -346,7 +347,7 @@ enum class DiagTab(val kind: String) {
     JVM("hsErr"),
 }
 
-/** Diagnostics page state (M9). */
+/** Diagnostics page state. */
 data class DiagUiState(
     val instanceId: String? = null,
     val analysis: CoreDiagnostics? = null,
@@ -419,7 +420,7 @@ data class ExportModpackUiState(
         get() = !isExporting && !isLoadingPlan
 }
 
-/** Modpack import state (M9/M10); export has its own wizard state. */
+/** Modpack import state; export has its own wizard state. */
 data class ModpackUiState(
     val inspecting: Boolean = false,
     /** Non-null while the import confirmation page is open. */
@@ -444,7 +445,7 @@ data class ContentDependencyPrompt(
     val warnings: List<String> = emptyList(),
 )
 
-/** Downloads page content browser state (M8). */
+/** Downloads page content browser state. */
 data class ContentBrowserUiState(
     val source: ContentSourceOption = ContentSourceOption.MODRINTH,
     val targetInstanceId: String = "",
@@ -550,7 +551,7 @@ data class AppUiState(
 
     /** Tasks still working; finished rows stay for history. */
     val activeDownloads: List<DownloadRow>
-        get() = downloads.filter { it.state == "running" || it.state == "paused" }
+        get() = downloads.filter { it.state.isActive }
 
     val activeDownloadCount: Int
         get() = activeDownloads.size

@@ -21,7 +21,7 @@ pub enum ErrorKind {
     Internal,
 }
 
-/// Unified launcher error (§3 of `docs/design.md`).
+/// Unified launcher error.
 ///
 /// `message_key` is an i18n key, never user-facing prose. `detail` carries the
 /// technical cause for logs and the diagnostics bundle, and should not contain

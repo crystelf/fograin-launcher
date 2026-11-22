@@ -1,35 +1,25 @@
 package com.fograin.launcher.app
 
-import com.fograin.launcher.model.ContentLoaderFilter
 import com.fograin.launcher.model.ContentVersionChannel
-import com.fograin.launcher.model.DownloadVersionChannel
 import com.fograin.launcher.model.DownloadsCategory
-import com.fograin.launcher.model.GameLoaderKind
 import com.fograin.launcher.model.Instance
 import com.fograin.launcher.model.InstanceFormat
 import com.fograin.launcher.model.LibraryScope
 import com.fograin.launcher.model.LibrarySort
+import com.fograin.launcher.model.TaskState
 import com.fograin.launcher.platform.CoreAppSnapshot
 import com.fograin.launcher.platform.CoreClient
-import com.fograin.launcher.platform.CoreContentProject
-import com.fograin.launcher.platform.CoreContentUpdate
-import com.fograin.launcher.platform.CoreLocalContent
+import com.fograin.launcher.platform.CoreDownloadSettings
 import com.fograin.launcher.platform.CoreEvent
 import com.fograin.launcher.platform.CoreException
 import com.fograin.launcher.platform.CoreGameConfig
 import com.fograin.launcher.platform.CoreInstanceRow
-import com.fograin.launcher.platform.CoreInstanceSettings
 import com.fograin.launcher.platform.CoreJavaList
-import com.fograin.launcher.platform.CoreDownloadSettings
-import com.fograin.launcher.platform.CoreJavaRuntime
 import com.fograin.launcher.platform.CoreNetworkSettings
-import com.fograin.launcher.platform.CoreLoaderVersion
 import com.fograin.launcher.platform.CoreTaskRow
 import com.fograin.launcher.platform.CoreWorldBackup
-import com.fograin.launcher.platform.DirectoryPick
 import com.fograin.launcher.platform.PlatformServices
 import com.fograin.launcher.platform.decode
-import com.fograin.launcher.platform.objectRows
 import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.platform.resultRows
 import com.fograin.launcher.settings.AccentPreference
@@ -52,10 +42,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 
 /**
  * Launcher state shared by Android and desktop.
@@ -87,16 +74,17 @@ class AppModel internal constructor(
         ): AppModel = AppModel(core, platform, scope)
     }
 
-    internal val library = LibraryActions(this)
-    internal val downloads = DownloadsActions(this)
-    internal val session = LaunchActions(this)
-    internal val instanceSettings = InstanceSettingsActions(this)
-    internal val java = JavaActions(this)
-    internal val account = AccountActions(this)
-    internal val content = ContentActions(this)
-    internal val diag = DiagActions(this)
-    internal val modpack = ModpackActions(this)
-    internal val settingsPanel = SettingsActions(this)
+    val library = LibraryActions(this)
+    val downloads = DownloadsActions(this)
+    val launch = LaunchActions(this)
+    val instanceSettings = InstanceSettingsActions(this)
+    val java = JavaActions(this)
+    val account = AccountActions(this)
+    val content = ContentManagerActions(this)
+    val contentBrowser = ContentBrowserActions(this)
+    val diag = DiagActions(this)
+    val modpack = ModpackActions(this)
+    val settings = SettingsActions(this)
 
     private val refreshMutex = Mutex()
 
@@ -116,14 +104,14 @@ class AppModel internal constructor(
         get() = core.initError
 
     init {
-        val settings = core.settings
-        val initialPage = InitialPage.fromWire(settings.initialPage)
+        val snapshot = core.settings
+        val initialPage = InitialPage.fromWire(snapshot.initialPage)
         _state = MutableStateFlow(
             AppUiState(
-                settings = settings,
-                theme = settings.theme,
-                language = AppLanguage.fromWire(settings.language),
-                accent = AccentPreference.fromWire(settings.accent),
+                settings = snapshot,
+                theme = snapshot.theme,
+                language = AppLanguage.fromWire(snapshot.language),
+                accent = AccentPreference.fromWire(snapshot.accent),
                 initialPage = initialPage,
                 destination = when (initialPage) {
                     InitialPage.HOME -> AppDestination.HOME
@@ -141,7 +129,7 @@ class AppModel internal constructor(
         scope.launch { refreshCoreData() }
         // Warm the download/network settings so opening Settings does not pop
         // a loading spinner in the middle of the entrance animation.
-        scope.launch { settingsPanel.load() }
+        scope.launch { settings.load() }
         startEventPump()
 
         core.initError?.let { showNotice(it, Notice.Tone.WARNING) }
@@ -246,7 +234,7 @@ class AppModel internal constructor(
                             title = InstanceFormat.taskTitle(row.name),
                             fraction = row.fraction,
                             speed = row.speed,
-                            state = row.state,
+                            state = TaskState.fromWire(row.state),
                             graphName = row.name,
                         )
                     },
@@ -358,60 +346,77 @@ class AppModel internal constructor(
     }
 
     /**
+     * One step the back gesture can take, in priority order.
+     *
+     * [canGoBack] and [back] both read this list, so a new overlay only has to
+     * be added once instead of in two hand-kept `when` chains.
+     */
+    private enum class BackStep {
+        ALERT,
+        MODPACK_IMPORT,
+        SETTINGS,
+        ACCOUNT,
+        QUEUE,
+        CONTENT_PROJECT,
+        SEARCH,
+        LIBRARY_DIAGNOSTICS,
+        LIBRARY_EXPORT,
+        LIBRARY_SETTINGS,
+        LIBRARY_DETAIL,
+        LOADER_VERSIONS,
+        INSTALL_PAGE,
+        LEAVE_DESTINATION,
+    }
+
+    private fun nextBackStep(): BackStep? {
+        val current = state.value
+        val library = current.destination == AppDestination.LIBRARY
+        val downloads = current.destination == AppDestination.DOWNLOADS
+        return when {
+            current.alert != null -> BackStep.ALERT
+            current.modpack.pack != null -> BackStep.MODPACK_IMPORT
+            current.settingsWindow.open -> BackStep.SETTINGS
+            current.account.open -> BackStep.ACCOUNT
+            current.downloadQueueOpen -> BackStep.QUEUE
+            current.contentBrowser.selectedProject != null -> BackStep.CONTENT_PROJECT
+            current.globalSearchOpen -> BackStep.SEARCH
+            library && current.libraryStage == LibraryStage.DIAGNOSTICS -> BackStep.LIBRARY_DIAGNOSTICS
+            library && current.libraryStage == LibraryStage.EXPORT -> BackStep.LIBRARY_EXPORT
+            library && current.libraryStage == LibraryStage.SETTINGS -> BackStep.LIBRARY_SETTINGS
+            library && current.libraryStage == LibraryStage.DETAIL -> BackStep.LIBRARY_DETAIL
+            downloads && current.download.stage == DownloadStage.LOADER_VERSIONS -> BackStep.LOADER_VERSIONS
+            downloads && current.download.stage == DownloadStage.INSTALL -> BackStep.INSTALL_PAGE
+            current.destination != AppDestination.HOME -> BackStep.LEAVE_DESTINATION
+            else -> null
+        }
+    }
+
+    /**
      * True when [back] would change something: a dialog or sheet is open, an
      * in-destination sub-page is showing, or the shell is not on the home
      * destination. Drives Android's back gesture and the desktop Escape key
      * through the same [com.fograin.launcher.platform.BackDispatcher].
      */
-    fun canGoBack(): Boolean {
-        val current = state.value
-        val installSubPage = current.destination == AppDestination.DOWNLOADS &&
-            current.download.stage != DownloadStage.BROWSER
-        val librarySubPage = current.destination == AppDestination.LIBRARY &&
-            current.libraryStage != LibraryStage.LIST
-        return current.alert != null ||
-            current.modpack.pack != null ||
-            current.account.open ||
-            current.downloadQueueOpen ||
-            current.contentBrowser.selectedProject != null ||
-            current.globalSearchOpen ||
-            current.settingsWindow.open ||
-            installSubPage ||
-            librarySubPage ||
-            current.destination != AppDestination.HOME
-    }
+    fun canGoBack(): Boolean = nextBackStep() != null
 
     /** Dismisses the topmost overlay or sub-page, then leaves the destination. */
     fun back() {
-        val current = state.value
-        when {
-            current.alert != null -> dismissAlert()
-            current.modpack.pack != null -> dismissModpackImport()
-            current.settingsWindow.open -> settingsPanel.back()
-            current.account.open -> account.back()
-            current.downloadQueueOpen -> closeDownloadQueue()
-            current.contentBrowser.selectedProject != null -> closeContentProject()
-            current.globalSearchOpen -> closeGlobalSearch()
-            current.destination == AppDestination.LIBRARY &&
-                current.libraryStage == LibraryStage.DIAGNOSTICS -> closeDiagnostics()
-
-            current.destination == AppDestination.LIBRARY &&
-                current.libraryStage == LibraryStage.EXPORT -> backModpackExportStep()
-
-            current.destination == AppDestination.LIBRARY &&
-                current.libraryStage == LibraryStage.SETTINGS -> closeInstanceSettings()
-
-            current.destination == AppDestination.LIBRARY &&
-                current.libraryStage == LibraryStage.DETAIL -> closeInstanceDetail()
-
-            current.destination == AppDestination.DOWNLOADS &&
-                current.download.stage == DownloadStage.LOADER_VERSIONS ->
-                closeLoaderVersionPicker()
-
-            current.destination == AppDestination.DOWNLOADS &&
-                current.download.stage == DownloadStage.INSTALL -> closeInstallPage()
-
-            current.destination != AppDestination.HOME -> navigate(AppDestination.HOME)
+        when (nextBackStep()) {
+            BackStep.ALERT -> dismissAlert()
+            BackStep.MODPACK_IMPORT -> modpack.dismiss()
+            BackStep.SETTINGS -> settings.back()
+            BackStep.ACCOUNT -> account.back()
+            BackStep.QUEUE -> downloads.closeQueue()
+            BackStep.CONTENT_PROJECT -> contentBrowser.closeProject()
+            BackStep.SEARCH -> closeGlobalSearch()
+            BackStep.LIBRARY_DIAGNOSTICS -> closeDiagnostics()
+            BackStep.LIBRARY_EXPORT -> modpack.backExportStep()
+            BackStep.LIBRARY_SETTINGS -> closeInstanceSettings()
+            BackStep.LIBRARY_DETAIL -> closeInstanceDetail()
+            BackStep.LOADER_VERSIONS -> downloads.closeLoaderVersionPicker()
+            BackStep.INSTALL_PAGE -> downloads.closeInstallPage()
+            BackStep.LEAVE_DESTINATION -> navigate(AppDestination.HOME)
+            null -> Unit
         }
     }
 
@@ -537,61 +542,31 @@ class AppModel internal constructor(
     }
 
     // ------------------------------------------------------------------
-    // Settings destination (M10). App animates between the shell and the
+    // Settings destination. App animates between the shell and the
     // full-window settings surface on every platform.
     // ------------------------------------------------------------------
 
     fun openSettings(section: SettingsSection? = null) {
-        settingsPanel.refreshDataRootOverride()
-        settingsPanel.open(section)
+        settings.refreshDataRootOverride()
+        settings.open(section)
     }
 
-    fun closeSettings() = settingsPanel.close()
-
-    fun settingsBack() = settingsPanel.back()
-
-    fun setSettingsCompact(compact: Boolean) = settingsPanel.setCompact(compact)
-
-    fun selectSettingsSection(section: SettingsSection) = settingsPanel.select(section)
-
-    fun pushSettingsSection(section: SettingsSection) = settingsPanel.push(section)
-
-    fun retrySettings() = settingsPanel.load()
-
-    fun setLanguage(language: AppLanguage) = settingsPanel.setLanguage(language)
-
-    fun setAccent(accent: AccentPreference) = settingsPanel.setAccent(accent)
-
-    fun setInitialPage(page: InitialPage) = settingsPanel.setInitialPage(page)
-
-    fun setGlobalMemoryMb(memoryMb: Int) = settingsPanel.setMemoryMb(memoryMb)
-
-    fun setGlobalJvmArgs(args: String) = settingsPanel.setJvmArgs(args)
-
-    fun setGlobalFullscreen(enabled: Boolean) = settingsPanel.setFullscreen(enabled)
-
-    fun setGlobalShowLog(enabled: Boolean) = settingsPanel.setShowLog(enabled)
-
     fun setGlobalAutoCompleteResources(enabled: Boolean) =
-        settingsPanel.setAutoCompleteResources(enabled)
+        settings.setAutoCompleteResources(enabled)
 
     fun setGlobalResolution(width: Int?, height: Int?) =
-        settingsPanel.setResolution(width, height)
+        settings.setResolution(width, height)
 
     fun updateDownloadSettings(transform: (CoreDownloadSettings) -> CoreDownloadSettings) =
-        settingsPanel.updateDownload(transform)
+        settings.updateDownload(transform)
 
     fun updateNetworkSettings(transform: (CoreNetworkSettings) -> CoreNetworkSettings) =
-        settingsPanel.updateNetwork(transform)
-
-    fun setDataRootOverride(path: String?) = settingsPanel.setDataRootOverride(path)
-
-    fun setTheme(theme: ThemeMode) = settingsPanel.setTheme(theme)
+        settings.updateNetwork(transform)
 
     /** Flips light/dark, the pair users actually toggle; SYSTEM stays untouched. */
     fun toggleTheme() {
         val next = if (state.value.theme == ThemeMode.DARK) ThemeMode.LIGHT else ThemeMode.DARK
-        setTheme(next)
+        settings.setTheme(next)
     }
 
     // ------------------------------------------------------------------
@@ -599,157 +574,28 @@ class AppModel internal constructor(
     // a single `model.` surface.
     // ------------------------------------------------------------------
 
-    fun openAddInstance() = library.openAddInstance()
-
-    fun uniqueInstanceID(name: String, version: String): String =
-        library.uniqueInstanceID(name, version)
-
-    fun importMinecraftDirectory(directory: String) = library.importMinecraftDirectory(directory)
-
-    suspend fun pickImportDirectory(): DirectoryPick = library.pickImportDirectory()
-
-    fun toggleFavorite(instance: Instance) = library.toggleFavorite(instance)
-
-    fun deleteInstance(instance: Instance) = library.deleteInstance(instance)
-
-    suspend fun loadDownloadVersions() = downloads.loadVersions()
-
-    suspend fun reloadDownloadVersions() = downloads.reloadVersions()
-
-    fun setDownloadCategory(category: DownloadsCategory) = downloads.setCategory(category)
-
-    fun setDownloadChannel(channel: DownloadVersionChannel) = downloads.setChannel(channel)
-
-    fun setDownloadContentLoader(loader: ContentLoaderFilter) = downloads.setContentLoader(loader)
-
-    fun setDownloadQuery(query: String) = downloads.setQuery(query)
-
-    fun openInstallPage(versionId: String) = downloads.openInstallPage(versionId)
-
-    fun closeInstallPage() = downloads.closeInstallPage()
-
-    fun setInstallLoader(loader: GameLoaderKind) = downloads.setInstallLoader(loader)
-
-    fun openLoaderVersionPicker() = downloads.openLoaderVersionPicker()
-
-    fun closeLoaderVersionPicker() = downloads.closeLoaderVersionPicker()
-
     fun selectInstallLoaderVersion(version: String) =
         downloads.selectInstallLoaderVersion(version)
 
-    fun retryLoaderVersions() = downloads.retryLoaderVersions()
-
-    fun setInstallInstanceName(name: String) = downloads.setInstallInstanceName(name)
-
-    fun refreshInstallPlan() = downloads.refreshInstallPlan()
-
-    fun submitInstall() = downloads.submitInstall()
-
-    suspend fun startGameInstall(
-        version: String,
-        instanceName: String,
-        loader: GameLoaderKind = GameLoaderKind.VANILLA,
-        loaderVersion: String = "",
-    ) = downloads.startGameInstall(version, instanceName, loader, loaderVersion)
-
     /** Real loader builds for a Minecraft version, newest first. */
-    suspend fun loadLoaderVersions(
-        loader: GameLoaderKind,
-        minecraft: String,
-    ): List<CoreLoaderVersion> {
-        if (loader == GameLoaderKind.VANILLA || minecraft.isBlank()) return emptyList()
-        val payload = core.rpc(
-            "loaders.versions",
-            buildJsonObject {
-                put("kind", loader.wireName)
-                put("minecraft", minecraft)
-                put("limit", 50)
-            },
-        )
-        return payload.objectRows("versions").mapNotNull { row ->
-            runCatching { row.decode<CoreLoaderVersion>() }.getOrNull()
-        }
-    }
-
-    fun isDownloading(instance: Instance): Boolean = downloads.isDownloading(instance)
-
-    fun openDownloadQueue() = downloads.openQueue()
-
-    fun closeDownloadQueue() = downloads.closeQueue()
-
-    fun pauseDownload(taskId: String) = downloads.pause(taskId)
-
-    fun resumeDownload(taskId: String) = downloads.resume(taskId)
-
-    fun cancelDownload(taskId: String) = downloads.cancel(taskId)
-
-    fun startGame(instance: Instance) = session.start(instance)
-
-    fun stopGame() = session.stop()
-
-    suspend fun loadInstanceSettings(id: String): CoreInstanceSettings =
-        instanceSettings.load(id)
-
-    fun configureInstance(id: String, setting: String, value: JsonElement?) =
-        instanceSettings.configure(id, setting, value)
-
-    fun openInstanceDirectory(instance: Instance) =
-        instanceSettings.openDirectory(instance)
 
     // ------------------------------------------------------------------
-    // Accounts (M7)
+    // Accounts
     // ------------------------------------------------------------------
-
-    fun openAccounts() = account.open()
-
-    fun closeAccounts() = account.close()
-
-    fun showOfflineAccountForm() = account.showOfflineForm()
-
-    fun showYggdrasilAccountForm() = account.showYggdrasilForm()
-
-    fun refreshAccounts() = account.refresh()
-
-    fun clearAccountError() = account.clearError()
-
-    fun addOfflineAccount(name: String) = account.addOffline(name)
-
-    fun loginYggdrasil(server: String, username: String, password: String) =
-        account.loginYggdrasil(server, username, password)
-
-    fun selectYggdrasilProfile(profileId: String) = account.selectYggdrasilProfile(profileId)
-
-    fun selectAccount(id: String) = account.select(id)
-
-    fun removeAccount(id: String) = account.remove(id)
-
-    fun refreshAccount(id: String? = null) = account.refreshAccount(id)
 
     /** Selected account id for `launch.start`, or null before the first load. */
     val selectedAccountId: String?
         get() = state.value.account.selectedId ?: state.value.account.selected?.id
 
     // ------------------------------------------------------------------
-    // Java runtime management (M6)
+    // Java runtime management
     // ------------------------------------------------------------------
 
     /** Menu/shortcut/search entry point: settings page on the Java section. */
     fun openJavaSettings() {
-        settingsPanel.open(SettingsSection.JAVA)
-        refreshJavaSettings()
+        settings.open(SettingsSection.JAVA)
+        java.refresh()
     }
-
-    fun closeJavaSettings() = settingsPanel.back()
-
-    fun refreshJavaSettings() = java.refresh()
-
-    fun setJavaAutoDownload(enabled: Boolean) = java.setAutoDownload(enabled)
-
-    fun installJavaRuntime(major: Int) = java.install(major)
-
-    fun removeJavaRuntime(id: String) = java.remove(id)
-
-    suspend fun loadJavaRuntimes(): List<CoreJavaRuntime> = java.runtimes()
 
     /**
      * Opens the downloads content browser for this instance and matches the
@@ -779,63 +625,24 @@ class AppModel internal constructor(
         if (state.value.download.category != category) {
             downloads.setCategory(category)
         } else {
-            content.openCategory(category)
+            contentBrowser.openCategory(category)
         }
     }
-
-    fun setContentTab(tab: ContentManagerTab) = content.setTab(tab)
-
-    fun setContentQuery(query: String) = content.setQuery(query)
-
-    fun refreshContentManager() = content.refresh()
-
-    fun toggleContent(item: CoreLocalContent) = content.toggle(item)
-
-    fun deleteContent(item: CoreLocalContent) = content.delete(item)
-
-    fun checkContentUpdates() = content.checkUpdates()
-
-    fun installContentUpdate(update: CoreContentUpdate) = content.installUpdate(update)
-
-    fun backupWorld(worldName: String) = content.backupWorld(worldName)
-
-    fun deleteWorld(worldName: String) = content.deleteWorld(worldName)
 
     fun restoreWorldBackup(backup: CoreWorldBackup, worldName: String) =
         content.restoreBackup(backup, worldName)
 
-    fun deleteWorldBackup(backup: CoreWorldBackup) = content.deleteBackup(backup)
-
-    fun openContentCategory(category: DownloadsCategory) = content.openCategory(category)
-
-    fun setContentSource(source: ContentSourceOption) = content.setSource(source)
-
-    fun setContentTargetInstance(instanceId: String) = content.setTargetInstance(instanceId)
-
-    fun selectContentWorld(world: String) = content.selectWorld(world)
-
-    fun openContentProject(project: CoreContentProject) = content.openProject(project)
-
-    fun closeContentProject() = content.closeProject()
-
-    fun selectContentVersion(versionId: String) = content.selectVersion(versionId)
-
     fun setContentVersionChannel(channel: ContentVersionChannel) =
-        content.setVersionChannel(channel)
+        contentBrowser.setVersionChannel(channel)
 
     fun confirmContentDependencyPrompt(autoDownload: Boolean) =
-        content.confirmDependencyPrompt(autoDownload)
-
-    fun dismissContentDependencyPrompt() = content.dismissDependencyPrompt()
-
-    fun installSelectedContent() = content.installSelected()
+        contentBrowser.confirmDependencyPrompt(autoDownload)
 
     // ------------------------------------------------------------------
-    // Servers, diagnostics and modpacks (M9)
+    // Servers, diagnostics and modpacks
     // ------------------------------------------------------------------
 
     /** Opens the instance's log and crash analysis page. */
-    fun openDiagnostics(instance: Instance) = diag.open(instance)
 
     fun closeDiagnostics() {
         _state.update {
@@ -849,72 +656,22 @@ class AppModel internal constructor(
         }
     }
 
-    fun refreshDiagnostics() = diag.refresh()
-
-    fun selectDiagTab(tab: DiagTab) = diag.selectTab(tab)
-
-    fun exportDiagnostics() = diag.export()
-
     fun applyDiagFix(finding: com.fograin.launcher.platform.CoreFinding) =
         diag.applyFix(finding)
 
-    fun copyDiagBundlePath() = diag.copyBundlePath()
-
     /** Crash analysis used by the session-exit alert; never throws. */
-    suspend fun diagnoseCrash(instanceId: String) = diag.prefillCrash(instanceId)
-
-    fun selectDatapackWorld(world: String) = content.selectDatapackWorld(world)
-
-    fun refreshDatapacks() = content.refreshDatapacks()
-
     fun toggleDatapack(item: com.fograin.launcher.platform.CoreDatapack) =
         content.toggleDatapack(item)
 
     fun deleteDatapack(item: com.fograin.launcher.platform.CoreDatapack) =
         content.deleteDatapack(item)
 
-    fun importDatapack(path: String) = content.importDatapack(path)
-
-    fun importDatapackFile() = content.importFromFile()
-
-    fun startModpackImport() = modpack.startImport()
-
     /** Import a file or MultiMC directory, e.g. from a desktop drag-and-drop. */
-    fun importModpackPath(path: String) = modpack.importPath(path)
-
-    fun setModpackDragActive(active: Boolean) = modpack.setDragActive(active)
-
-    fun setModpackName(name: String) = modpack.setName(name)
-
-    fun dismissModpackImport() = modpack.dismiss()
-
-    fun confirmModpackImport() = modpack.confirmImport()
 
     /** Opens the two-step export page for [instance]. */
-    fun beginModpackExport(instance: Instance) = modpack.beginExport(instance)
-
-    fun setModpackExportName(name: String) = modpack.setExportName(name)
-
-    fun setModpackExportAuthor(author: String) = modpack.setExportAuthor(author)
-
-    fun setModpackExportVersion(version: String) = modpack.setExportVersion(version)
 
     fun setModpackExportDescription(description: String) =
         modpack.setExportDescription(description)
-
-    fun toggleModpackExportSection(id: String) = modpack.toggleExportSection(id)
-
-    fun nextModpackExportStep() = modpack.nextExportStep()
-
-    fun backModpackExportStep() = modpack.backExportStep()
-
-    fun cancelModpackExport() = modpack.cancelExport()
-
-    fun confirmModpackExport() = modpack.export()
-
-    fun dismissModpackExportResult() = modpack.dismissExportResult()
-
-    fun copyModpackExportPath() = modpack.copyExportPath()
 
     // ------------------------------------------------------------------
     // Core event pump.
@@ -939,11 +696,12 @@ class AppModel internal constructor(
                 downloads.onTaskFinished(event)
                 java.onTaskFinished(event)
                 content.onTaskFinished(event.taskId)
+                contentBrowser.onTaskFinished(event.taskId)
                 modpack.onTaskFinished(event.taskId)
             }
 
             is CoreEvent.TaskProgress -> Unit
-            else -> session.onEvent(event)
+            else -> launch.onEvent(event)
         }
     }
 

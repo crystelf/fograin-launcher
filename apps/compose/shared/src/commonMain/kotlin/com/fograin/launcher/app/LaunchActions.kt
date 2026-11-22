@@ -17,7 +17,7 @@ import kotlinx.serialization.json.put
  * [DownloadsActions.beginCompletion] so the download bookkeeping stays in one
  * place.
  */
-internal class LaunchActions(private val model: AppModel) {
+class LaunchActions(private val model: AppModel) {
 
     private var stopRequested = false
 
@@ -39,7 +39,7 @@ internal class LaunchActions(private val model: AppModel) {
         val accountId = model.selectedAccountId
         if (accountId == null) {
             model.showNotice("请先添加一个账户")
-            model.openAccounts()
+            model.account.open()
             return
         }
         launch(instance, accountId)
@@ -104,8 +104,8 @@ internal class LaunchActions(private val model: AppModel) {
 
             is CoreEvent.GameWindowReady -> Unit
 
-            // Log lines are consumed by the core's recent-log buffer; the log
-            // viewer itself is M9.
+            // Log lines land in the core's recent-log buffer; the diagnostics
+            // page renders them.
             is CoreEvent.GameLine -> Unit
 
             is CoreEvent.GameExited -> {
@@ -126,10 +126,10 @@ internal class LaunchActions(private val model: AppModel) {
                         Notice.Tone.SUCCESS,
                     )
                 } else {
-                    // M9: analyze the crash before showing the alert so the
+                    // Analyze the crash before showing the alert so the
                     // message names a likely cause instead of only a path.
                     model.scope.launch {
-                        val analysis = model.diagnoseCrash(event.instanceId)
+                        val analysis = model.diag.prefillCrash(event.instanceId)
                         val finding = analysis?.findings?.firstOrNull()
                         val detail = if (finding != null) {
                             "${finding.title}：${finding.body}\n\n" +

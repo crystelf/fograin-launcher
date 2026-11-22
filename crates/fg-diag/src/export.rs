@@ -6,6 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use fg_core::util::sanitize_component;
 use fg_core::{Error, ErrorKind, Result};
 use serde::Serialize;
 use time::{OffsetDateTime, macros::format_description};
@@ -87,7 +88,7 @@ fn bundle_files(request: &BundleRequest<'_>) -> Vec<String> {
 }
 
 fn unique_path(directory: &Path, instance_name: &str) -> PathBuf {
-    let safe = sanitize(instance_name);
+    let safe = sanitize_component(instance_name, "instance");
     let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
     let stamp = now
         .format(&format_description!(
@@ -257,28 +258,6 @@ fn manifest_json(request: &BundleRequest<'_>) -> String {
     .to_string()
 }
 
-fn sanitize(name: &str) -> String {
-    let mut text: String = name
-        .chars()
-        .map(|character| {
-            if character.is_alphanumeric() || matches!(character, '-' | '_' | '.') {
-                character
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    while text.contains("--") {
-        text = text.replace("--", "-");
-    }
-    let trimmed = text.trim_matches(['-', '.'].as_slice()).to_string();
-    if trimmed.is_empty() {
-        "instance".to_string()
-    } else {
-        trimmed.chars().take(48).collect()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::io::Read;
@@ -355,7 +334,10 @@ mod tests {
 
     #[test]
     fn sanitizes_the_instance_name_in_the_file_name() {
-        assert_eq!(sanitize("New World / 1.21"), "New-World-1.21");
-        assert_eq!(sanitize("///"), "instance");
+        assert_eq!(
+            sanitize_component("New World / 1.21", "instance"),
+            "New-World-1.21"
+        );
+        assert_eq!(sanitize_component("///", "instance"), "instance");
     }
 }

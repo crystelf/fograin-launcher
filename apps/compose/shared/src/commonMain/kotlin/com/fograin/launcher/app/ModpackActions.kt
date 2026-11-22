@@ -16,13 +16,13 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 
 /**
- * Modpack import and export (M9).
+ * Modpack import and export.
  *
  * Import is a two-phase core task (base game + loader, then pack files); this
  * controller only inspects the file, confirms the target name and reports the
  * queued tasks. The downloads page's task queue owns the progress UI.
  */
-internal class ModpackActions(private val model: AppModel) {
+class ModpackActions(private val model: AppModel) {
     private var generation = 0
 
     /** Opens the file picker; a cancelled or unavailable picker stays silent. */
@@ -164,7 +164,7 @@ internal class ModpackActions(private val model: AppModel) {
     }
 
     // ------------------------------------------------------------------
-    // Export wizard (M10 UI pass)
+    // Export wizard
     // ------------------------------------------------------------------
 
     /** Opens the two-step export page and loads the instance's content plan. */

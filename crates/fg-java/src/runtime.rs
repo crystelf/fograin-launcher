@@ -77,10 +77,14 @@ impl JavaArch {
         }
     }
 
-    /// Whether the two architectures can execute the same binaries.
+    /// Whether an actual runtime architecture can execute what `required`
+    /// asks for.
+    ///
+    /// An unknown actual architecture is accepted because the probe could not
+    /// read the binary; an unknown requirement never matches a concrete one.
     #[must_use]
-    pub fn is_compatible(self, other: Self) -> bool {
-        self == other || matches!(self, Self::Unknown) || matches!(other, Self::Unknown)
+    pub fn is_compatible(self, required: Self) -> bool {
+        self == required || matches!(self, Self::Unknown)
     }
 }
 

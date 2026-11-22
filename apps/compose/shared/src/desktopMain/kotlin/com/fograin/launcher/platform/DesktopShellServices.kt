@@ -20,7 +20,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 
 /**
- * Desktop half of the two R4 shell services: an OS-native directory chooser and
+ * Desktop shell services: an OS-native directory chooser and
  * Escape-to-back wiring.
  *
  * `JFileChooser` is a Swing window with a light default look, which feels alien

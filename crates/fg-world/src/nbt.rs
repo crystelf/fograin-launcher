@@ -1,6 +1,6 @@
 //! Minimal NBT reader/writer for gzip-compressed Minecraft data.
 //!
-//! M9 uses it for `level.dat` summaries (`Data.LevelName`, `LastPlayed`, …).
+//! Used for `level.dat` summaries (`Data.LevelName`, `LastPlayed`, …).
 //! The reader understands every tag type so an unknown field never breaks a
 //! world; the writer is only used by tests and small launcher-owned files.
 

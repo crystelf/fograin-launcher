@@ -38,9 +38,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.model.GameLoaderKind
+import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.subtitleText
 import com.fograin.launcher.ui.titleText
-import com.fograin.launcher.resources.*
 import org.jetbrains.compose.resources.stringResource
 
 /** Small "最新" capsule marking the first row of a manifest. */

@@ -1,8 +1,7 @@
-//! Minimal instance metadata used by M3 install/launch.
+//! Instance metadata stored in `instance.toml`.
 //!
-//! M4 adds the full wizard, settings inheritance and import flow. The file
-//! already follows the shape in §5.2 (`[loader]`, `[override]`, `[meta]`) so M4
-//! can extend it without a migration.
+//! The file already follows the `[loader]`, `[override]` and `[meta]` shape, so
+//! settings inheritance and the import flow extend it without a migration.
 
 use std::{
     collections::BTreeMap,
@@ -19,7 +18,7 @@ use crate::split_command_line;
 
 /// `instance.toml` schema version.
 pub const INSTANCE_SCHEMA_VERSION: u32 = 1;
-/// Default heap for a new instance; the M4 wizard replaces this with the
+/// Default heap for a new instance; the install wizard replaces this with the
 /// automatic policy from §8.3.
 pub const DEFAULT_MEMORY_MB: u32 = 4096;
 
@@ -36,7 +35,7 @@ pub struct Instance {
     #[serde(rename = "override")]
     pub overrides: InstanceOverrides,
     pub meta: InstanceMeta,
-    /// Unknown keys are kept for M4/M5 loaders and future fields.
+    /// Unknown keys are kept for loaders and future fields.
     #[serde(flatten)]
     pub extra: BTreeMap<String, toml::Value>,
     /// Populated by [`crate::manager::InstanceManager::list`]; not serialized.
@@ -104,7 +103,7 @@ impl Loader {
     }
 }
 
-/// Per-instance overrides; empty means "inherit the global setting" in M4.
+/// Per-instance overrides; empty means "inherit the global setting".
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct InstanceOverrides {
@@ -323,17 +322,6 @@ impl Instance {
     #[must_use]
     pub fn java(&self) -> Option<&Path> {
         self.overrides.java.as_deref()
-    }
-
-    /// Resolves the effective memory from `[override] memory_mb` with the
-    /// global `[game]` default when the instance inherits (§5.2).
-    #[must_use]
-    pub fn memory_mb_with(&self, global_memory_mb: u32) -> u32 {
-        if global_memory_mb > 0 && self.overrides.memory_mb.is_none() {
-            global_memory_mb.max(512)
-        } else {
-            self.memory_mb()
-        }
     }
 
     /// Updates play statistics after a session.

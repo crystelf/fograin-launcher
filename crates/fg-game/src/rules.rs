@@ -142,12 +142,6 @@ impl RuleContext {
     pub fn new(os: OsInfo, features: Features) -> Self {
         Self { os, features }
     }
-
-    #[must_use]
-    pub fn with_features(mut self, features: Features) -> Self {
-        self.features = features;
-        self
-    }
 }
 
 /// Evaluates a rule list.

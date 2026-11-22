@@ -16,7 +16,7 @@ import kotlinx.serialization.json.put
  * Per-instance settings: read the effective values, persist one override, and
  * open the game directory in the host file manager.
  */
-internal class InstanceSettingsActions(private val model: AppModel) {
+class InstanceSettingsActions(private val model: AppModel) {
 
     /** Reads the effective values, overrides and globals for one instance. */
     suspend fun load(id: String): CoreInstanceSettings =

@@ -11,7 +11,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * R4: the desktop shell restores and saves window geometry. This covers the
+ * The desktop shell restores and saves window geometry. This covers the
  * save half without a window server; the restore half is a plain read of the
  * same fields.
  */

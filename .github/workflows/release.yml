@@ -5,7 +5,7 @@ name: Release
 # cross-compile; the Android APK is built once on Linux.
 #
 # The artifacts are unsigned. Signing/notarization needs repository secrets
-# (APPLE_ID / APPLE_TEAM_ID / WINDOWS_CERT_*); see docs/release.md.
+# (APPLE_ID / APPLE_TEAM_ID / WINDOWS_CERT_*).
 
 on:
   push:

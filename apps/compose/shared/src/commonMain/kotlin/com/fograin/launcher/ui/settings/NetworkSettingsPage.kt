@@ -6,8 +6,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.fograin.launcher.app.AppModel
-import com.fograin.launcher.app.SettingsSection
 import com.fograin.launcher.app.AppUiState
+import com.fograin.launcher.app.SettingsSection
 import com.fograin.launcher.resources.Res
 import com.fograin.launcher.resources.settings_group_connection
 import com.fograin.launcher.resources.settings_group_proxy

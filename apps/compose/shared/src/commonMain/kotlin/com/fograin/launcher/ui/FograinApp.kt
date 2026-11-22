@@ -38,8 +38,8 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -66,8 +66,8 @@ import com.fograin.launcher.ui.components.AnimatedSheetHost
 import com.fograin.launcher.ui.components.FograinSnackbarHost
 import com.fograin.launcher.ui.components.LocalPageHeaderTopInset
 import com.fograin.launcher.ui.components.PageHeaderMetrics
-import com.fograin.launcher.ui.components.fograinPageTransition
 import com.fograin.launcher.ui.components.contentPanelShape
+import com.fograin.launcher.ui.components.fograinPageTransition
 import com.fograin.launcher.ui.content.ContentProjectSheet
 import com.fograin.launcher.ui.downloads.DownloadQueueScreen
 import com.fograin.launcher.ui.downloads.DownloadsScreen
@@ -395,7 +395,7 @@ fun FograinApp(
     // remain sheets.
     AnimatedSheetHost(
         value = state.contentBrowser.selectedProject,
-        onDismissRequest = model::closeContentProject,
+        onDismissRequest = model.contentBrowser::closeProject,
     ) { project ->
         ContentProjectSheet(model = model, state = state, project = project)
     }
@@ -409,7 +409,7 @@ fun FograinApp(
 
     AnimatedSheetHost(
         value = if (state.account.open) AccountTarget else null,
-        onDismissRequest = model::closeAccounts,
+        onDismissRequest = model.account::close,
     ) {
         AccountSheet(model = model, state = state)
     }

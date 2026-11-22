@@ -7,15 +7,14 @@ use std::{
     sync::Arc,
 };
 
-use fg_core::{Error, ErrorKind, Result};
+use fg_core::{Error, ErrorKind, Result, now_ms};
 use fg_net::ProgressSink;
 use fg_net::{DownloadRequest, Downloader, Integrity, Priority};
 use fg_task::{TaskCx, TaskGraph};
 use serde::Serialize;
 
 use crate::{
-    ContentClient, ContentKind, ContentSource, ContentVersion, IndexEntry,
-    index::{ContentIndex, now_ms},
+    ContentClient, ContentKind, ContentSource, ContentVersion, IndexEntry, index::ContentIndex,
     model::validate_project_id,
 };
 

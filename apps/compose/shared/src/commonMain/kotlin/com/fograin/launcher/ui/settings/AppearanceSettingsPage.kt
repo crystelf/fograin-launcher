@@ -34,8 +34,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
-import com.fograin.launcher.app.SettingsSection
 import com.fograin.launcher.app.AppUiState
+import com.fograin.launcher.app.SettingsSection
 import com.fograin.launcher.resources.Res
 import com.fograin.launcher.resources.settings_accent_auto
 import com.fograin.launcher.resources.settings_accent_auto_desc
@@ -46,9 +46,9 @@ import com.fograin.launcher.resources.settings_accent_hex_hint
 import com.fograin.launcher.resources.settings_accent_invalid
 import com.fograin.launcher.resources.settings_accent_title
 import com.fograin.launcher.resources.settings_appearance_subtitle
-import com.fograin.launcher.resources.settings_nav_appearance
 import com.fograin.launcher.resources.settings_language
 import com.fograin.launcher.resources.settings_language_desc
+import com.fograin.launcher.resources.settings_nav_appearance
 import com.fograin.launcher.resources.settings_theme
 import com.fograin.launcher.resources.settings_theme_desc
 import com.fograin.launcher.settings.AccentPreference
@@ -103,7 +103,7 @@ internal fun AppearanceSettingsPage(
         if (parsed.toHexString() == accent.hex) return@LaunchedEffect
         delay(450)
         lastCustom = parsed.toHexString()
-        model.setAccent(AccentPreference.custom(parsed.toHexString()))
+        model.settings.setAccent(AccentPreference.custom(parsed.toHexString()))
     }
 
     SettingsPage(
@@ -120,7 +120,7 @@ internal fun AppearanceSettingsPage(
                 subtitle = stringResource(Res.string.settings_language_desc),
                 value = language.pickerLabel(),
                 options = AppLanguage.entries.map { option ->
-                    option.nativeName() to { model.setLanguage(option) }
+                    option.nativeName() to { model.settings.setLanguage(option) }
                 },
                 testTag = SettingsLanguageRowTag,
             )
@@ -132,7 +132,7 @@ internal fun AppearanceSettingsPage(
                 subtitle = stringResource(Res.string.settings_theme_desc),
                 value = state.theme.title(),
                 options = ThemeMode.entries.map { mode ->
-                    mode.title() to { model.setTheme(mode) }
+                    mode.title() to { model.settings.setTheme(mode) }
                 },
                 testTag = SettingsThemeRowTag,
             )
@@ -149,7 +149,7 @@ internal fun AppearanceSettingsPage(
                 checked = accent.isAuto,
                 testTag = SettingsAccentAutoTag,
                 onCheckedChange = { auto ->
-                    model.setAccent(
+                    model.settings.setAccent(
                         if (auto) {
                             AccentPreference.Auto
                         } else {
@@ -210,7 +210,7 @@ internal fun AppearanceSettingsPage(
                             onClick = {
                                 lastCustom = presetHex
                                 hex = presetHex.trimStart('#')
-                                model.setAccent(AccentPreference.custom(presetHex))
+                                model.settings.setAccent(AccentPreference.custom(presetHex))
                             },
                         )
                     }

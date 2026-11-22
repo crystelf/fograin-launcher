@@ -25,11 +25,11 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.model.Instance
-import com.fograin.launcher.ui.metaText
-import com.fograin.launcher.ui.relativeTimeText
 import com.fograin.launcher.model.InstanceFormat
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.components.InstanceTile
+import com.fograin.launcher.ui.metaText
+import com.fograin.launcher.ui.relativeTimeText
 import org.jetbrains.compose.resources.stringResource
 
 /** Stable tag for a library row, used by the navigation tests. */

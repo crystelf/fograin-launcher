@@ -204,7 +204,7 @@ pub struct GeneralConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GameConfig {
-    /// Offline player name used until account management lands in M7.
+    /// Offline player name used before an account is selected.
     pub username: String,
     /// Default heap in MiB; `0` selects the automatic policy.
     pub memory_mb: u32,
@@ -237,7 +237,7 @@ impl Default for GameConfig {
     }
 }
 
-/// `[java]` — managed runtime policy (§5.5, M6).
+/// `[java]` — managed runtime policy.
 ///
 /// A missing exact major is repaired by downloading the vendor runtime that
 /// matches the version's `javaVersion` when [`JavaConfig::auto_download`] is

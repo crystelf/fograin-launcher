@@ -9,14 +9,14 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * Account panel (M7): offline accounts and third-party Yggdrasil /
+ * Account panel: offline accounts and third-party Yggdrasil /
  * authlib-injector sign-in.
  *
  * The panel is a sheet opened from the home avatar rather than a fifth
  * destination, so the four-tab shell stays intact. Passwords only travel in the
  * login RPC and are never stored in [AccountUiState].
  */
-internal class AccountActions(private val model: AppModel) {
+class AccountActions(private val model: AppModel) {
 
     private var loading = false
 

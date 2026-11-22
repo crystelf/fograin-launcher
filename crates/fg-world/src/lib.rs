@@ -1,7 +1,7 @@
 //! World and data pack management.
 //!
-//! M8 lists and backs up worlds. M9 adds per-world data packs and a
-//! `level.dat` summary for the world rows.
+//! Lists and backs up worlds, manages per-world data packs and summarises
+//! `level.dat` for the world rows.
 
 pub mod backup;
 pub mod content;

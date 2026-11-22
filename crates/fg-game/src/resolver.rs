@@ -4,7 +4,7 @@
 //! same [`VersionResolver`]: `resolve_remote` saves every raw `version.json`
 //! it fetches, and `resolve_local` only reads those files.
 
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
 use fg_core::{DownloadSource, Error, ErrorKind, Result};
 use fg_net::{Downloader, MirrorTable, Region};
@@ -197,12 +197,6 @@ impl VersionResolver {
             "error.version.inherits_depth",
             format!("{id} exceeds {MAX_INHERITANCE_DEPTH} parents"),
         ))
-    }
-
-    /// Path where a raw version JSON is stored.
-    #[must_use]
-    pub fn version_path(&self, id: &str) -> PathBuf {
-        self.layout.version_json(id)
     }
 
     async fn fetch_version_bytes(&self, url: &str) -> Result<bytes::Bytes> {

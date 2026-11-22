@@ -1,4 +1,4 @@
-//! Instance management used by the M4 UI (§5.1, §13).
+//! Instance management: create, import, rename, favourite, settings writes
 //!
 //! This is the single read/write surface the FFI layer exposes for instances:
 //! listing with computed presentation fields, wizard creation, rename /
@@ -6,17 +6,14 @@
 //! `.minecraft` imports and deletion. `fg-cli` reuses it instead of duplicating
 //! directory walking.
 
-use std::{
-    path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::path::{Path, PathBuf};
 
 use fg_core::{Error, ErrorKind, GameConfig, Result};
 use time::format_description::well_known::Rfc3339;
 
 use crate::{
     instance::{Instance, InstanceOverrides},
-    layout::{Layout, validate_id, write_atomic},
+    layout::{Layout, validate_id},
 };
 
 /// One entry of [`InstanceManager::list`].
@@ -141,27 +138,6 @@ impl InstanceSummary {
         };
         Some(value)
     }
-
-    #[must_use]
-    pub fn as_json(&self) -> serde_json::Value {
-        serde_json::json!({
-            "id": self.instance.id,
-            "name": self.instance.name,
-            "minecraft": self.instance.minecraft,
-            "loader": {
-                "kind": self.instance.loader.kind,
-                "version": self.instance.loader.version,
-                "versionId": self.instance.loader.version_id,
-                "optifine": self.instance.loader.optifine,
-            },
-            "favorite": self.instance.meta.favorite,
-            "installed": self.installed(),
-            "sizeBytes": self.size_bytes,
-            "playSeconds": self.instance.meta.play_seconds,
-            "lastPlayed": self.last_played_epoch_ms,
-            "created": self.instance.meta.created,
-        })
-    }
 }
 
 /// Settings an instance may keep on its own or inherit from the global config.
@@ -204,22 +180,6 @@ impl InstanceManager {
     #[must_use]
     pub fn globals(&self) -> &GameConfig {
         &self.globals
-    }
-
-    /// Default heap resolved from `[game] memory_mb`; the wizard pre-selects it.
-    #[must_use]
-    pub fn default_memory_mb(&self) -> u32 {
-        self.globals.memory_mb
-    }
-
-    #[must_use]
-    pub fn default_username(&self) -> &str {
-        &self.globals.username
-    }
-
-    #[must_use]
-    pub fn default_show_log(&self) -> bool {
-        self.globals.show_log
     }
 
     /// Loads every instance directory, sorted by `last_played` (newest first)
@@ -433,23 +393,6 @@ impl InstanceManager {
         Ok(favorite)
     }
 
-    /// Updates the icon path recorded for an instance.
-    ///
-    /// # Errors
-    ///
-    /// Propagates [`Instance::load`] and save errors.
-    pub fn set_icon(&self, id: &str, icon: &str) -> Result<Instance> {
-        let mut instance = Instance::load(&self.layout, id)?;
-        let icon = icon.trim();
-        instance.icon = if icon.is_empty() {
-            None
-        } else {
-            Some(icon.to_string())
-        };
-        instance.save(&self.layout)?;
-        Ok(instance)
-    }
-
     /// Effective settings: instance overrides fall back to `[game]` defaults.
     #[must_use]
     pub fn effective_settings(&self, instance: &Instance) -> EffectiveSettings {
@@ -627,14 +570,14 @@ impl InstanceManager {
 
     /// Deletes the instance directory after removing its shared pointers.
     ///
+    /// `shared/` stays intact by design: instance pointers and shared game
+    /// installs are separate, so deleting an instance never uninstalls a
+    /// version.
+    ///
     /// # Errors
     ///
     /// Returns [`ErrorKind::Io`] when a directory cannot be removed.
-    pub fn delete(&self, id: &str, keep_shared: bool) -> Result<()> {
-        // `keep_shared` keeps `shared/` intact by design: instance pointers
-        // and shared game installs are separate, so deleting an instance never
-        // uninstalls a version (§5.1). The flag exists for future layouts.
-        let _ = keep_shared;
+    pub fn delete(&self, id: &str) -> Result<()> {
         Instance::load(&self.layout, id)?;
         let _ = InstancePlan::remove_pointer(&self.layout, id);
         let instance_dir = self.layout.instance_dir(id);
@@ -695,11 +638,6 @@ impl InstancePlan {
         layout
             .install_plans()
             .join(format!("instance-{instance_id}.pointer"))
-    }
-
-    pub fn write_pointer(layout: &Layout, instance_id: &str) -> Result<()> {
-        let path = Self::pointer_path(layout, instance_id);
-        write_atomic(&path, instance_id.as_bytes())
     }
 
     pub fn remove_pointer(layout: &Layout, instance_id: &str) -> bool {
@@ -795,18 +733,6 @@ fn unique_import_id(base: &str, taken: impl Fn(&str) -> bool) -> String {
         suffix += 1;
     }
     id
-}
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as i64)
-        .unwrap_or(0)
-}
-
-#[allow(dead_code)]
-fn unused_now_ms_guard() {
-    let _ = now_ms();
 }
 
 impl Instance {
@@ -1039,7 +965,7 @@ mod tests {
         let list = manager.list().expect("list");
         assert_eq!(list.len(), 2);
 
-        manager.delete("external", false).expect("delete");
+        manager.delete("external").expect("delete");
         assert!(manager.list().expect("list").len() == 1);
         assert!(!manager.layout().instance_dir("external").exists());
     }

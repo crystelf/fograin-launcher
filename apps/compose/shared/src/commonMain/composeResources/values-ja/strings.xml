@@ -110,7 +110,7 @@
     <string name="account_profile_body">%1$s から複数のキャラクターが返されました。今回の起動で使うキャラクターを選んでください。</string>
     <string name="account_profile_action">このキャラクターを使用</string>
     <string name="account_microsoft_title">Microsoft ログイン</string>
-    <string name="account_microsoft_body">今後のリリースで提供予定です（M11）。</string>
+    <string name="account_microsoft_body">今後のリリースで提供予定です。</string>
     <string name="account_error_title">アカウント操作が完了しませんでした</string>
 
     <!-- Instance summaries -->
@@ -222,7 +222,6 @@
     <string name="downloads_size">サイズ</string>
     <string name="downloads_plan_error">インストール内容を計算できません：%1$s</string>
     <string name="downloads_install_running">タスクを実行中…</string>
-    <string name="downloads_milestone_chip">%1$s</string>
     <string name="downloads_kind_release">正式版</string>
     <string name="downloads_kind_snapshot">スナップショット</string>
     <string name="downloads_category_game">ゲーム</string>
@@ -247,7 +246,6 @@
     <string name="downloads_resourcepack_body">リソースパックを閲覧し、インスタンスの MC バージョンで互換性を絞り込みます。</string>
     <string name="downloads_shaderpack_body">シェーダーローダーを導入したインスタンス向けにシェーダーを選択します。</string>
     <string name="downloads_datapack_body">データパックをワールドの datapacks フォルダーに入れます。</string>
-    <string name="downloads_milestone_later">後日</string>
 
     <!-- Install page and loader version picker -->
     <string name="install_title">ゲームをインストール</string>

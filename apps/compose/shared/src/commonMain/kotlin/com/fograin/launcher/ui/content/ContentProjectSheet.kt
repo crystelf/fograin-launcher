@@ -154,7 +154,7 @@ fun ContentProjectSheet(
                 DropdownField(
                     value = target?.name ?: stringResource(Res.string.downloads_content_target_empty),
                     options = state.instances.map { instance ->
-                        instance.name to { model.setContentTargetInstance(instance.id) }
+                        instance.name to { model.contentBrowser.setTargetInstance(instance.id) }
                     },
                     enabled = state.instances.isNotEmpty(),
                     fillWidth = true,
@@ -200,7 +200,7 @@ fun ContentProjectSheet(
                         ?: stringResource(Res.string.datapack_no_world_title),
                     options = browser.worlds.map { world ->
                         (world.levelName ?: world.name) to {
-                            model.selectContentWorld(world.name)
+                            model.contentBrowser.selectWorld(world.name)
                         }
                     },
                     enabled = browser.worlds.isNotEmpty(),
@@ -276,7 +276,7 @@ fun ContentProjectSheet(
                     VersionRow(
                         version = version,
                         selected = version.versionId == browser.selectedVersion?.versionId,
-                        onSelect = { model.selectContentVersion(version.versionId) },
+                        onSelect = { model.contentBrowser.selectVersion(version.versionId) },
                     )
                 }
             }
@@ -316,7 +316,7 @@ fun ContentProjectSheet(
             else -> Res.string.downloads_content_install
         }
         Button(
-            onClick = model::installSelectedContent,
+            onClick = model.contentBrowser::installSelected,
             enabled = browser.canInstall && targetReady && !loaderMissing,
             modifier = Modifier
                 .fillMaxWidth()
@@ -347,9 +347,9 @@ fun ContentProjectSheet(
     browser.dependencyPrompt?.let { prompt ->
         DependencyDialog(
             prompt = prompt,
-            onAutoDownload = { model.confirmContentDependencyPrompt(true) },
-            onSkip = { model.confirmContentDependencyPrompt(false) },
-            onDismiss = model::dismissContentDependencyPrompt,
+            onAutoDownload = { model.contentBrowser.confirmDependencyPrompt(true) },
+            onSkip = { model.contentBrowser.confirmDependencyPrompt(false) },
+            onDismiss = model.contentBrowser::dismissDependencyPrompt,
         )
     }
 }

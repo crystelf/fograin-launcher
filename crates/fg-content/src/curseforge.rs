@@ -2,8 +2,8 @@
 //!
 //! CurseForge's official API requires an API key, which the launcher does not
 //! ship. `fg-net` therefore maps `https://api.curseforge.com` to MCIM and marks
-//! the official host as unavailable, matching the policy in `docs/design.md`
-//! §5.8. File downloads go through the same mirror rules.
+//! the official host as unavailable, matching the mirror policy in `fg-net`.
+//! File downloads go through the same mirror rules.
 
 use fg_core::{Error, ErrorKind, Result};
 use fg_net::Url;
@@ -11,7 +11,7 @@ use serde::Deserialize;
 
 use crate::{
     ContentClient, ContentDependency, ContentFile, ContentSearchPage, ContentSource,
-    ContentVersion, Project, SearchQuery, VersionType,
+    ContentVersion, Project, SearchQuery,
     api::CURSEFORGE_API,
     model::{
         curseforge_loader_type, dependency_kind_from_curseforge, validate_project_id,
@@ -460,12 +460,6 @@ struct RawDependency {
     mod_id: u64,
     #[serde(default)]
     relation_type: u8,
-}
-
-/// Parses CurseForge's `fileDate` for tests and sorting.
-#[must_use]
-pub fn normalize_release_type(value: u8) -> VersionType {
-    version_type_from_curseforge(value)
 }
 
 #[cfg(test)]

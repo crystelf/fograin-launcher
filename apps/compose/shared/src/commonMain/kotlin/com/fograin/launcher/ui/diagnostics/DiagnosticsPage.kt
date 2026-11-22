@@ -1,9 +1,9 @@
 package com.fograin.launcher.ui.diagnostics
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -62,7 +62,7 @@ const val DiagnosticsPageTag: String = "diagnostics-page"
 const val DiagnosticsExportTag: String = "diagnostics-export"
 
 /**
- * Instance · 日志与诊断 (M9).
+ * Instance · 日志与诊断.
  *
  * The page leads with the conclusion: if the analyzer matched rules, the first
  * cards say what is wrong and what to do. Logs sit below in a compact,
@@ -84,7 +84,7 @@ fun DiagnosticsPage(model: AppModel, state: AppUiState) {
             title = stringResource(Res.string.diag_title),
             onBack = model::closeDiagnostics,
             actions = {
-                IconButton(onClick = model::refreshDiagnostics, enabled = !diag.isLoading) {
+                IconButton(onClick = model.diag::refresh, enabled = !diag.isLoading) {
                     Icon(
                         Icons.Outlined.Refresh,
                         contentDescription = stringResource(Res.string.diag_refresh),
@@ -100,7 +100,7 @@ fun DiagnosticsPage(model: AppModel, state: AppUiState) {
                     )
                 } else {
                     IconButton(
-                        onClick = model::exportDiagnostics,
+                        onClick = model.diag::export,
                         enabled = instance != null,
                         modifier = Modifier.testTag(DiagnosticsExportTag),
                     ) {
@@ -181,7 +181,7 @@ fun DiagnosticsPage(model: AppModel, state: AppUiState) {
             if (diag.bundlePath != null) {
                 BundleBanner(
                     path = diag.bundlePath.orEmpty(),
-                    onCopy = model::copyDiagBundlePath,
+                    onCopy = model.diag::copyBundlePath,
                 )
             }
 
@@ -210,7 +210,7 @@ fun DiagnosticsPage(model: AppModel, state: AppUiState) {
             SegmentedTabRail(
                 options = diag.availableTabs,
                 selected = activeTab,
-                onSelect = model::selectDiagTab,
+                onSelect = model.diag::selectTab,
                 modifier = Modifier.fillMaxWidth(),
                 label = { tab -> diagTabLabel(tab) },
             )
@@ -242,7 +242,7 @@ fun DiagnosticsPage(model: AppModel, state: AppUiState) {
 
     // The log tab list can shrink after a refresh; keep the selection valid.
     LaunchedEffect(diag.availableTabs, diag.tab) {
-        if (diag.tab !in diag.availableTabs) model.selectDiagTab(diag.activeTab)
+        if (diag.tab !in diag.availableTabs) model.diag.selectTab(diag.activeTab)
     }
 }
 

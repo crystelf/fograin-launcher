@@ -22,11 +22,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
-import com.fograin.launcher.app.SettingsSection
 import com.fograin.launcher.app.AppUiState
+import com.fograin.launcher.app.SettingsSection
 import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.resources.Res
 import com.fograin.launcher.resources.settings_about_body

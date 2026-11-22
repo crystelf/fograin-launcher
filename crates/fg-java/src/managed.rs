@@ -1,4 +1,4 @@
-//! Managed Java runtimes under `<root>/runtimes` (§4.1, §5.5, M6).
+//! Managed Java runtimes under `<root>/runtimes`.
 //!
 //! The launcher downloads Mojang's official per-file runtime manifests, writes
 //! them into `runtimes/<vendor>-<component>-<version>-<arch>/`, creates the
@@ -16,10 +16,9 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
 };
 
-use fg_core::{DownloadSource, Error, ErrorKind, Result};
+use fg_core::{DownloadSource, Error, ErrorKind, Result, now_ms, write_atomic};
 use fg_net::{
     Candidate, DownloadCtx, DownloadRequest, Downloader, MirrorTable, Priority, ProgressSink,
     Region,
@@ -335,16 +334,6 @@ impl JavaManager {
             )
         })?;
         manifest.into_plan(candidate, fetched.url.as_str())
-    }
-
-    /// Resolves and plans a runtime by major, fetching the catalog first.
-    ///
-    /// # Errors
-    ///
-    /// Propagates catalog selection and plan errors.
-    pub async fn plan_for(&self, required: u32, component: Option<&str>) -> Result<RuntimePlan> {
-        let candidate = self.candidate(required, component).await?;
-        self.plan(&candidate).await
     }
 
     /// Builds the task graph that downloads and installs `plan`.
@@ -829,21 +818,6 @@ fn set_permissions(_directory: &Path, _files: &[PlannedRuntimeFile]) -> Result<(
     Ok(())
 }
 
-fn write_atomic(path: &Path, contents: &[u8]) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let temporary = path.with_extension("tmp");
-    fs::write(&temporary, contents)?;
-    fs::rename(&temporary, path).map_err(|error| {
-        Error::with_detail(
-            ErrorKind::Io,
-            "error.io.rename",
-            format!("{}: {error}", path.display()),
-        )
-    })
-}
-
 fn is_official_host(url: &fg_net::Url) -> bool {
     url.host_str().is_some_and(|host| {
         host == "piston-meta.mojang.com"
@@ -861,14 +835,6 @@ fn sha1_hex(bytes: &[u8]) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| {
-            u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
-        })
 }
 
 struct TaskSink {

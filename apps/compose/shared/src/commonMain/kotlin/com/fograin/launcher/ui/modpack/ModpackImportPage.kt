@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -15,7 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -27,11 +27,13 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -59,8 +61,6 @@ import com.fograin.launcher.resources.modpack_version_label
 import com.fograin.launcher.ui.components.FograinSnackbarHost
 import com.fograin.launcher.ui.components.KeyValueRow
 import com.fograin.launcher.ui.components.PageHeader
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.runtime.remember
 import org.jetbrains.compose.resources.stringResource
 
 const val ModpackImportPageTag: String = "modpack-import-page"
@@ -91,7 +91,7 @@ fun ModpackImportPage(model: AppModel, state: AppUiState) {
         Column(modifier = Modifier.fillMaxSize().imePadding()) {
             PageHeader(
                 title = stringResource(Res.string.modpack_import_title),
-                onBack = model::dismissModpackImport,
+                onBack = model.modpack::dismiss,
                 actions = {
                     Text(
                         text = kindLabel(pack),
@@ -120,7 +120,7 @@ fun ModpackImportPage(model: AppModel, state: AppUiState) {
                         PackInfo(pack)
                         OutlinedTextField(
                             value = state.modpack.name,
-                            onValueChange = model::setModpackName,
+                            onValueChange = model.modpack::setName,
                             label = { Text(stringResource(Res.string.modpack_name_label)) },
                             singleLine = true,
                             enabled = !state.modpack.isImporting,
@@ -161,13 +161,13 @@ fun ModpackImportPage(model: AppModel, state: AppUiState) {
             ) {
                 Spacer(Modifier.weight(1f))
                 TextButton(
-                    onClick = model::dismissModpackImport,
+                    onClick = model.modpack::dismiss,
                     enabled = !state.modpack.isImporting,
                 ) {
                     Text(stringResource(Res.string.action_cancel))
                 }
                 Button(
-                    onClick = model::confirmModpackImport,
+                    onClick = model.modpack::confirmImport,
                     enabled = state.modpack.canImport,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.testTag(ModpackImportConfirmTag),

@@ -1,4 +1,4 @@
-//! Modpack inspection, import planning and `.mrpack` export (M9).
+//! Modpack inspection, import planning and `.mrpack` export.
 //!
 //! Supported inputs:
 //!
@@ -18,10 +18,10 @@ use std::{
     io::{self, Read, Write},
     path::{Path, PathBuf},
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
 };
 
-use fg_core::{Error, ErrorKind, Result};
+use fg_core::util::sanitize_component;
+use fg_core::{Error, ErrorKind, Result, now_ms_i64};
 use fg_net::{DownloadRequest, Downloader, Integrity, Priority, ProgressSink};
 use fg_task::{TaskCx, TaskGraph};
 use serde::{Deserialize, Serialize};
@@ -1013,7 +1013,7 @@ fn write_record(instance_dir: &Path, pack: &Modpack, source: &str) -> Result<()>
         loader_kind: pack.loader_kind.clone(),
         loader_version: pack.loader_version.clone(),
         source_path: source.to_string(),
-        installed_at_ms: now_ms(),
+        installed_at_ms: now_ms_i64(),
         files: pack.files.iter().map(|file| file.path.clone()).collect(),
         overrides: pack.overrides.clone(),
     };
@@ -1032,13 +1032,6 @@ fn write_record(instance_dir: &Path, pack: &Modpack, source: &str) -> Result<()>
             format!("{}: {error}", path.display()),
         )
     })
-}
-
-/// Reads `modpack.json`; `None` when the instance was not created from a pack.
-#[must_use]
-pub fn read_record(instance_dir: &Path) -> Option<ModpackRecord> {
-    let text = fs::read_to_string(instance_dir.join(MODPACK_FILE)).ok()?;
-    serde_json::from_str(&text).ok()
 }
 
 /// Result of `modpack.export`.
@@ -1246,8 +1239,8 @@ pub struct ExportConfig<'a> {
 /// Suggested archive name for the save dialog.
 #[must_use]
 pub fn suggested_file_name(name: &str, version: &str) -> String {
-    let name = sanitize(name);
-    let version = sanitize(version);
+    let name = sanitize_component(name, "modpack");
+    let version = sanitize_component(version, "modpack");
     if version.is_empty() {
         format!("{name}.mrpack")
     } else {
@@ -1514,36 +1507,6 @@ fn add_file(
 
 fn export_error(error: impl std::fmt::Display) -> Error {
     Error::with_detail(ErrorKind::Io, "error.modpack.export", error.to_string())
-}
-
-fn sanitize(name: &str) -> String {
-    let mut text: String = name
-        .chars()
-        .map(|character| {
-            if character.is_alphanumeric() || matches!(character, '-' | '_' | '.') {
-                character
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    while text.contains("--") {
-        text = text.replace("--", "-");
-    }
-    let trimmed = text.trim_matches(['-', '.'].as_slice()).to_string();
-    if trimmed.is_empty() {
-        "modpack".to_string()
-    } else {
-        trimmed.chars().take(48).collect()
-    }
-}
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .and_then(|duration| i64::try_from(duration.as_millis()).ok())
-        .unwrap_or(0)
 }
 
 struct TaskSink {

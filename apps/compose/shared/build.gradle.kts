@@ -12,6 +12,9 @@ plugins {
 }
 
 kotlin {
+    // CI and the release jobs build with Temurin 21; pinning the toolchain
+    // keeps a local JDK 25 from changing bytecode or breaking Compose Desktop.
+    jvmToolchain(21)
     jvm("desktop")
 
     android {

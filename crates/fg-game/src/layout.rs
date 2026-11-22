@@ -2,11 +2,13 @@
 //!
 //! All shared game files live under `<root>/shared`; instances only own their
 //! `.minecraft` directory and metadata. Keeping paths in one place makes it
-//! possible to switch to the "非共享" layout in M4 without touching installers.
+//! possible to switch to a non-shared layout later without touching installers.
 
 use std::path::{Path, PathBuf};
 
 use fg_core::{Error, ErrorKind, Result};
+
+pub use fg_core::write_atomic;
 use sha1::{Digest, Sha1};
 
 /// Absolute paths for one launcher data root.
@@ -199,38 +201,6 @@ pub fn validate_id(id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Writes `contents` next to `path` and renames it into place (§5.2).
-///
-/// # Errors
-///
-/// Returns [`ErrorKind::Io`] when writing or renaming fails.
-pub fn write_atomic(path: &Path, contents: &[u8]) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| {
-            Error::with_detail(
-                ErrorKind::Io,
-                "error.io.create_dir",
-                format!("{}: {error}", parent.display()),
-            )
-        })?;
-    }
-    let temporary = path.with_extension("tmp");
-    std::fs::write(&temporary, contents).map_err(|error| {
-        Error::with_detail(
-            ErrorKind::Io,
-            "error.io.write",
-            format!("{}: {error}", temporary.display()),
-        )
-    })?;
-    std::fs::rename(&temporary, path).map_err(|error| {
-        Error::with_detail(
-            ErrorKind::Io,
-            "error.io.rename",
-            format!("{}: {error}", path.display()),
-        )
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -266,15 +236,5 @@ mod tests {
             assert!(validate_id(id).is_err(), "{id:?}");
         }
         assert!(validate_id("1.21.4").is_ok());
-    }
-
-    #[test]
-    fn atomic_write_replaces_the_target() {
-        let directory = tempfile::tempdir().expect("tempdir");
-        let path = directory.path().join("nested/instance.toml");
-        write_atomic(&path, b"one").expect("first");
-        write_atomic(&path, b"two").expect("second");
-        assert_eq!(std::fs::read_to_string(&path).expect("read"), "two");
-        assert!(!path.with_extension("tmp").exists());
     }
 }

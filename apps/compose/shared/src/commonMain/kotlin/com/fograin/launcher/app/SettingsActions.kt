@@ -19,7 +19,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * The settings destination's controller (M10).
+ * The settings destination's controller.
  *
  * Appearance lives in `launcher.toml` and is mirrored into [AppUiState] so the
  * theme and language change immediately; download/network settings are
@@ -27,7 +27,7 @@ import kotlinx.serialization.json.put
  * `gameConfig.set` and the Java policy uses `java.policy.set`, so there is one
  * writer per section instead of a catch-all settings endpoint.
  */
-internal class SettingsActions(private val model: AppModel) {
+class SettingsActions(private val model: AppModel) {
 
     /** Serializes writes so two quick toggles cannot interleave read-modify-write. */
     private val writeMutex = Mutex()

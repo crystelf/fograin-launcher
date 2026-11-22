@@ -1,8 +1,8 @@
 package com.fograin.launcher.settings
 
 import androidx.compose.ui.graphics.Color
-import com.fograin.launcher.ui.theme.parseHexColor
 import com.fograin.launcher.ui.components.windowHasRoundedCorners
+import com.fograin.launcher.ui.theme.parseHexColor
 import com.fograin.launcher.ui.theme.seedColorScheme
 import com.fograin.launcher.ui.theme.toHexString
 import kotlin.test.Test

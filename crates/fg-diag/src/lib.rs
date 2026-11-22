@@ -1,4 +1,4 @@
-//! Log collection and the crash analysis rule engine (M9).
+//! Log collection and the crash analysis rule engine.
 //!
 //! Three layers:
 //!
@@ -10,8 +10,8 @@
 //! - [`analyze`] matches rules against the collected lines and ranks findings by
 //!   severity and confidence. [`export`] writes the redacted support bundle.
 //!
-//! The rules carry their display copy (`title` / `body`) until the M10 i18n
-//! pass moves it into `composeResources`; the `id` is the stable key.
+//! The rules carry their display copy (`title` / `body`) so a finding renders
+//! without a second lookup table; the `id` is the stable key.
 
 pub mod analyze;
 pub mod export;

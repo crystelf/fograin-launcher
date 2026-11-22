@@ -1,7 +1,6 @@
 //! Rule matching and ranking.
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
+use fg_core::now_ms_i64;
 use serde::Serialize;
 
 use crate::{
@@ -45,16 +44,7 @@ pub struct Analysis {
     pub analyzed_at_ms: i64,
 }
 
-impl Analysis {
-    /// Findings that want a repair button.
-    #[must_use]
-    pub fn actionable(&self) -> Vec<&Finding> {
-        self.findings
-            .iter()
-            .filter(|finding| finding.fix.is_actionable())
-            .collect()
-    }
-}
+impl Analysis {}
 
 /// Matches every rule against every source and returns the ranked result.
 ///
@@ -125,7 +115,7 @@ pub fn analyze(bundle: &LogBundle, rules: &RuleSet) -> Analysis {
         rules: rules.len(),
         sources: bundle.sources.clone(),
         crash: bundle.crash.clone(),
-        analyzed_at_ms: now_ms(),
+        analyzed_at_ms: now_ms_i64(),
     }
 }
 
@@ -194,14 +184,6 @@ fn summarize(findings: &[Finding], crash: Option<&CrashSummary>) -> String {
         }
         (false, None) => format!("找到 {} 个可能原因，请先看第一条。", findings.len()),
     }
-}
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .and_then(|duration| i64::try_from(duration.as_millis()).ok())
-        .unwrap_or(0)
 }
 
 #[cfg(test)]

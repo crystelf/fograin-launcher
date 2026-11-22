@@ -5,8 +5,6 @@
 //! this module intentionally mirrors the small subset of `fg-game::version`
 //! that is relevant while planning.
 
-use std::collections::BTreeMap;
-
 use fg_core::{Error, ErrorKind, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -219,15 +217,6 @@ pub fn append_game_arguments(raw: &mut Value, arguments: &[&str]) {
     for argument in arguments {
         game.push(Value::String((*argument).to_string()));
     }
-}
-
-/// Key/value view used by tests and diagnostics.
-#[must_use]
-pub fn library_map(libraries: &[VersionLibrary]) -> BTreeMap<String, String> {
-    libraries
-        .iter()
-        .map(|library| (library.coordinate.label(), library.path.clone()))
-        .collect()
 }
 
 #[cfg(test)]

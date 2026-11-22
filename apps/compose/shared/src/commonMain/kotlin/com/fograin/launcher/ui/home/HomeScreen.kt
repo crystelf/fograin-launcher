@@ -28,6 +28,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
@@ -36,11 +38,9 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.SwapHoriz
-import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Inventory2
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -74,10 +74,8 @@ import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.app.HomeFilter
 import com.fograin.launcher.model.Instance
-import com.fograin.launcher.model.InstanceFormat
+import com.fograin.launcher.model.TaskState
 import com.fograin.launcher.resources.*
-import com.fograin.launcher.ui.metaText
-import com.fograin.launcher.ui.relativeTimeText
 import com.fograin.launcher.ui.components.AccountAvatarButton
 import com.fograin.launcher.ui.components.InstanceTile
 import com.fograin.launcher.ui.components.PageHeader
@@ -86,7 +84,8 @@ import com.fograin.launcher.ui.components.StatusPill
 import com.fograin.launcher.ui.components.StatusTone
 import com.fograin.launcher.ui.components.ThinProgressBar
 import com.fograin.launcher.ui.downloadSpeedText
-import com.fograin.launcher.ui.stateText
+import com.fograin.launcher.ui.metaText
+import com.fograin.launcher.ui.relativeTimeText
 import com.fograin.launcher.ui.title
 import com.fograin.launcher.ui.titleText
 import kotlin.time.Clock
@@ -133,7 +132,7 @@ fun HomeScreen(model: AppModel, state: AppUiState) {
                 AccountAvatarButton(
                     initial = account.initial,
                     label = stringResource(Res.string.home_account_format, account.displayName),
-                    onClick = model::openAccounts,
+                    onClick = model.account::open,
                     modifier = Modifier.testTag(AccountAvatarTag),
                 )
                 Box {
@@ -167,7 +166,7 @@ fun HomeScreen(model: AppModel, state: AppUiState) {
                             modifier = Modifier.testTag(HomeDownloadQueueTag),
                             onClick = {
                                 menuOpen = false
-                                model.openDownloadQueue()
+                                model.downloads.openQueue()
                             },
                         )
                         DropdownMenuItem(
@@ -178,7 +177,7 @@ fun HomeScreen(model: AppModel, state: AppUiState) {
                             modifier = Modifier.testTag(HomeImportModpackTag),
                             onClick = {
                                 menuOpen = false
-                                model.startModpackImport()
+                                model.modpack.startImport()
                             },
                         )
                     }
@@ -206,7 +205,7 @@ fun HomeScreen(model: AppModel, state: AppUiState) {
                     if (current != null) {
                         HeroCard(model = model, state = state, instance = current)
                     } else {
-                        EmptyHomeHero(onAddInstance = model::openAddInstance)
+                        EmptyHomeHero(onAddInstance = model.library::openAddInstance)
                     }
                 }
             }
@@ -265,7 +264,7 @@ fun HomeScreen(model: AppModel, state: AppUiState) {
 @Composable
 private fun HeroCard(model: AppModel, state: AppUiState, instance: Instance) {
     var switchExpanded by remember { mutableStateOf(false) }
-    val downloading = model.isDownloading(instance)
+    val downloading = model.downloads.isDownloading(instance)
     // A healthy instance needs no badge; the pill is reserved for states the
     // user has to act on or wait for.
     val status = when {
@@ -400,14 +399,14 @@ private fun HeroCard(model: AppModel, state: AppUiState, instance: Instance) {
                         label = "hero-primary-action",
                     ) { running ->
                         if (running) {
-                            Button(onClick = model::stopGame) {
+                            Button(onClick = model.launch::stop) {
                                 Icon(Icons.Filled.Stop, contentDescription = null)
                                 Spacer(Modifier.size(6.dp))
                                 Text(stringResource(Res.string.action_stop_game))
                             }
                         } else {
                             Button(
-                                onClick = { model.startGame(instance) },
+                                onClick = { model.launch.start(instance) },
                                 enabled = !state.isSessionLoading,
                             ) {
                                 Icon(Icons.Filled.PlayArrow, contentDescription = null)
@@ -578,7 +577,7 @@ private fun HomeInstanceRow(
                         leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
                         onClick = {
                             menuExpanded = false
-                            model.startGame(instance)
+                            model.launch.start(instance)
                         },
                     )
                     DropdownMenuItem(
@@ -594,7 +593,7 @@ private fun HomeInstanceRow(
                         leadingIcon = { Icon(Icons.Outlined.FolderOpen, contentDescription = null) },
                         onClick = {
                             menuExpanded = false
-                            model.openInstanceDirectory(instance)
+                            model.instanceSettings.openDirectory(instance)
                         },
                     )
                     DropdownMenuItem(
@@ -612,7 +611,7 @@ private fun HomeInstanceRow(
                         leadingIcon = { Icon(Icons.Filled.Star, contentDescription = null) },
                         onClick = {
                             menuExpanded = false
-                            model.toggleFavorite(instance)
+                            model.library.toggleFavorite(instance)
                         },
                     )
                 }
@@ -655,7 +654,7 @@ private fun TaskQueueCard(model: AppModel, state: AppUiState) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                TextButton(onClick = model::openDownloadQueue) {
+                TextButton(onClick = model.downloads::openQueue) {
                     Text(stringResource(Res.string.download_queue_view))
                     Icon(
                         imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
@@ -673,7 +672,7 @@ private fun TaskQueueCard(model: AppModel, state: AppUiState) {
 
 @Composable
 private fun HomeDownloadRow(model: AppModel, task: com.fograin.launcher.app.DownloadRow) {
-    val paused = task.state == "paused"
+    val paused = task.state == TaskState.PAUSED
     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -694,7 +693,7 @@ private fun HomeDownloadRow(model: AppModel, task: com.fograin.launcher.app.Down
             )
             if (paused) {
                 IconButton(
-                    onClick = { model.resumeDownload(task.id) },
+                    onClick = { model.downloads.resume(task.id) },
                     modifier = Modifier
                         .size(32.dp)
                         .testTag(homeDownloadResumeTag(task.id)),
@@ -707,7 +706,7 @@ private fun HomeDownloadRow(model: AppModel, task: com.fograin.launcher.app.Down
                 }
             } else {
                 IconButton(
-                    onClick = { model.pauseDownload(task.id) },
+                    onClick = { model.downloads.pause(task.id) },
                     modifier = Modifier
                         .size(32.dp)
                         .testTag(homeDownloadPauseTag(task.id)),
@@ -720,7 +719,7 @@ private fun HomeDownloadRow(model: AppModel, task: com.fograin.launcher.app.Down
                 }
             }
             IconButton(
-                onClick = { model.cancelDownload(task.id) },
+                onClick = { model.downloads.cancel(task.id) },
                 modifier = Modifier
                     .size(32.dp)
                     .testTag(homeDownloadStopTag(task.id)),

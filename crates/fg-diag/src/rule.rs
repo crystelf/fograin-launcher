@@ -1,8 +1,8 @@
 //! Diagnostic rules: built-in TOML plus user overrides.
 //!
 //! Rules are plain regexes over log lines. A rule carries its display copy so
-//! the analysis result can be rendered without a second lookup table; the M10
-//! i18n pass will move `title` / `body` to `composeResources` keyed by `id`.
+//! the analysis result can be rendered without a second lookup table. The `id`
+//! is the stable key if the copy ever moves into resources.
 
 use std::{
     fs,
@@ -288,7 +288,7 @@ mod tests {
     #[test]
     fn builtins_compile_and_cover_the_first_batch() {
         let set = RuleSet::builtin().expect("builtin rules");
-        assert!(set.len() >= 10, "expected the M9 rule batch");
+        assert!(set.len() >= 10, "expected the built-in rule batch");
         for id in [
             "java.version",
             "java.memory",

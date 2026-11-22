@@ -15,10 +15,10 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
+import com.fograin.launcher.model.TaskState
 
 /**
  * State-machine coverage for [AppModel]: what `app.snapshot`, the download
@@ -85,7 +85,7 @@ class AppModelTest {
         model.openInstanceDetail(instance)
         assertEquals(LibraryStage.DETAIL, model.state.value.libraryStage)
 
-        model.deleteInstance(instance)
+        model.library.deleteInstance(instance)
         runCurrent()
 
         assertEquals(LibraryStage.LIST, model.state.value.libraryStage)
@@ -100,7 +100,7 @@ class AppModelTest {
 
         // Sanitising keeps ASCII and lower/upper case; ids collide, so a
         // numeric suffix is appended.
-        val id = model.uniqueInstanceID("fog-forest", "1.21.4")
+        val id = model.library.uniqueInstanceID("fog-forest", "1.21.4")
         assertEquals("fog-forest-2", id)
     }
 
@@ -124,7 +124,7 @@ class AppModelTest {
         val model = model(backgroundScope, core)
         runCurrent()
 
-        model.startGameInstall("1.21.5", "Neo Pack")
+        model.downloads.startGameInstall("1.21.5", "Neo Pack")
         runCurrent()
 
         val installing = model.state.value
@@ -136,7 +136,7 @@ class AppModelTest {
             CoreEvent.TaskFinished(
                 taskId = "task-42",
                 name = "install:1.21.5",
-                state = "succeeded",
+                state = TaskState.SUCCEEDED,
                 detail = emptyList(),
             ),
         )
@@ -155,10 +155,10 @@ class AppModelTest {
         val core = FakeCore()
         val model = model(backgroundScope, core)
         runCurrent()
-        model.loadDownloadVersions()
+        model.downloads.loadVersions()
         runCurrent()
 
-        model.openInstallPage("1.21.5")
+        model.downloads.openInstallPage("1.21.5")
         runCurrent()
 
         var download = model.state.value.download
@@ -167,7 +167,7 @@ class AppModelTest {
         assertNotNull(download.plan, "the install page must preview the pinned version")
         assertEquals(GameLoaderKind.VANILLA, download.installLoader)
 
-        model.setInstallLoader(GameLoaderKind.FABRIC)
+        model.downloads.setInstallLoader(GameLoaderKind.FABRIC)
         runCurrent()
 
         download = model.state.value.download
@@ -181,7 +181,7 @@ class AppModelTest {
         assertEquals("fabric", (planRequest["loaderKind"] as JsonPrimitive).content)
         assertEquals("0.16.9", (planRequest["loaderVersion"] as JsonPrimitive).content)
 
-        model.openLoaderVersionPicker()
+        model.downloads.openLoaderVersionPicker()
         assertEquals(DownloadStage.LOADER_VERSIONS, model.state.value.download.stage)
 
         model.selectInstallLoaderVersion("0.15.11")
@@ -191,7 +191,7 @@ class AppModelTest {
         assertEquals(DownloadStage.INSTALL, download.stage)
         assertEquals("0.15.11", download.installLoaderVersion)
 
-        model.setInstallInstanceName("雾林 Fabric")
+        model.downloads.setInstallInstanceName("雾林 Fabric")
         assertEquals("雾林 Fabric", model.state.value.download.installInstanceName)
 
         // The flow lives inside the downloads destination; back walks it
@@ -212,16 +212,16 @@ class AppModelTest {
         val core = FakeCore()
         val model = model(backgroundScope, core)
         runCurrent()
-        model.loadDownloadVersions()
+        model.downloads.loadVersions()
         runCurrent()
 
-        model.openInstallPage("1.21.5")
-        model.setInstallLoader(GameLoaderKind.FABRIC)
+        model.downloads.openInstallPage("1.21.5")
+        model.downloads.setInstallLoader(GameLoaderKind.FABRIC)
         model.selectInstallLoaderVersion("0.15.11")
-        model.setInstallInstanceName("雾林 1.21.5")
+        model.downloads.setInstallInstanceName("雾林 1.21.5")
         runCurrent()
 
-        model.submitInstall()
+        model.downloads.submitInstall()
         runCurrent()
 
         val request = core.installRequests.single()
@@ -240,7 +240,7 @@ class AppModelTest {
         runCurrent()
         val incomplete = model.state.value.instances.first { !it.isInstalled }
 
-        model.startGame(incomplete)
+        model.launch.start(incomplete)
         runCurrent()
 
         assertTrue(model.state.value.download.isGameDownloadRunning)
@@ -272,7 +272,7 @@ class AppModelTest {
         val model = model(backgroundScope, core)
         runCurrent()
 
-        model.startGameInstall(
+        model.downloads.startGameInstall(
             version = "1.21.4",
             instanceName = "雾林 Fabric",
             loader = com.fograin.launcher.model.GameLoaderKind.FABRIC,
@@ -291,7 +291,7 @@ class AppModelTest {
         val model = model(backgroundScope, core)
         runCurrent()
 
-        val versions = model.loadLoaderVersions(
+        val versions = model.downloads.versionsFor(
             com.fograin.launcher.model.GameLoaderKind.FABRIC,
             "1.21.4",
         )
@@ -308,7 +308,7 @@ class AppModelTest {
         model.openJavaSettings()
         runCurrent()
         // Phone layout: Back pops the detail page before it closes the window.
-        model.setSettingsCompact(true)
+        model.settings.setCompact(true)
 
         var state = model.state.value
         assertTrue(state.settingsWindow.open)
@@ -321,12 +321,12 @@ class AppModelTest {
         assertTrue(state.java.catalog.last().installed)
         assertTrue(core.rpcCalls.contains("java.catalog"))
 
-        model.setJavaAutoDownload(false)
+        model.java.setAutoDownload(false)
         runCurrent()
         assertFalse(model.state.value.java.autoDownload)
         assertFalse(core.javaAutoDownload)
 
-        model.installJavaRuntime(21)
+        model.java.install(21)
         runCurrent()
         state = model.state.value
         assertEquals("java-task-1", state.java.installTaskId)
@@ -337,7 +337,7 @@ class AppModelTest {
             CoreEvent.TaskFinished(
                 taskId = "java-task-1",
                 name = "java:21",
-                state = "succeeded",
+                state = TaskState.SUCCEEDED,
                 detail = emptyList(),
             ),
         )
@@ -368,24 +368,24 @@ class AppModelTest {
         assertTrue(state.settingsWindow.loaded)
         assertTrue(core.rpcCalls.contains("settings.get"))
 
-        model.setLanguage(com.fograin.launcher.settings.AppLanguage.JAPANESE)
+        model.settings.setLanguage(com.fograin.launcher.settings.AppLanguage.JAPANESE)
         runCurrent()
         state = model.state.value
         assertEquals(com.fograin.launcher.settings.AppLanguage.JAPANESE, state.language)
 
-        model.setAccent(com.fograin.launcher.settings.AccentPreference.custom("#3f8f6b"))
+        model.settings.setAccent(com.fograin.launcher.settings.AccentPreference.custom("#3f8f6b"))
         runCurrent()
         state = model.state.value
         assertEquals("#3F8F6B", state.accent.value)
 
-        model.setInitialPage(com.fograin.launcher.settings.InitialPage.DOWNLOADS)
+        model.settings.setInitialPage(com.fograin.launcher.settings.InitialPage.DOWNLOADS)
         runCurrent()
         assertEquals(
             com.fograin.launcher.settings.InitialPage.DOWNLOADS,
             model.state.value.initialPage,
         )
 
-        model.settingsBack()
+        model.settings.back()
         assertFalse(model.state.value.settingsWindow.open)
     }
 
@@ -395,7 +395,7 @@ class AppModelTest {
         val model = model(backgroundScope, core)
         runCurrent()
 
-        model.removeJavaRuntime("mojang-java-runtime-delta-21.0.7-arm64")
+        model.java.remove("mojang-java-runtime-delta-21.0.7-arm64")
         runCurrent()
 
         assertEquals(
@@ -409,18 +409,18 @@ class AppModelTest {
         val model = model(backgroundScope)
         runCurrent()
 
-        model.setDownloadCategory(DownloadsCategory.MOD)
+        model.downloads.setCategory(DownloadsCategory.MOD)
         runCurrent()
 
         val browser = model.state.value.contentBrowser
         assertTrue(browser.projects.isNotEmpty(), "content.search was not applied")
         assertEquals("fog-forest", browser.targetInstanceId)
 
-        model.openContentProject(browser.projects.first())
+        model.contentBrowser.openProject(browser.projects.first())
         runCurrent()
         assertTrue(model.state.value.contentBrowser.versions.isNotEmpty(), "content.versions was not applied")
 
-        model.installSelectedContent()
+        model.contentBrowser.installSelected()
         runCurrent()
         assertEquals("content-task-1", model.state.value.contentBrowser.installTaskId)
         assertNull(model.state.value.contentBrowser.selectedProject)
@@ -431,10 +431,10 @@ class AppModelTest {
         val model = model(backgroundScope)
         runCurrent()
 
-        model.setDownloadCategory(DownloadsCategory.MOD)
+        model.downloads.setCategory(DownloadsCategory.MOD)
         runCurrent()
 
-        model.openContentProject(model.state.value.contentBrowser.projects.first())
+        model.contentBrowser.openProject(model.state.value.contentBrowser.projects.first())
         runCurrent()
 
         val release = model.state.value.contentBrowser
@@ -459,14 +459,14 @@ class AppModelTest {
         val model = model(backgroundScope, core)
         runCurrent()
 
-        model.setDownloadCategory(DownloadsCategory.MOD)
+        model.downloads.setCategory(DownloadsCategory.MOD)
         runCurrent()
-        model.openContentProject(model.state.value.contentBrowser.projects.first())
+        model.contentBrowser.openProject(model.state.value.contentBrowser.projects.first())
         runCurrent()
         model.setContentVersionChannel(ContentVersionChannel.BETA)
         runCurrent()
 
-        model.installSelectedContent()
+        model.contentBrowser.installSelected()
         runCurrent()
 
         val prompt = model.state.value.contentBrowser.dependencyPrompt
@@ -476,7 +476,7 @@ class AppModelTest {
         assertTrue(core.contentInstallRequests.isEmpty(), "nothing may download before the choice")
 
         // "仅安装本体" installs the mod without touching the prerequisites.
-        model.confirmContentDependencyPrompt(autoDownload = false)
+        model.contentBrowser.confirmDependencyPrompt(autoDownload = false)
         runCurrent()
         assertEquals("content-task-1", model.state.value.contentBrowser.installTaskId)
         assertEquals(
@@ -486,15 +486,15 @@ class AppModelTest {
         assertNull(model.state.value.contentBrowser.dependencyPrompt)
 
         // Reopen the beta version and let the launcher pull the prerequisites.
-        model.openContentProject(model.state.value.contentBrowser.projects.first())
+        model.contentBrowser.openProject(model.state.value.contentBrowser.projects.first())
         runCurrent()
         model.setContentVersionChannel(ContentVersionChannel.BETA)
         runCurrent()
-        model.installSelectedContent()
+        model.contentBrowser.installSelected()
         runCurrent()
         assertNotNull(model.state.value.contentBrowser.dependencyPrompt)
 
-        model.confirmContentDependencyPrompt(autoDownload = true)
+        model.contentBrowser.confirmDependencyPrompt(autoDownload = true)
         runCurrent()
         assertEquals(
             "true",
@@ -514,24 +514,24 @@ class AppModelTest {
         assertTrue(model.state.value.content.items.isNotEmpty(), "content.local was not applied")
         assertTrue(model.state.value.content.worlds.isNotEmpty(), "worlds.list was not applied")
 
-        model.setContentQuery("sodium")
+        model.content.setQuery("sodium")
         assertEquals(
             listOf("Sodium"),
             model.state.value.content.visibleItemsFor(ContentManagerTab.MODS).map { it.title },
         )
         assertTrue(model.state.value.content.visibleItemsFor(ContentManagerTab.RESOURCE_PACKS).isEmpty())
-        model.setContentQuery("")
+        model.content.setQuery("")
 
-        model.checkContentUpdates()
+        model.content.checkUpdates()
         runCurrent()
         assertTrue(model.state.value.content.updates.isNotEmpty(), "content.updates was not applied")
 
-        model.setContentTab(ContentManagerTab.WORLDS)
-        model.backupWorld("New World")
+        model.content.setTab(ContentManagerTab.WORLDS)
+        model.content.backupWorld("New World")
         runCurrent()
         assertTrue(model.state.value.content.backups.isNotEmpty(), "worlds.backup was not applied")
 
-        model.setContentQuery("New")
+        model.content.setQuery("New")
         assertEquals("New", model.state.value.content.query)
         assertTrue(model.state.value.content.visibleWorlds().isNotEmpty())
         assertTrue(model.state.value.content.visibleBackups().isEmpty())
@@ -638,9 +638,9 @@ class AppModelTest {
         val model = model(backgroundScope, core)
         runCurrent()
 
-        model.openAccounts()
-        model.showOfflineAccountForm()
-        model.addOfflineAccount("Alex")
+        model.account.open()
+        model.account.showOfflineForm()
+        model.account.addOffline("Alex")
         runCurrent()
 
         val state = model.state.value.account
@@ -657,9 +657,9 @@ class AppModelTest {
         val model = model(backgroundScope, core)
         runCurrent()
 
-        model.openAccounts()
-        model.showYggdrasilAccountForm()
-        model.loginYggdrasil("https://littleskin.cn/api/yggdrasil", "user@example.com", "secret")
+        model.account.open()
+        model.account.showYggdrasilForm()
+        model.account.loginYggdrasil("https://littleskin.cn/api/yggdrasil", "user@example.com", "secret")
         runCurrent()
 
         val state = model.state.value.account
@@ -669,7 +669,7 @@ class AppModelTest {
         assertEquals(2, state.pendingProfiles.size)
         assertEquals("user@example.com", core.accountLoginRequests.single().stringOrNull("username"))
 
-        model.selectYggdrasilProfile("profile-2")
+        model.account.selectYggdrasilProfile("profile-2")
         runCurrent()
 
         val after = model.state.value.account
@@ -684,9 +684,9 @@ class AppModelTest {
         val model = model(backgroundScope, core)
         runCurrent()
 
-        model.openAccounts()
-        model.showYggdrasilAccountForm()
-        model.loginYggdrasil("https://littleskin.cn/api/yggdrasil", "user@example.com", "secret")
+        model.account.open()
+        model.account.showYggdrasilForm()
+        model.account.loginYggdrasil("https://littleskin.cn/api/yggdrasil", "user@example.com", "secret")
         runCurrent()
 
         val state = model.state.value.account
@@ -703,7 +703,7 @@ class AppModelTest {
         runCurrent()
         val installed = model.state.value.instances.first { it.isInstalled }
 
-        model.startGame(installed)
+        model.launch.start(installed)
         runCurrent()
 
         val request = core.launchRequests.single()
@@ -718,7 +718,7 @@ class AppModelTest {
         val model = model(backgroundScope, core)
         runCurrent()
 
-        model.setDownloadCategory(DownloadsCategory.MODPACK)
+        model.downloads.setCategory(DownloadsCategory.MODPACK)
         runCurrent()
 
         val request = core.contentSearchRequests.last()
@@ -728,9 +728,9 @@ class AppModelTest {
         assertEquals("", browser.targetInstanceId)
         assertTrue(browser.projects.isNotEmpty())
 
-        model.openContentProject(browser.projects.first())
+        model.contentBrowser.openProject(browser.projects.first())
         runCurrent()
-        model.installSelectedContent()
+        model.contentBrowser.installSelected()
         runCurrent()
 
         assertEquals("modpack-task-1", model.state.value.contentBrowser.installTaskId)
@@ -745,7 +745,7 @@ class AppModelTest {
         val model = model(backgroundScope, core)
         runCurrent()
 
-        model.setDownloadCategory(DownloadsCategory.DATAPACK)
+        model.downloads.setCategory(DownloadsCategory.DATAPACK)
         runCurrent()
 
         val browser = model.state.value.contentBrowser
@@ -753,9 +753,9 @@ class AppModelTest {
         assertEquals("New World", browser.targetWorld)
         assertEquals(1, browser.worlds.size)
 
-        model.openContentProject(browser.projects.first())
+        model.contentBrowser.openProject(browser.projects.first())
         runCurrent()
-        model.installSelectedContent()
+        model.contentBrowser.installSelected()
         runCurrent()
 
         val install = core.contentInstallRequests.last()
@@ -772,7 +772,7 @@ class AppModelTest {
 
         model.openInstanceDetail(instance)
         model.manageInstance(instance)
-        model.openDiagnostics(instance)
+        model.diag.open(instance)
         runCurrent()
 
         assertEquals(LibraryStage.DIAGNOSTICS, model.state.value.libraryStage)
@@ -781,7 +781,7 @@ class AppModelTest {
         assertEquals("java.memory", diag.findings.first().id)
         assertTrue(diag.textFor(diag.activeTab).contains("OutOfMemory"))
 
-        model.exportDiagnostics()
+        model.diag.export()
         runCurrent()
         assertTrue(
             model.state.value.diag.bundlePath.orEmpty().endsWith(".zip"),
@@ -807,7 +807,7 @@ class AppModelTest {
         assertEquals(1, content.datapacks.size)
         assertEquals("terralith.zip", content.datapacks.first().fileName)
 
-        model.selectDatapackWorld("New World")
+        model.content.selectDatapackWorld("New World")
         runCurrent()
         assertTrue(content.visibleDatapacks().isNotEmpty())
     }
@@ -818,7 +818,7 @@ class AppModelTest {
         val model = AppModel.create(core = FakeCore(), platform = platform.services, scope = backgroundScope)
         runCurrent()
 
-        model.startModpackImport()
+        model.modpack.startImport()
         runCurrent()
         val pack = model.state.value.modpack.pack
         assertNotNull(pack)
@@ -826,7 +826,7 @@ class AppModelTest {
         assertEquals("1.21.4", pack.minecraft)
         assertEquals("Calm", model.state.value.modpack.name)
 
-        model.confirmModpackImport()
+        model.modpack.confirmImport()
         runCurrent()
         assertEquals("task-modpack", model.state.value.modpack.taskId)
         assertEquals("calm", model.state.value.modpack.importedInstanceId)
@@ -838,7 +838,7 @@ class AppModelTest {
         runCurrent()
         val instance = model.state.value.instances.first()
 
-        model.beginModpackExport(instance)
+        model.modpack.beginExport(instance)
         runCurrent()
         val export = model.state.value.modpackExport
         assertEquals(LibraryStage.EXPORT, model.state.value.libraryStage)
@@ -853,17 +853,17 @@ class AppModelTest {
         assertTrue("servers" !in export.selected)
         assertTrue("gameSettings" !in export.selected)
 
-        model.nextModpackExportStep()
+        model.modpack.nextExportStep()
         assertEquals(ExportStep.CONTENT, model.state.value.modpackExport.step)
-        model.toggleModpackExportSection("servers")
+        model.modpack.toggleExportSection("servers")
         assertTrue("servers" in model.state.value.modpackExport.selected)
-        model.backModpackExportStep()
+        model.modpack.backExportStep()
         assertEquals(ExportStep.FORM, model.state.value.modpackExport.step)
 
-        model.confirmModpackExport()
+        model.modpack.export()
         runCurrent()
         assertEquals("/tmp/exports/calm.mrpack", model.state.value.modpackExport.result?.path)
-        model.dismissModpackExportResult()
+        model.modpack.dismissExportResult()
         assertEquals(LibraryStage.SETTINGS, model.state.value.libraryStage)
     }
 
@@ -872,9 +872,9 @@ class AppModelTest {
         val model = model(backgroundScope)
         runCurrent()
         val instance = model.state.value.instances.first()
-        model.beginModpackExport(instance)
+        model.modpack.beginExport(instance)
         runCurrent()
-        model.nextModpackExportStep()
+        model.modpack.nextExportStep()
         assertEquals(ExportStep.CONTENT, model.state.value.modpackExport.step)
 
         model.back()
@@ -916,7 +916,7 @@ class AppModelTest {
         runCurrent()
         assertEquals(2, model.state.value.activeDownloadCount)
 
-        model.openDownloadQueue()
+        model.downloads.openQueue()
         runCurrent()
         assertTrue(model.state.value.downloadQueueOpen)
         assertTrue(model.canGoBack())
@@ -937,17 +937,17 @@ class AppModelTest {
         val model = model(backgroundScope, core)
         runCurrent()
 
-        model.openDownloadQueue()
+        model.downloads.openQueue()
         runCurrent()
-        model.pauseDownload("task-1")
+        model.downloads.pause("task-1")
         runCurrent()
         assertEquals("tasks.pause" to "task-1", core.taskControlRequests.last())
 
-        model.resumeDownload("task-1")
+        model.downloads.resume("task-1")
         runCurrent()
         assertEquals("tasks.resume" to "task-1", core.taskControlRequests.last())
 
-        model.cancelDownload("task-1")
+        model.downloads.cancel("task-1")
         runCurrent()
         assertEquals("tasks.cancel" to "task-1", core.taskControlRequests.last())
     }
@@ -957,9 +957,9 @@ class AppModelTest {
         val model = model(backgroundScope)
         runCurrent()
 
-        model.openAccounts()
+        model.account.open()
         assertTrue(model.state.value.account.open)
-        model.showYggdrasilAccountForm()
+        model.account.showYggdrasilForm()
         assertTrue(model.canGoBack())
 
         model.back()

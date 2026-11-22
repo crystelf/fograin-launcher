@@ -12,10 +12,10 @@ use std::{
         Mutex,
         atomic::{AtomicU64, Ordering},
     },
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
-use fg_core::Result;
+use fg_core::{Result, now_ms};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 
@@ -46,8 +46,8 @@ pub struct HealthEntry {
 
 impl HealthEntry {
     #[must_use]
-    pub fn is_open(&self, now_ms: u64) -> bool {
-        self.open_until_ms.is_some_and(|until| until > now_ms)
+    pub fn is_open(&self, at_ms: u64) -> bool {
+        self.open_until_ms.is_some_and(|until| until > at_ms)
     }
 }
 
@@ -326,12 +326,6 @@ pub fn origin_of(url: &Url) -> String {
         (Some(host), None) => format!("{}://{host}", url.scheme()),
         (None, _) => format!("{}://unknown", url.scheme()),
     }
-}
-
-pub(crate) fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_millis() as u64)
 }
 
 #[cfg(test)]

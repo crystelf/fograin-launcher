@@ -26,7 +26,6 @@ import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
@@ -96,7 +95,7 @@ fun LibraryScreen(model: AppModel, state: AppUiState) {
     }
     val closeDetailSearch: () -> Unit = {
         detailSearchExpanded = false
-        model.setContentQuery("")
+        model.content.setQuery("")
         focusManager.clearFocus(force = true)
     }
 
@@ -231,9 +230,9 @@ private fun LibraryListPage(
                                         // The native picker (JFileChooser / SAF) is the
                                         // primary path; the in-app browser is the fallback
                                         // for trees the platform cannot map to a path.
-                                        when (val pick = model.pickImportDirectory()) {
+                                        when (val pick = model.library.pickImportDirectory()) {
                                             is DirectoryPick.Picked ->
-                                                model.importMinecraftDirectory(pick.path)
+                                                model.library.importMinecraftDirectory(pick.path)
 
                                             DirectoryPick.Cancelled -> Unit
                                             is DirectoryPick.Unavailable -> showDirectoryPicker = true
@@ -248,14 +247,14 @@ private fun LibraryListPage(
                                 },
                                 onClick = {
                                     menuExpanded = false
-                                    model.startModpackImport()
+                                    model.modpack.startImport()
                                 },
                             )
                             DropdownMenuItem(
                                 text = { Text(stringResource(Res.string.library_new_instance)) },
                                 onClick = {
                                     menuExpanded = false
-                                    model.openAddInstance()
+                                    model.library.openAddInstance()
                                 },
                             )
                         }
@@ -307,7 +306,7 @@ private fun LibraryListPage(
                             TextButton(onClick = { model.setLibraryQuery("") }) {
                                 Text(stringResource(Res.string.library_clear_search))
                             }
-                            TextButton(onClick = model::openAddInstance) {
+                            TextButton(onClick = model.library::openAddInstance) {
                                 Text(stringResource(Res.string.action_add_instance))
                             }
                         }
@@ -347,7 +346,7 @@ private fun LibraryListPage(
         }
 
         FloatingActionButton(
-            onClick = model::openAddInstance,
+            onClick = model.library::openAddInstance,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(16.dp),
@@ -367,7 +366,7 @@ private fun LibraryListPage(
             onDismiss = { showDirectoryPicker = false },
             onSelect = { directory ->
                 showDirectoryPicker = false
-                model.importMinecraftDirectory(directory)
+                model.library.importMinecraftDirectory(directory)
             },
         )
     }
@@ -379,7 +378,7 @@ private fun ModpackExportRoute(model: AppModel, state: AppUiState) {
     Column(modifier = Modifier.fillMaxSize()) {
         PageHeader(
             title = stringResource(Res.string.modpack_export_page_title),
-            onBack = model::backModpackExportStep,
+            onBack = model.modpack::backExportStep,
         )
         ModpackExportPage(
             model = model,
@@ -390,8 +389,8 @@ private fun ModpackExportRoute(model: AppModel, state: AppUiState) {
     state.modpackExport.result?.let { result ->
         ModpackExportDialog(
             result = result,
-            onCopy = model::copyModpackExportPath,
-            onDismiss = model::dismissModpackExportResult,
+            onCopy = model.modpack::copyExportPath,
+            onDismiss = model.modpack::dismissExportResult,
         )
     }
 }

@@ -1,8 +1,8 @@
 package com.fograin.launcher.ui.components
 
 import androidx.compose.animation.AnimatedContentTransitionScope
-import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween

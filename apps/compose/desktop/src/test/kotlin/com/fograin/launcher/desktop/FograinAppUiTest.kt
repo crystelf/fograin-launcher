@@ -1,34 +1,59 @@
 package com.fograin.launcher.desktop
 
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.onAllNodesWithTag
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
-import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.swipeRight
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.test.runDesktopComposeUiTest
+import androidx.compose.ui.test.swipeRight
 import com.fograin.launcher.App
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.ContentManagerTab
 import com.fograin.launcher.app.DownloadStage
 import com.fograin.launcher.app.LibraryStage
+import com.fograin.launcher.app.SettingsSection
 import com.fograin.launcher.model.DownloadsCategory
 import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.ui.AppDestination
 import com.fograin.launcher.ui.GlobalSearchButtonTag
+import com.fograin.launcher.ui.NavBarTag
+import com.fograin.launcher.ui.NavRailTag
 import com.fograin.launcher.ui.accounts.AccountAddOfflineTag
 import com.fograin.launcher.ui.accounts.AccountOfflineNameTag
 import com.fograin.launcher.ui.accounts.AccountSheetTag
+import com.fograin.launcher.ui.components.PageHeaderBackTag
+import com.fograin.launcher.ui.content.ContentCheckUpdatesTag
+import com.fograin.launcher.ui.content.ContentDependencyAutoTag
+import com.fograin.launcher.ui.content.ContentDependencyDialogTag
+import com.fograin.launcher.ui.content.ContentInstallTag
+import com.fograin.launcher.ui.content.ContentVersionChannelTag
+import com.fograin.launcher.ui.content.contentDependencyItemTag
+import com.fograin.launcher.ui.content.contentProjectTag
+import com.fograin.launcher.ui.content.contentTabTag
+import com.fograin.launcher.ui.content.contentVersionTag
+import com.fograin.launcher.ui.diagnostics.DiagnosticsExportTag
+import com.fograin.launcher.ui.diagnostics.DiagnosticsPageTag
+import com.fograin.launcher.ui.downloads.ContentTargetTag
+import com.fograin.launcher.ui.downloads.DownloadQueueTag
+import com.fograin.launcher.ui.downloads.DownloadsQueueCardTag
+import com.fograin.launcher.ui.downloads.InstallDownloadTag
+import com.fograin.launcher.ui.downloads.contentTargetOptionTag
+import com.fograin.launcher.ui.downloads.downloadQueuePauseTag
+import com.fograin.launcher.ui.downloads.downloadQueueResumeTag
+import com.fograin.launcher.ui.downloads.downloadQueueRowTag
+import com.fograin.launcher.ui.downloads.downloadQueueStopTag
+import com.fograin.launcher.ui.downloads.downloadVersionTag
+import com.fograin.launcher.ui.downloads.downloadsCategoryTag
 import com.fograin.launcher.ui.home.AccountAvatarTag
 import com.fograin.launcher.ui.home.HomeDownloadQueueTag
 import com.fograin.launcher.ui.home.HomeImportModpackTag
@@ -37,65 +62,39 @@ import com.fograin.launcher.ui.home.HomeOverflowTag
 import com.fograin.launcher.ui.home.HomeTaskQueueTag
 import com.fograin.launcher.ui.home.homeDownloadPauseTag
 import com.fograin.launcher.ui.home.homeDownloadResumeTag
-import com.fograin.launcher.ui.NavBarTag
-import com.fograin.launcher.ui.NavRailTag
-import com.fograin.launcher.ui.content.ContentCheckUpdatesTag
-import com.fograin.launcher.ui.content.ContentDependencyAutoTag
-import com.fograin.launcher.ui.content.ContentDependencyDialogTag
-import com.fograin.launcher.ui.content.ContentInstallTag
-import com.fograin.launcher.ui.content.ContentVersionChannelTag
-import com.fograin.launcher.ui.content.contentProjectTag
-import com.fograin.launcher.ui.content.contentDependencyItemTag
-import com.fograin.launcher.ui.content.contentVersionTag
-import com.fograin.launcher.ui.content.contentTabTag
-import com.fograin.launcher.ui.downloads.ContentTargetTag
-import com.fograin.launcher.ui.downloads.DownloadQueueTag
-import com.fograin.launcher.ui.downloads.DownloadsQueueCardTag
-import com.fograin.launcher.ui.downloads.contentTargetOptionTag
-import com.fograin.launcher.ui.downloads.downloadQueuePauseTag
-import com.fograin.launcher.ui.downloads.downloadQueueResumeTag
-import com.fograin.launcher.ui.downloads.downloadQueueRowTag
-import com.fograin.launcher.ui.downloads.downloadQueueStopTag
-import com.fograin.launcher.ui.downloads.InstallDownloadTag
-import com.fograin.launcher.ui.downloads.downloadVersionTag
-import com.fograin.launcher.ui.downloads.downloadsCategoryTag
 import com.fograin.launcher.ui.instances.InstanceDetailTag
-import com.fograin.launcher.ui.diagnostics.DiagnosticsPageTag
-import com.fograin.launcher.ui.diagnostics.DiagnosticsExportTag
 import com.fograin.launcher.ui.instances.InstanceFavoriteTag
 import com.fograin.launcher.ui.instances.InstanceOverflowTag
 import com.fograin.launcher.ui.instances.InstanceQuickStartTag
 import com.fograin.launcher.ui.instances.InstanceSettingsPageTag
 import com.fograin.launcher.ui.library.libraryRowTag
-import com.fograin.launcher.ui.search.GlobalSearchFieldTag
-import com.fograin.launcher.ui.search.globalSearchCommandTag
 import com.fograin.launcher.ui.modpack.ModpackImportConfirmTag
 import com.fograin.launcher.ui.modpack.ModpackImportPageTag
-import com.fograin.launcher.app.SettingsSection
+import com.fograin.launcher.ui.navItemTag
+import com.fograin.launcher.ui.search.GlobalSearchFieldTag
+import com.fograin.launcher.ui.search.globalSearchCommandTag
 import com.fograin.launcher.ui.settings.JavaScreenTag
-import com.fograin.launcher.ui.settings.SettingsJavaOpenTag
 import com.fograin.launcher.ui.settings.SettingsCompactBackTag
 import com.fograin.launcher.ui.settings.SettingsCompactCloseTag
 import com.fograin.launcher.ui.settings.SettingsCompactListTag
-import com.fograin.launcher.ui.settings.SettingsLanguageRowTag
-import com.fograin.launcher.ui.settings.SettingsWindowBackTag
-import com.fograin.launcher.ui.settings.SettingsPageListTag
 import com.fograin.launcher.ui.settings.SettingsContentPageTag
-import com.fograin.launcher.ui.settings.SettingsContentTag
+import com.fograin.launcher.ui.settings.SettingsJavaOpenTag
+import com.fograin.launcher.ui.settings.SettingsLanguageRowTag
+import com.fograin.launcher.ui.settings.SettingsPageListTag
 import com.fograin.launcher.ui.settings.SettingsSidebarPageTag
 import com.fograin.launcher.ui.settings.SettingsSidebarTag
 import com.fograin.launcher.ui.settings.SettingsSplitterTag
+import com.fograin.launcher.ui.settings.SettingsWindowBackTag
 import com.fograin.launcher.ui.settings.SettingsWindowTag
 import com.fograin.launcher.ui.settings.settingsNavTag
-import com.fograin.launcher.ui.components.PageHeaderBackTag
-import com.fograin.launcher.ui.navItemTag
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import com.fograin.launcher.model.TaskState
 
 /**
  * Compose UI coverage for the shell: the adaptive breakpoint and the four
@@ -119,7 +118,7 @@ class FograinAppUiTest {
             platform = testPlatform(),
             scope = CoroutineScope(Dispatchers.Unconfined),
         )
-        created.setLanguage(com.fograin.launcher.settings.AppLanguage.SIMPLIFIED_CHINESE)
+        created.settings.setLanguage(com.fograin.launcher.settings.AppLanguage.SIMPLIFIED_CHINESE)
         return created
     }
 
@@ -326,19 +325,19 @@ class FograinAppUiTest {
             onNodeWithTag(downloadQueuePauseTag("task-1")).performClick()
             waitForIdle()
             assertEquals(
-                "paused",
+                TaskState.PAUSED,
                 appModel.state.value.downloads.first { it.id == "task-1" }.state,
             )
             onNodeWithTag(downloadQueueResumeTag("task-1")).performClick()
             waitForIdle()
             assertEquals(
-                "running",
+                TaskState.RUNNING,
                 appModel.state.value.downloads.first { it.id == "task-1" }.state,
             )
             onNodeWithTag(downloadQueueStopTag("task-1")).performClick()
             waitForIdle()
             assertEquals(
-                "cancelled",
+                TaskState.CANCELLED,
                 appModel.state.value.downloads.first { it.id == "task-1" }.state,
             )
             onNodeWithTag(downloadQueueRowTag("task-1")).assertDoesNotExist()
@@ -371,13 +370,13 @@ class FograinAppUiTest {
             onNodeWithTag(homeDownloadPauseTag("task-1")).performClick()
             waitForIdle()
             assertEquals(
-                "paused",
+                TaskState.PAUSED,
                 appModel.state.value.downloads.first { it.id == "task-1" }.state,
             )
             onNodeWithTag(homeDownloadResumeTag("task-1")).performClick()
             waitForIdle()
             assertEquals(
-                "running",
+                TaskState.RUNNING,
                 appModel.state.value.downloads.first { it.id == "task-1" }.state,
             )
         }
@@ -389,7 +388,7 @@ class FograinAppUiTest {
         waitForIdle()
 
         // The home menu and the desktop drop target both call this entry point.
-        appModel.importModpackPath("/tmp/Calm Pack.mrpack")
+        appModel.modpack.importPath("/tmp/Calm Pack.mrpack")
         waitForIdle()
 
         onNodeWithTag(ModpackImportPageTag).assertIsDisplayed()
@@ -816,7 +815,7 @@ class FograinAppUiTest {
                 com.fograin.launcher.settings.AppLanguage.JAPANESE,
                 appModel.state.value.language,
             )
-            appModel.setLanguage(com.fograin.launcher.settings.AppLanguage.SYSTEM)
+            appModel.settings.setLanguage(com.fograin.launcher.settings.AppLanguage.SYSTEM)
             waitForIdle()
             com.fograin.launcher.platform.applyAppLanguage(
                 com.fograin.launcher.settings.AppLanguage.SYSTEM,
@@ -1007,21 +1006,21 @@ class FograinAppUiTest {
     @Test
     fun languageSwitchRefreshesTheInterface() = runDesktopComposeUiTest(width = 1280, height = 900) {
         val appModel = model()
-        appModel.setLanguage(com.fograin.launcher.settings.AppLanguage.TRADITIONAL_CHINESE)
+        appModel.settings.setLanguage(com.fograin.launcher.settings.AppLanguage.TRADITIONAL_CHINESE)
         setContent { App(appModel) }
         waitForIdle()
 
         onNodeWithText("首頁").assertIsDisplayed()
 
-        appModel.setLanguage(com.fograin.launcher.settings.AppLanguage.JAPANESE)
+        appModel.settings.setLanguage(com.fograin.launcher.settings.AppLanguage.JAPANESE)
         waitForIdle()
         onNodeWithText("ホーム").assertIsDisplayed()
 
-        appModel.setLanguage(com.fograin.launcher.settings.AppLanguage.ENGLISH)
+        appModel.settings.setLanguage(com.fograin.launcher.settings.AppLanguage.ENGLISH)
         waitForIdle()
         onNodeWithText("Home").assertIsDisplayed()
 
-        appModel.setLanguage(com.fograin.launcher.settings.AppLanguage.SYSTEM)
+        appModel.settings.setLanguage(com.fograin.launcher.settings.AppLanguage.SYSTEM)
         waitForIdle()
     }
 

@@ -9,7 +9,7 @@
 //! - `game.started` — `{ type, instanceId, pid }`
 //! - `game.exited` — `{ type, instanceId, exitCode, playSeconds }`
 
-use std::{collections::VecDeque, sync::Arc};
+use std::collections::VecDeque;
 
 const CAPACITY: usize = 256;
 
@@ -59,12 +59,6 @@ impl EventQueue {
         self.len() == 0
     }
 
-    /// Clone handle for watcher tasks that outlive a short borrow.
-    #[must_use]
-    pub fn clone_arc(self: &Arc<Self>) -> Arc<Self> {
-        Arc::clone(self)
-    }
-
     /// Removes up to `limit` events; the C ABI uses size hints to make this
     /// safe for the `fg_events_next` contract.
     #[must_use]
@@ -80,16 +74,6 @@ impl EventQueue {
             "name": name,
             "fraction": fraction.clamp(0.0, 1.0),
             "speed": speed.max(0.0),
-        });
-        self.push(payload.to_string());
-    }
-
-    pub fn push_task_finished(&self, task_id: &str, name: &str, state: &str) {
-        let payload = serde_json::json!({
-            "type": "task.finished",
-            "taskId": task_id,
-            "name": name,
-            "state": state,
         });
         self.push(payload.to_string());
     }

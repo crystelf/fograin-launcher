@@ -2,6 +2,8 @@
 kotlin = "2.4.10"
 agp = "9.1.1"
 compose = "1.12.1"
+# Material Icons ships on its own Compose line; keep it pinned explicitly.
+composeIcons = "1.7.3"
 composeMaterial3 = "1.9.0"
 coroutines = "1.11.0"
 serialization = "1.11.0"
@@ -21,7 +23,7 @@ compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.re
 compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "compose" }
 compose-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "composeMaterial3" }
 compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "compose" }
-compose-material-icons-extended = { module = "org.jetbrains.compose.material:material-icons-extended", version = "1.7.3" }
+compose-material-icons-extended = { module = "org.jetbrains.compose.material:material-icons-extended", version.ref = "composeIcons" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 
 [plugins]

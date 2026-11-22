@@ -13,10 +13,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.ui.graphics.painter.BitmapPainter
-import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyShortcut
@@ -33,13 +33,13 @@ import com.fograin.launcher.App
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.platform.AppRuntime
 import com.fograin.launcher.platform.WindowFrame
-import com.fograin.launcher.platform.currentSystemLanguageTag
 import com.fograin.launcher.platform.createCoreClient
+import com.fograin.launcher.platform.currentSystemLanguageTag
 import com.fograin.launcher.platform.platformServices
+import com.fograin.launcher.settings.AppLanguage
 import com.fograin.launcher.ui.AppDestination
 import com.fograin.launcher.ui.components.PageHeaderMetrics
 import com.fograin.launcher.ui.settings.LocalSettingsTopInset
-import com.fograin.launcher.settings.AppLanguage
 import java.awt.GraphicsEnvironment
 import java.awt.datatransfer.DataFlavor
 import java.awt.dnd.DnDConstants
@@ -47,8 +47,8 @@ import java.awt.dnd.DropTarget
 import java.awt.dnd.DropTargetDragEvent
 import java.awt.dnd.DropTargetDropEvent
 import java.awt.dnd.DropTargetEvent
-import java.io.File
 import java.io.ByteArrayInputStream
+import java.io.File
 import java.time.Duration
 import java.time.Instant
 import javax.imageio.ImageIO
@@ -75,7 +75,7 @@ private fun appIconPainter(): Painter? = appIconBytes?.let { bytes ->
 
 /**
  * The Java launcher's default icon is the JDK's coffee cup in `:desktop:run`.
- * R5 still owns the .icns/.ico for packaged distributions; this keeps the
+ * Packaging still needs .icns/.ico assets; this keeps the
  * development shell from showing the JDK icon.
  */
 private fun installTaskbarIcon() {
@@ -145,7 +145,7 @@ fun main() {
                     override fun dragEnter(dtde: DropTargetDragEvent) {
                         if (dtde.transferable?.isDataFlavorSupported(DataFlavor.javaFileListFlavor) == true) {
                             dtde.acceptDrag(DnDConstants.ACTION_COPY)
-                            model.setModpackDragActive(true)
+                            model.modpack.setDragActive(true)
                         } else {
                             dtde.rejectDrag()
                         }
@@ -160,11 +160,11 @@ fun main() {
                     }
 
                     override fun dragExit(dtde: DropTargetEvent) {
-                        model.setModpackDragActive(false)
+                        model.modpack.setDragActive(false)
                     }
 
                     override fun drop(dtde: DropTargetDropEvent) {
-                        model.setModpackDragActive(false)
+                        model.modpack.setDragActive(false)
                         dtde.acceptDrop(DnDConstants.ACTION_COPY)
                         val files = runCatching {
                             @Suppress("UNCHECKED_CAST")
@@ -173,7 +173,7 @@ fun main() {
                         val file = files.firstOrNull()
                         val supported = file != null && isSupportedDropFile(file)
                         if (supported) {
-                            model.importModpackPath(file.absolutePath)
+                            model.modpack.importPath(file.absolutePath)
                         } else {
                             model.showNotice("只支持 .mrpack、.zip 或 MultiMC/Prism 实例目录")
                         }
@@ -255,7 +255,7 @@ private fun FrameWindowScope.WindowMenuBar(
             Item(
                 labels.newInstance,
                 shortcut = shortcut(Key.N),
-                onClick = { model.openAddInstance() },
+                onClick = { model.library.openAddInstance() },
             )
             Item(
                 labels.importMc,

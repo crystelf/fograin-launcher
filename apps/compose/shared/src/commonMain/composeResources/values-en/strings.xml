@@ -110,7 +110,7 @@
     <string name="account_profile_body">%1$s returned multiple characters. Pick the one to use for this launch.</string>
     <string name="account_profile_action">Use this character</string>
     <string name="account_microsoft_title">Microsoft sign-in</string>
-    <string name="account_microsoft_body">Coming in a later release (M11).</string>
+    <string name="account_microsoft_body">Coming in a later release .</string>
     <string name="account_error_title">The account action did not finish</string>
 
     <!-- Instance summaries -->
@@ -222,7 +222,6 @@
     <string name="downloads_size">Size</string>
     <string name="downloads_plan_error">Could not calculate the install: %1$s</string>
     <string name="downloads_install_running">Task in progress…</string>
-    <string name="downloads_milestone_chip">%1$s</string>
     <string name="downloads_kind_release">Release</string>
     <string name="downloads_kind_snapshot">Snapshot</string>
     <string name="downloads_category_game">Game</string>
@@ -247,7 +246,6 @@
     <string name="downloads_resourcepack_body">Browse resource packs and filter compatibility by each instance’s MC version.</string>
     <string name="downloads_shaderpack_body">Pick shader packs for instances with a shader loader installed.</string>
     <string name="downloads_datapack_body">Put data packs into a world’s datapacks folder.</string>
-    <string name="downloads_milestone_later">Later</string>
 
     <!-- Install page and loader version picker -->
     <string name="install_title">Install game</string>

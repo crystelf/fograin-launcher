@@ -31,12 +31,10 @@ import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.FolderZip
 import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material.icons.outlined.MovieFilter
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Restore
-import androidx.compose.material.icons.outlined.FolderZip
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.SystemUpdateAlt
 import androidx.compose.material3.AlertDialog
@@ -67,7 +65,6 @@ import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.app.ContentManagerTab
 import com.fograin.launcher.model.InstanceFormat
-import com.fograin.launcher.ui.relativeTimeText
 import com.fograin.launcher.platform.CoreContentUpdate
 import com.fograin.launcher.platform.CoreDatapack
 import com.fograin.launcher.platform.CoreLocalContent
@@ -77,6 +74,7 @@ import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.components.SegmentedTabRail
 import com.fograin.launcher.ui.components.fograinTabTransition
 import com.fograin.launcher.ui.emptyTitle
+import com.fograin.launcher.ui.relativeTimeText
 import com.fograin.launcher.ui.title
 import org.jetbrains.compose.resources.stringResource
 
@@ -122,7 +120,7 @@ fun ContentManager(
         SegmentedTabRail(
             options = ContentManagerTab.entries,
             selected = manager.tab,
-            onSelect = model::setContentTab,
+            onSelect = model.content::setTab,
             modifier = Modifier.fillMaxWidth(),
             tabModifier = { tab -> Modifier.testTag(contentTabTag(tab)) },
             label = { tab -> "${tab.title()} ${manager.countFor(tab)}" },
@@ -221,7 +219,7 @@ fun ContentManager(
             body = stringResource(Res.string.content_delete_content_body),
             confirm = stringResource(Res.string.action_delete),
             onConfirm = {
-                model.deleteContent(item)
+                model.content.delete(item)
                 deleteContent = null
             },
             onDismiss = { deleteContent = null },
@@ -233,7 +231,7 @@ fun ContentManager(
             body = stringResource(Res.string.content_delete_world_body),
             confirm = stringResource(Res.string.action_delete),
             onConfirm = {
-                model.deleteWorld(world.name)
+                model.content.deleteWorld(world.name)
                 deleteWorld = null
             },
             onDismiss = { deleteWorld = null },
@@ -248,7 +246,7 @@ fun ContentManager(
             body = stringResource(Res.string.content_backup_delete_body),
             confirm = stringResource(Res.string.action_delete),
             onConfirm = {
-                model.deleteWorldBackup(backup)
+                model.content.deleteBackup(backup)
                 deleteBackup = null
             },
             onDismiss = { deleteBackup = null },
@@ -324,7 +322,7 @@ private fun ContentToolbar(model: AppModel, state: AppUiState) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         TextButton(
-            onClick = model::checkContentUpdates,
+            onClick = model.content::checkUpdates,
             enabled = !manager.isCheckingUpdates && !manager.isLoading,
             modifier = Modifier.testTag(ContentCheckUpdatesTag),
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
@@ -353,7 +351,7 @@ private fun ContentToolbar(model: AppModel, state: AppUiState) {
             overflow = TextOverflow.Ellipsis,
         )
         IconButton(
-            onClick = model::refreshContentManager,
+            onClick = model.content::refresh,
             enabled = !manager.isLoading,
         ) {
             Icon(
@@ -412,9 +410,9 @@ private fun LocalContentPane(
                 item = item,
                 update = manager.updateFor(item.fileName),
                 busy = manager.busyFile == item.fileName,
-                onToggle = { model.toggleContent(item) },
+                onToggle = { model.content.toggle(item) },
                 onDelete = { onDelete(item) },
-                onUpdate = { update -> model.installContentUpdate(update) },
+                onUpdate = { update -> model.content.installUpdate(update) },
                 modifier = Modifier.animateItem(),
             )
         }
@@ -576,7 +574,7 @@ private fun WorldsPane(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 IconButton(
-                    onClick = model::refreshContentManager,
+                    onClick = model.content::refresh,
                     enabled = !manager.isLoading,
                 ) {
                     Icon(
@@ -599,7 +597,7 @@ private fun WorldsPane(
             WorldRow(
                 world = world,
                 busy = manager.busyWorld == world.name,
-                onBackup = { model.backupWorld(world.name) },
+                onBackup = { model.content.backupWorld(world.name) },
                 onDelete = { onDeleteWorld(world) },
                 modifier = Modifier.animateItem(),
             )
@@ -681,18 +679,18 @@ private fun DatapacksPane(
             SegmentedTabRail(
                 options = worlds,
                 selected = selected,
-                onSelect = { world -> model.selectDatapackWorld(world.name) },
+                onSelect = { world -> model.content.selectDatapackWorld(world.name) },
                 modifier = Modifier.weight(1f),
                 label = { world -> world.levelName ?: world.name },
             )
-            IconButton(onClick = { model.importDatapackFile() }) {
+            IconButton(onClick = { model.content.importFromFile() }) {
                 Icon(
                     Icons.Outlined.Add,
                     contentDescription = stringResource(Res.string.datapack_import),
                 )
             }
             IconButton(
-                onClick = model::refreshDatapacks,
+                onClick = model.content::refreshDatapacks,
                 enabled = !manager.datapacksLoading,
             ) {
                 Icon(
@@ -726,7 +724,7 @@ private fun DatapacksPane(
                     null
                 } else {
                     {
-                        TextButton(onClick = { model.importDatapackFile() }) {
+                        TextButton(onClick = { model.content.importFromFile() }) {
                             Text(stringResource(Res.string.datapack_import))
                         }
                     }

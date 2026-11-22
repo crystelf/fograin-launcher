@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -66,7 +65,7 @@ const val ModpackExportContinueTag: String = "modpack-export-continue"
 const val ModpackExportConfirmTag: String = "modpack-export-confirm"
 
 /**
- * Two-step `.mrpack` export (M10 UI pass).
+ * Two-step `.mrpack` export.
  *
  * Step one collects the Modrinth metadata (name defaults to the instance,
  * author to the signed-in account, version 1.0). Step two lists every exportable
@@ -123,7 +122,7 @@ private fun ExportForm(
     )
     OutlinedTextField(
         value = export.name,
-        onValueChange = model::setModpackExportName,
+        onValueChange = model.modpack::setExportName,
         label = { Text(stringResource(Res.string.modpack_export_name)) },
         singleLine = true,
         enabled = !export.isExporting,
@@ -131,7 +130,7 @@ private fun ExportForm(
     )
     OutlinedTextField(
         value = export.author,
-        onValueChange = model::setModpackExportAuthor,
+        onValueChange = model.modpack::setExportAuthor,
         label = { Text(stringResource(Res.string.modpack_export_author)) },
         singleLine = true,
         enabled = !export.isExporting,
@@ -139,7 +138,7 @@ private fun ExportForm(
     )
     OutlinedTextField(
         value = export.version,
-        onValueChange = model::setModpackExportVersion,
+        onValueChange = model.modpack::setExportVersion,
         label = { Text(stringResource(Res.string.modpack_export_version)) },
         singleLine = true,
         enabled = !export.isExporting,
@@ -213,7 +212,7 @@ private fun ExportContent(
                         section = section,
                         checked = section.id in export.selected,
                         enabled = section.files > 0 && !export.isExporting,
-                        onToggle = { model.toggleModpackExportSection(section.id) },
+                        onToggle = { model.modpack.toggleExportSection(section.id) },
                     )
                     if (index != export.sections.lastIndex) {
                         HorizontalDivider(
@@ -303,11 +302,11 @@ private fun ExportFooter(
     ) {
         Spacer(Modifier.weight(1f))
         if (export.step == ExportStep.FORM) {
-            TextButton(onClick = model::cancelModpackExport, enabled = !export.isExporting) {
+            TextButton(onClick = model.modpack::cancelExport, enabled = !export.isExporting) {
                 Text(stringResource(Res.string.action_cancel))
             }
             Button(
-                onClick = model::nextModpackExportStep,
+                onClick = model.modpack::nextExportStep,
                 enabled = export.canContinue,
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.testTag(ModpackExportContinueTag),
@@ -316,13 +315,13 @@ private fun ExportFooter(
             }
         } else {
             TextButton(
-                onClick = model::backModpackExportStep,
+                onClick = model.modpack::backExportStep,
                 enabled = !export.isExporting,
             ) {
                 Text(stringResource(Res.string.modpack_export_back))
             }
             Button(
-                onClick = model::confirmModpackExport,
+                onClick = model.modpack::export,
                 enabled = export.canExport,
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.testTag(ModpackExportConfirmTag),

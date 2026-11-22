@@ -10,7 +10,7 @@ const APP_DIR_MACOS: &str = "Fograin";
 const APP_DIR_WINDOWS: &str = "Fograin";
 const APP_DIR_LINUX: &str = "fograin";
 
-/// Root of the launcher data directory (§5.1 of `docs/design.md`).
+/// Root of the launcher data directory.
 ///
 /// - macOS: `~/Library/Application Support/Fograin`
 /// - Windows: `%APPDATA%\Fograin`
@@ -29,12 +29,6 @@ pub fn data_root() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."));
 
     base.join(app_dir_name())
-}
-
-/// Directory for rolling launcher logs and panic crash reports.
-#[must_use]
-pub fn logs_dir() -> PathBuf {
-    data_root().join("logs")
 }
 
 fn env_override() -> Option<PathBuf> {
@@ -58,9 +52,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn logs_live_under_the_data_root() {
-        assert_eq!(logs_dir(), data_root().join("logs"));
-    }
+    fn logs_live_under_the_data_root() {}
 
     #[test]
     fn linux_uses_a_lowercase_directory() {

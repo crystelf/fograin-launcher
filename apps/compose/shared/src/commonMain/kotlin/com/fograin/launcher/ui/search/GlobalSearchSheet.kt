@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
@@ -37,19 +36,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.model.Instance
-import com.fograin.launcher.ui.titleText
-import com.fograin.launcher.ui.versionLineText
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.AppDestination
 import com.fograin.launcher.ui.components.InstanceTile
 import com.fograin.launcher.ui.label
+import com.fograin.launcher.ui.titleText
+import com.fograin.launcher.ui.versionLineText
 import org.jetbrains.compose.resources.stringResource
 
 const val GlobalSearchScreenTag: String = "global-search-screen"
@@ -107,7 +106,7 @@ fun GlobalSearchSheet(model: AppModel, state: AppUiState) {
                 title = accountLabel,
                 subtitle = stringResource(Res.string.global_search_accounts_body),
                 icon = Icons.Outlined.Person,
-                action = { closeAnd { model.openAccounts() } },
+                action = { closeAnd { model.account.open() } },
             ),
         )
         add(
@@ -116,7 +115,7 @@ fun GlobalSearchSheet(model: AppModel, state: AppUiState) {
                 title = addLabel,
                 subtitle = stringResource(Res.string.global_search_add_instance_body),
                 icon = Icons.Outlined.Add,
-                action = { closeAnd { model.openAddInstance() } },
+                action = { closeAnd { model.library.openAddInstance() } },
             ),
         )
     }.filter { command ->

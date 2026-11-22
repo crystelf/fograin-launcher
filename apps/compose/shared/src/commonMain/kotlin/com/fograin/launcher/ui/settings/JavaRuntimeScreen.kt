@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Download
@@ -44,7 +43,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
-import com.fograin.launcher.app.JavaUiState
 import com.fograin.launcher.model.InstanceFormat
 import com.fograin.launcher.platform.CoreJavaCatalogEntry
 import com.fograin.launcher.platform.CoreJavaRuntime
@@ -61,7 +59,7 @@ fun javaCatalogTag(major: Int): String = "java-catalog-$major"
 fun javaInstallTag(major: Int): String = "java-install-$major"
 
 /**
- * Settings · Java runtime management (M6).
+ * Settings · Java runtime management.
  *
  * One page for the full lifecycle: installed runtimes (system + managed), the
  * auto-download policy, and the official catalog with per-major download
@@ -82,7 +80,7 @@ fun JavaRuntimeScreen(
         // The inventory is refreshed at startup, so only the network-bound
         // catalog is normally missing when this page opens.
         if (java.catalog.isEmpty() && !java.isLoading) {
-            model.refreshJavaSettings()
+            model.java.refresh()
         }
     }
 
@@ -94,7 +92,7 @@ fun JavaRuntimeScreen(
         if (!embedded) {
             PageHeader(
                 title = stringResource(Res.string.java_title),
-                onBack = model::closeJavaSettings,
+                onBack = model.settings::back,
             )
         }
         LazyColumn(
@@ -145,7 +143,7 @@ fun JavaRuntimeScreen(
                         }
                         Switch(
                             checked = java.autoDownload,
-                            onCheckedChange = model::setJavaAutoDownload,
+                            onCheckedChange = model.java::setAutoDownload,
                             modifier = Modifier.testTag(JavaAutoDownloadTag),
                         )
                     }
@@ -182,7 +180,7 @@ fun JavaRuntimeScreen(
                             color = MaterialTheme.colorScheme.error,
                         )
                         Spacer(Modifier.height(8.dp))
-                        OutlinedButton(onClick = model::refreshJavaSettings) {
+                        OutlinedButton(onClick = model.java::refresh) {
                             Icon(Icons.Outlined.Refresh, contentDescription = null)
                             Spacer(Modifier.size(6.dp))
                             Text(stringResource(Res.string.java_retry))
@@ -252,7 +250,7 @@ fun JavaRuntimeScreen(
                                 color = MaterialTheme.colorScheme.error,
                             )
                             Spacer(Modifier.height(8.dp))
-                            OutlinedButton(onClick = model::refreshJavaSettings) {
+                            OutlinedButton(onClick = model.java::refresh) {
                                 Icon(Icons.Outlined.Refresh, contentDescription = null)
                                 Spacer(Modifier.size(6.dp))
                                 Text(stringResource(Res.string.java_retry))
@@ -296,7 +294,7 @@ fun JavaRuntimeScreen(
                             installing = java.installingMajor == entry.major,
                             busy = java.installTaskId != null,
                             fraction = java.installFraction(state.downloads),
-                            onInstall = { model.installJavaRuntime(entry.major) },
+                            onInstall = { model.java.install(entry.major) },
                         )
                     }
                 }
@@ -322,7 +320,7 @@ fun JavaRuntimeScreen(
                     onClick = {
                         val id = target.id
                         deleteTarget = null
-                        if (id != null) model.removeJavaRuntime(id)
+                        if (id != null) model.java.remove(id)
                     },
                 ) {
                     Text(stringResource(Res.string.action_delete))

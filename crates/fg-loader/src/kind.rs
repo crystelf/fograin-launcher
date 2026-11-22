@@ -1,4 +1,4 @@
-//! Loader families supported by M5 and their naming rules (§5.4).
+//! Loader families and their naming rules.
 //!
 //! `LoaderKind` is the wire value used by `instance.toml` and the FFI layer, so
 //! it deliberately stays independent of any UI enum.

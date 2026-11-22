@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -44,12 +43,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.model.Instance
-import com.fograin.launcher.ui.versionLineText
 import com.fograin.launcher.platform.CoreInstanceSettings
 import com.fograin.launcher.platform.CoreJavaRuntime
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.components.DropdownField
 import com.fograin.launcher.ui.components.InstanceTile
+import com.fograin.launcher.ui.versionLineText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonPrimitive
@@ -59,7 +58,7 @@ import org.jetbrains.compose.resources.stringResource
 const val InstanceSettingsPageTag: String = "instance-settings-page"
 
 /**
- * Instance detail · 游戏设置 (M4 scope): 启动/内存/显示/启动行为, the M8 content
+ * Instance detail · 游戏设置: 启动/内存/显示/启动行为, the content
  * shortcuts and maintenance actions. Every change is written through
  * `instances.settings.set`.
  *
@@ -85,7 +84,7 @@ fun InstanceSettingsPage(
 
     LaunchedEffect(instance.id) {
         try {
-            val parsed = model.loadInstanceSettings(instance.id)
+            val parsed = model.instanceSettings.load(instance.id)
             loaded = parsed
             memoryGb = (parsed.overrides.memoryMb ?: 0) / 1024
             jvmArgs = parsed.overrides.jvmArgs.orEmpty()
@@ -100,7 +99,7 @@ fun InstanceSettingsPage(
 
         // The Java picker must include launcher-managed runtimes; a failure here
         // only hides the extra choices, it never blocks the rest of the page.
-        runCatching { model.loadJavaRuntimes() }
+        runCatching { model.java.runtimes() }
             .onSuccess { javaRuntimes = it }
     }
 
@@ -112,7 +111,7 @@ fun InstanceSettingsPage(
         if (jvmArgs == saved) return@LaunchedEffect
         delay(600)
         val value = jvmArgs.ifBlank { null }
-        model.configureInstance(instance.id, "jvmArgs", value?.let(::JsonPrimitive))
+        model.instanceSettings.configure(instance.id, "jvmArgs", value?.let(::JsonPrimitive))
         loaded = current.copy(
             overrides = current.overrides.copy(jvmArgs = value),
         )
@@ -148,7 +147,7 @@ fun InstanceSettingsPage(
                 )
             }
 
-            SettingsSection(title = stringResource(Res.string.instance_settings_launch)) {
+            SettingsGroupCard(title = stringResource(Res.string.instance_settings_launch)) {
                 SettingRow(label = stringResource(Res.string.instance_settings_memory)) {
                     DropdownField(
                         value = if (memoryGb == 0) {
@@ -165,7 +164,7 @@ fun InstanceSettingsPage(
                             label to {
                                 memoryGb = option
                                 val value = if (option == 0) null else option * 1024
-                                model.configureInstance(
+                                model.instanceSettings.configure(
                                     instance.id,
                                     "memory",
                                     value?.let(::JsonPrimitive),
@@ -209,7 +208,7 @@ fun InstanceSettingsPage(
                         value = currentLabel,
                         options = buildList {
                             add(autoLabel to {
-                                model.configureInstance(instance.id, "java", null)
+                                model.instanceSettings.configure(instance.id, "java", null)
                                 loaded?.let { current ->
                                     loaded = current.copy(
                                         overrides = current.overrides.copy(java = null),
@@ -219,7 +218,7 @@ fun InstanceSettingsPage(
                             javaRuntimes.forEach { runtime ->
                                 add(
                                     "Java ${runtime.version} · ${runtime.arch}" to {
-                                        model.configureInstance(
+                                        model.instanceSettings.configure(
                                             instance.id,
                                             "java",
                                             JsonPrimitive(runtime.home),
@@ -242,7 +241,7 @@ fun InstanceSettingsPage(
                         checked = fullscreen,
                         onCheckedChange = { checked ->
                             fullscreen = checked
-                            model.configureInstance(
+                            model.instanceSettings.configure(
                                 instance.id,
                                 "fullscreen",
                                 JsonPrimitive(checked),
@@ -259,7 +258,7 @@ fun InstanceSettingsPage(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            SettingsSection(title = stringResource(Res.string.instance_settings_display)) {
+            SettingsGroupCard(title = stringResource(Res.string.instance_settings_display)) {
                 SettingRow(label = stringResource(Res.string.instance_settings_resolution)) {
                     DropdownField(
                         value = resolution?.let {
@@ -297,7 +296,7 @@ fun InstanceSettingsPage(
                                 val json = value?.let { size ->
                                     buildJsonArray { size.forEach { add(JsonPrimitive(it)) } }
                                 }
-                                model.configureInstance(instance.id, "resolution", json)
+                                model.instanceSettings.configure(instance.id, "resolution", json)
                                 loaded?.let { current ->
                                     loaded = current.copy(
                                         overrides = current.overrides.copy(resolution = value),
@@ -311,22 +310,22 @@ fun InstanceSettingsPage(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            SettingsSection(title = stringResource(Res.string.instance_settings_manage)) {
+            SettingsGroupCard(title = stringResource(Res.string.instance_settings_manage)) {
                 ContentManageRow(
                     label = stringResource(Res.string.instance_settings_logs),
-                    onClick = { model.openDiagnostics(instance) },
+                    onClick = { model.diag.open(instance) },
                 )
                 ContentManageRow(
                     label = stringResource(Res.string.modpack_export),
-                    onClick = { model.beginModpackExport(instance) },
+                    onClick = { model.modpack.beginExport(instance) },
                 )
             }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            SettingsSection(title = stringResource(Res.string.instance_settings_maintenance)) {
+            SettingsGroupCard(title = stringResource(Res.string.instance_settings_maintenance)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { model.openInstanceDirectory(instance) }) {
+                    OutlinedButton(onClick = { model.instanceSettings.openDirectory(instance) }) {
                         Icon(Icons.Outlined.FolderOpen, contentDescription = null)
                         Spacer(Modifier.size(6.dp))
                         Text(stringResource(Res.string.action_open_instance_dir))
@@ -352,7 +351,7 @@ fun InstanceSettingsPage(
                 TextButton(
                     onClick = {
                         showDeleteConfirm = false
-                        model.deleteInstance(instance)
+                        model.library.deleteInstance(instance)
                     },
                 ) {
                     Text(stringResource(Res.string.action_delete))
@@ -394,7 +393,7 @@ private fun InstanceSettingsSummary(instance: Instance) {
 }
 
 @Composable
-private fun SettingsSection(
+private fun SettingsGroupCard(
     title: String,
     content: @Composable ColumnScope.() -> Unit,
 ) {

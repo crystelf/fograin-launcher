@@ -29,12 +29,6 @@ impl TaskId {
         Self(format!("{millis:012x}{counter:04x}"))
     }
 
-    /// Wraps an identifier loaded from disk or received over FFI.
-    #[must_use]
-    pub fn from_string(value: impl Into<String>) -> Self {
-        Self(value.into())
-    }
-
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0

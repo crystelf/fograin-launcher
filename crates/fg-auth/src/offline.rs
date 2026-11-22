@@ -100,7 +100,7 @@ impl fmt::Display for OfflineAccount {
     }
 }
 
-/// Account backend. `Microsoft` is reserved for M11; skin management is not
+/// Account backend. `Microsoft` is reserved for a future release; skins are not
 /// part of any kind.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -110,7 +110,7 @@ pub enum AccountKind {
     Offline,
     /// Third-party Yggdrasil / authlib-injector account.
     Yggdrasil,
-    /// Reserved for the Microsoft login in M11.
+    /// Reserved for a future Microsoft login.
     Microsoft,
 }
 

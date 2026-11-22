@@ -1,6 +1,6 @@
 //! Composition test: a task graph drives the download engine (§6.2 + §6.3).
 //!
-//! This is the wiring the installer will use from M3: one node per download
+//! This is the wiring the installer uses: one node per download
 //! step, node progress forwarded into the graph, and the graph's cancellation
 //! token handed to the engine.
 

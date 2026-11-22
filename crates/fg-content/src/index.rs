@@ -12,7 +12,6 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 use fg_core::{Error, ErrorKind, Result};
@@ -170,31 +169,12 @@ impl ContentIndex {
     pub fn remove(&mut self, file_name: &str) {
         self.items.retain(|entry| entry.file_name != file_name);
     }
-
-    /// Entries of one kind.
-    #[must_use]
-    pub fn of_kind(&self, kind: ContentKind) -> Vec<&IndexEntry> {
-        self.items
-            .iter()
-            .filter(|entry| entry.kind == kind)
-            .collect()
-    }
 }
 
 /// Absolute path of an instance's content index.
 #[must_use]
 pub fn index_path(instance_dir: &Path) -> PathBuf {
     instance_dir.join(CONTENT_INDEX_FILE)
-}
-
-/// Current epoch milliseconds; `0` when the clock is before the epoch.
-#[must_use]
-pub fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| {
-            u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
-        })
 }
 
 #[cfg(test)]

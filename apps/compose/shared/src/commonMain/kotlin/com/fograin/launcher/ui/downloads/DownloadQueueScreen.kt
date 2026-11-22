@@ -37,6 +37,7 @@ import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.app.DownloadRow
 import com.fograin.launcher.model.InstanceFormat
+import com.fograin.launcher.model.TaskState
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.components.EmptyState
 import com.fograin.launcher.ui.components.PageHeader
@@ -67,18 +68,18 @@ fun downloadQueueStopTag(taskId: String): String = "download-queue-stop-$taskId"
  */
 @Composable
 fun DownloadQueueScreen(model: AppModel, state: AppUiState) {
-    val active = state.downloads.filter { it.state == "running" || it.state == "paused" }
+    val active = state.downloads.filter { it.state.isActive }
     val finished = state.downloads
-        .filter { it.state != "running" && it.state != "paused" }
+        .filter { !it.state.isActive }
         .takeLast(8)
         .reversed()
-    val runningCount = active.count { it.state == "running" }
-    val pausedCount = active.count { it.state == "paused" }
+    val runningCount = active.count { it.state == TaskState.RUNNING }
+    val pausedCount = active.count { it.state == TaskState.PAUSED }
 
     Column(modifier = Modifier.fillMaxSize().testTag(DownloadQueueTag)) {
         PageHeader(
             title = stringResource(Res.string.download_queue_title),
-            onBack = model::closeDownloadQueue,
+            onBack = model.downloads::closeQueue,
         )
         Column(
             modifier = Modifier
@@ -119,9 +120,9 @@ fun DownloadQueueScreen(model: AppModel, state: AppUiState) {
                     items(items = active, key = { it.id }) { row ->
                         QueueTaskRow(
                             row = row,
-                            onPause = { model.pauseDownload(row.id) },
-                            onResume = { model.resumeDownload(row.id) },
-                            onStop = { model.cancelDownload(row.id) },
+                            onPause = { model.downloads.pause(row.id) },
+                            onResume = { model.downloads.resume(row.id) },
+                            onStop = { model.downloads.cancel(row.id) },
                             modifier = Modifier.animateItem(),
                         )
                     }
@@ -216,7 +217,7 @@ private fun QueueTaskRow(
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val paused = row.state == "paused"
+    val paused = row.state == TaskState.PAUSED
     val statusColor = if (paused) {
         MaterialTheme.colorScheme.tertiary
     } else {
@@ -316,13 +317,13 @@ private fun QueueAction(
 @Composable
 private fun FinishedTaskRow(row: DownloadRow) {
     val tone = when (row.state) {
-        "succeeded" -> MaterialTheme.colorScheme.primary
-        "failed" -> MaterialTheme.colorScheme.error
+        TaskState.SUCCEEDED -> MaterialTheme.colorScheme.primary
+        TaskState.FAILED -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     val icon = when (row.state) {
-        "failed" -> Icons.Outlined.ErrorOutline
-        "cancelled" -> Icons.Outlined.Cancel
+        TaskState.FAILED -> Icons.Outlined.ErrorOutline
+        TaskState.CANCELLED -> Icons.Outlined.Cancel
         else -> Icons.Outlined.CheckCircle
     }
 

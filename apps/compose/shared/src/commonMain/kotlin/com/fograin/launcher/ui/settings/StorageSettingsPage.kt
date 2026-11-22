@@ -32,8 +32,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
-import com.fograin.launcher.app.SettingsSection
 import com.fograin.launcher.app.AppUiState
+import com.fograin.launcher.app.SettingsSection
 import com.fograin.launcher.model.InstanceFormat
 import com.fograin.launcher.platform.DirectoryPick
 import com.fograin.launcher.platform.platformServices
@@ -53,8 +53,8 @@ import com.fograin.launcher.resources.settings_data_root_pick_title
 import com.fograin.launcher.resources.settings_data_root_reset
 import com.fograin.launcher.resources.settings_disk_free
 import com.fograin.launcher.resources.settings_disk_free_value
-import com.fograin.launcher.resources.settings_group_storage_data
 import com.fograin.launcher.resources.settings_group_disk
+import com.fograin.launcher.resources.settings_group_storage_data
 import com.fograin.launcher.resources.settings_open_folder
 import com.fograin.launcher.resources.settings_storage_android_locked
 import com.fograin.launcher.resources.settings_storage_subtitle
@@ -146,7 +146,7 @@ internal fun StorageSettingsPage(
                                 )
                             }
                             TextButton(
-                                onClick = { model.setDataRootOverride(null) },
+                                onClick = { model.settings.setDataRootOverride(null) },
                                 modifier = Modifier.testTag(SettingsDataRootResetTag),
                             ) {
                                 Text(stringResource(Res.string.settings_data_root_reset))
@@ -253,7 +253,7 @@ internal fun StorageSettingsPage(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        model.setDataRootOverride(path)
+                        model.settings.setDataRootOverride(path)
                         candidate = null
                     },
                 ) {

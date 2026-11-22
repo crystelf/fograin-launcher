@@ -3,7 +3,7 @@ package com.fograin.launcher.model
 /**
  * Loader families offered by the install page, mirroring `fg-loader`.
  *
- * M5 makes every entry installable. `wireName` is the value the Rust core
+ * Every entry is installable. `wireName` is the value the Rust core
  * expects in `install.start` / `loaders.versions`; it is not the enum name
  * because `NEOFORGE` is sent as `neoforge`.
  */
@@ -20,8 +20,6 @@ enum class GameLoaderKind(
     OPTIFINE("OptiFine", "光影与性能优化", "optifine"),
     ;
 
-    val isAvailable: Boolean
-        get() = true
 
     companion object {
         fun fromWire(raw: String?): GameLoaderKind =

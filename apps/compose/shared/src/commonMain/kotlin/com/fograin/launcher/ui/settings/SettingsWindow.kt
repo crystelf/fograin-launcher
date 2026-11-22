@@ -81,13 +81,13 @@ import com.fograin.launcher.resources.account_kind_microsoft
 import com.fograin.launcher.resources.account_kind_offline
 import com.fograin.launcher.resources.account_kind_yggdrasil
 import com.fograin.launcher.resources.action_ok
+import com.fograin.launcher.resources.settings_account_local
 import com.fograin.launcher.resources.settings_adjust_sidebar
 import com.fograin.launcher.resources.settings_back
 import com.fograin.launcher.resources.settings_close
 import com.fograin.launcher.resources.settings_core_config_failed
 import com.fograin.launcher.resources.settings_core_unavailable
 import com.fograin.launcher.resources.settings_core_unavailable_body
-import com.fograin.launcher.resources.settings_account_local
 import com.fograin.launcher.resources.settings_group_about
 import com.fograin.launcher.resources.settings_group_app
 import com.fograin.launcher.resources.settings_group_data
@@ -95,8 +95,8 @@ import com.fograin.launcher.resources.settings_title
 import com.fograin.launcher.resources.settings_window_title
 import com.fograin.launcher.ui.components.FograinSnackbarHost
 import com.fograin.launcher.ui.components.SettingsRootTransitionMillis
-import com.fograin.launcher.ui.components.fograinSettingsTransition
 import com.fograin.launcher.ui.components.contentPanelShape
+import com.fograin.launcher.ui.components.fograinSettingsTransition
 import com.fograin.launcher.ui.locale.AppLocale
 import com.fograin.launcher.ui.theme.FograinTheme
 import kotlinx.coroutines.Job
@@ -214,7 +214,7 @@ fun SettingsPageHost(model: AppModel, state: AppUiState) {
     }
     LaunchedEffect(Unit) {
         if (!state.settingsWindow.loaded && !state.settingsWindow.isLoading) {
-            model.retrySettings()
+            model.settings.load()
         }
     }
 
@@ -224,7 +224,7 @@ fun SettingsPageHost(model: AppModel, state: AppUiState) {
             .testTag(SettingsWindowTag),
     ) {
         val compact = maxWidth < CompactBreakpoint
-        LaunchedEffect(compact) { model.setSettingsCompact(compact) }
+        LaunchedEffect(compact) { model.settings.setCompact(compact) }
 
         // 0 = fully outside, 1 = at rest. The desktop split view slides its
         // two panes in from opposite edges; the compact page slides as one
@@ -576,7 +576,7 @@ private fun SettingsSidebar(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 IconButton(
-                    onClick = model::settingsBack,
+                    onClick = model.settings::back,
                     modifier = Modifier.size(42.dp).testTag(SettingsWindowBackTag),
                 ) {
                     Icon(
@@ -614,7 +614,7 @@ private fun SettingsSidebar(
                         SettingsSection.JAVA,
                     ),
                     active = active,
-                    onSelect = model::selectSettingsSection,
+                    onSelect = model.settings::select,
                 )
                 SettingsNavGroup(
                     label = stringResource(Res.string.settings_group_data),
@@ -624,7 +624,7 @@ private fun SettingsSidebar(
                         SettingsSection.STORAGE,
                     ),
                     active = active,
-                    onSelect = model::selectSettingsSection,
+                    onSelect = model.settings::select,
                 )
             }
 
@@ -632,7 +632,7 @@ private fun SettingsSidebar(
                 label = stringResource(Res.string.settings_group_about),
                 sections = listOf(SettingsSection.ABOUT),
                 active = active,
-                onSelect = model::selectSettingsSection,
+                onSelect = model.settings::select,
                 modifier = Modifier.padding(horizontal = 12.dp),
             )
             Text(
@@ -863,7 +863,7 @@ private fun SettingsContentPane(
                     if (errors.isNotEmpty()) {
                         SettingsErrorBanner(
                             message = errors.first(),
-                            onRetry = model::retrySettings,
+                            onRetry = model.settings::load,
                         )
                     }
                     AnimatedContent(
@@ -922,7 +922,7 @@ private fun CompactSettingsList(model: AppModel, state: AppUiState) {
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             IconButton(
-                onClick = model::settingsBack,
+                onClick = model.settings::back,
                 modifier = Modifier.testTag(SettingsCompactCloseTag),
             ) {
                 Icon(
@@ -958,7 +958,7 @@ private fun CompactSettingsList(model: AppModel, state: AppUiState) {
                     SettingsSection.JAVA,
                 ),
                 active = null,
-                onSelect = model::selectSettingsSection,
+                onSelect = model.settings::select,
             )
             SettingsNavGroup(
                 label = stringResource(Res.string.settings_group_data),
@@ -968,13 +968,13 @@ private fun CompactSettingsList(model: AppModel, state: AppUiState) {
                     SettingsSection.STORAGE,
                 ),
                 active = null,
-                onSelect = model::selectSettingsSection,
+                onSelect = model.settings::select,
             )
             SettingsNavGroup(
                 label = stringResource(Res.string.settings_group_about),
                 sections = listOf(SettingsSection.ABOUT),
                 active = null,
-                onSelect = model::selectSettingsSection,
+                onSelect = model.settings::select,
             )
             Spacer(Modifier.height(24.dp))
         }
@@ -994,7 +994,7 @@ private fun CompactSettingsDetail(model: AppModel, state: AppUiState) {
             horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             IconButton(
-                onClick = model::settingsBack,
+                onClick = model.settings::back,
                 modifier = Modifier.testTag(SettingsCompactBackTag),
             ) {
                 Icon(
@@ -1021,7 +1021,7 @@ private fun CompactSettingsDetail(model: AppModel, state: AppUiState) {
         window.error?.let { failure ->
             SettingsErrorBanner(
                 message = settingsFailureText(failure),
-                onRetry = model::retrySettings,
+                onRetry = model.settings::load,
             )
         }
         AnimatedContent(

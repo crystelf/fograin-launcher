@@ -37,7 +37,7 @@ import org.jetbrains.compose.resources.stringResource
  * Android's storage sandbox means a SAF tree cannot be handed to the Rust core
  * as a path, so the picker walks the app's own data root through the shared
  * [com.fograin.launcher.platform.DirectoryBrowser]. Desktop uses the same
- * abstraction until FileKit lands in R4.
+ * abstraction so each platform can supply its own picker.
  */
 @Composable
 fun DirectoryPickerDialog(

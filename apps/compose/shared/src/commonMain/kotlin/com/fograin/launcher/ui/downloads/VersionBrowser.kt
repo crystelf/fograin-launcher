@@ -1,13 +1,7 @@
 package com.fograin.launcher.ui.downloads
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -125,7 +119,7 @@ internal fun GameDownloads(
                     title = stringResource(Res.string.downloads_no_match),
                     body = stringResource(Res.string.downloads_search_empty_body),
                     action = {
-                        TextButton(onClick = { model.setDownloadQuery("") }) {
+                        TextButton(onClick = { model.downloads.setQuery("") }) {
                             Text(stringResource(Res.string.downloads_clear_search))
                         }
                     },
@@ -147,7 +141,7 @@ internal fun GameDownloads(
                     VersionRow(
                         version = version,
                         latest = version.id == latestId,
-                        onClick = { model.openInstallPage(version.id) },
+                        onClick = { model.downloads.openInstallPage(version.id) },
                         modifier = Modifier.animateItem(),
                     )
                 }
@@ -166,7 +160,7 @@ internal fun GameDownloads(
                     VersionRow(
                         version = version,
                         latest = version.id == latestId,
-                        onClick = { model.openInstallPage(version.id) },
+                        onClick = { model.downloads.openInstallPage(version.id) },
                         modifier = Modifier.animateItem(),
                     )
                 }

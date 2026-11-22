@@ -14,9 +14,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
-import com.fograin.launcher.app.SettingsSection
 import com.fograin.launcher.app.AppUiState
+import com.fograin.launcher.app.SettingsSection
 import com.fograin.launcher.resources.Res
+import com.fograin.launcher.resources.java_auto_download
+import com.fograin.launcher.resources.java_auto_download_body
 import com.fograin.launcher.resources.settings_auto_complete
 import com.fograin.launcher.resources.settings_auto_complete_desc
 import com.fograin.launcher.resources.settings_fullscreen
@@ -29,13 +31,11 @@ import com.fograin.launcher.resources.settings_initial_page
 import com.fograin.launcher.resources.settings_initial_page_desc
 import com.fograin.launcher.resources.settings_java_count
 import com.fograin.launcher.resources.settings_java_open
-import com.fograin.launcher.resources.settings_java_open_desc
 import com.fograin.launcher.resources.settings_jvm_args
 import com.fograin.launcher.resources.settings_jvm_args_desc
 import com.fograin.launcher.resources.settings_jvm_args_hint
 import com.fograin.launcher.resources.settings_memory
 import com.fograin.launcher.resources.settings_memory_auto
-import com.fograin.launcher.resources.summary_memory_auto
 import com.fograin.launcher.resources.settings_memory_auto_desc
 import com.fograin.launcher.resources.settings_memory_desc
 import com.fograin.launcher.resources.settings_memory_slider_desc
@@ -46,8 +46,7 @@ import com.fograin.launcher.resources.settings_resolution_desc
 import com.fograin.launcher.resources.settings_resolution_value
 import com.fograin.launcher.resources.settings_show_log
 import com.fograin.launcher.resources.settings_show_log_desc
-import com.fograin.launcher.resources.java_auto_download
-import com.fograin.launcher.resources.java_auto_download_body
+import com.fograin.launcher.resources.summary_memory_auto
 import com.fograin.launcher.settings.InitialPage
 import com.fograin.launcher.ui.deviceMemoryText
 import kotlin.math.max
@@ -112,7 +111,7 @@ internal fun GeneralSettingsPage(
                 subtitle = stringResource(Res.string.settings_initial_page_desc),
                 value = state.initialPage.title(),
                 options = InitialPage.entries.map { page ->
-                    page.title() to { model.setInitialPage(page) }
+                    page.title() to { model.settings.setInitialPage(page) }
                 },
                 testTag = SettingsInitialPageRowTag,
             )
@@ -128,10 +127,10 @@ internal fun GeneralSettingsPage(
                 testTag = SettingsMemoryAutoTag,
                 onCheckedChange = { auto ->
                     if (auto) {
-                        model.setGlobalMemoryMb(0)
+                        model.settings.setMemoryMb(0)
                     } else {
                         memoryGb = defaultGb
-                        model.setGlobalMemoryMb(defaultGb * 1024)
+                        model.settings.setMemoryMb(defaultGb * 1024)
                     }
                 },
             )
@@ -149,7 +148,7 @@ internal fun GeneralSettingsPage(
                     onCommit = { value ->
                         val gb = value.roundToInt().coerceIn(1, maxGb)
                         memoryGb = gb
-                        model.setGlobalMemoryMb(gb * 1024)
+                        model.settings.setMemoryMb(gb * 1024)
                     },
                 )
             } else {
@@ -169,7 +168,7 @@ internal fun GeneralSettingsPage(
                 value = config?.jvmArgs.orEmpty(),
                 placeholder = stringResource(Res.string.settings_jvm_args_hint),
                 testTag = SettingsJvmArgsTag,
-                onCommit = model::setGlobalJvmArgs,
+                onCommit = model.settings::setJvmArgs,
             )
             SettingsDivider()
         }
@@ -200,7 +199,7 @@ internal fun GeneralSettingsPage(
                 subtitle = stringResource(Res.string.settings_fullscreen_desc),
                 checked = config?.fullscreen == true,
                 testTag = SettingsFullscreenTag,
-                onCheckedChange = model::setGlobalFullscreen,
+                onCheckedChange = model.settings::setFullscreen,
             )
             SettingsDivider()
         }
@@ -210,7 +209,7 @@ internal fun GeneralSettingsPage(
                 subtitle = stringResource(Res.string.settings_show_log_desc),
                 checked = config?.showLog == true,
                 testTag = SettingsShowLogTag,
-                onCheckedChange = model::setGlobalShowLog,
+                onCheckedChange = model.settings::setShowLog,
             )
             SettingsDivider()
         }
@@ -232,7 +231,7 @@ internal fun GeneralSettingsPage(
                 subtitle = stringResource(Res.string.java_auto_download_body),
                 checked = java.autoDownload,
                 testTag = SettingsJavaAutoDownloadTag,
-                onCheckedChange = model::setJavaAutoDownload,
+                onCheckedChange = model.java::setAutoDownload,
             )
             SettingsDivider()
         }
@@ -245,7 +244,7 @@ internal fun GeneralSettingsPage(
                     java.managedCount,
                 ),
                 modifier = Modifier.testTag(SettingsJavaOpenTag),
-                onClick = { model.pushSettingsSection(SettingsSection.JAVA) },
+                onClick = { model.settings.push(SettingsSection.JAVA) },
                 trailing = {
                     SettingsChevron()
                 },

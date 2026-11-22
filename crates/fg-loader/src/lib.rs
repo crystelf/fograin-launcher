@@ -1,4 +1,4 @@
-//! Loader installers for Minecraft (§5.4, M5).
+//! Loader installers for Minecraft.
 //!
 //! The crate is split into:
 //!

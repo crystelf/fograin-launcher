@@ -6,8 +6,10 @@ import com.fograin.launcher.model.DownloadsCategory
 import com.fograin.launcher.model.GameLoaderKind
 import com.fograin.launcher.model.Instance
 import com.fograin.launcher.model.InstanceFormat
+import com.fograin.launcher.model.TaskState
 import com.fograin.launcher.platform.CoreEvent
 import com.fograin.launcher.platform.CoreException
+import com.fograin.launcher.platform.CoreLoaderVersion
 import com.fograin.launcher.platform.CorePlanPreview
 import com.fograin.launcher.platform.CoreVersionEntry
 import com.fograin.launcher.platform.decode
@@ -38,7 +40,7 @@ import kotlinx.serialization.json.put
  * the task finishes — the one piece of cross-screen flow in the launcher.
  * State is written through [AppModel.setState]; nothing here renders.
  */
-internal class DownloadsActions(private val model: AppModel) {
+class DownloadsActions(private val model: AppModel) {
 
     private var pendingDownloadTaskId: String? = null
     private var pendingDownloadInstanceId: String? = null
@@ -145,7 +147,7 @@ internal class DownloadsActions(private val model: AppModel) {
         }
         when {
             category == DownloadsCategory.GAME -> model.scope.launch { loadVersions() }
-            category.isContent -> model.content.openCategory(category)
+            category.isContent -> model.contentBrowser.openCategory(category)
         }
     }
 
@@ -163,14 +165,14 @@ internal class DownloadsActions(private val model: AppModel) {
         if (loader.name == model.state.value.download.contentLoader) return
         model.setState { it.copy(download = it.download.copy(contentLoader = loader.name)) }
         if (model.state.value.download.category == DownloadsCategory.MODPACK) {
-            model.content.search()
+            model.contentBrowser.search()
         }
     }
 
     fun setQuery(query: String) {
         model.setState { it.copy(download = it.download.copy(query = query)) }
         if (model.state.value.download.category.isContent) {
-            model.content.scheduleSearch()
+            model.contentBrowser.scheduleSearch()
         }
     }
 
@@ -300,6 +302,26 @@ internal class DownloadsActions(private val model: AppModel) {
         model.scope.launch { refreshPlan() }
     }
 
+    /**
+     * Real loader builds for a Minecraft version, newest first.
+     *
+     * Vanilla has no loader versions, so the page shows nothing for it.
+     */
+    suspend fun versionsFor(loader: GameLoaderKind, minecraft: String): List<CoreLoaderVersion> {
+        if (loader == GameLoaderKind.VANILLA || minecraft.isBlank()) return emptyList()
+        val payload = model.core.rpc(
+            "loaders.versions",
+            buildJsonObject {
+                put("kind", loader.wireName)
+                put("minecraft", minecraft)
+                put("limit", 50)
+            },
+        )
+        return payload.objectRows("versions").mapNotNull { row ->
+            runCatching { row.decode<CoreLoaderVersion>() }.getOrNull()
+        }
+    }
+
     private suspend fun loadLoaderVersions(kind: GameLoaderKind) {
         val version = model.state.value.download.installVersionId ?: return
         loaderVersionsGeneration += 1
@@ -313,7 +335,7 @@ internal class DownloadsActions(private val model: AppModel) {
             )
         }
         try {
-            val versions = model.loadLoaderVersions(kind, version)
+            val versions = versionsFor(kind, version)
             if (generation != loaderVersionsGeneration) return
             val current = model.state.value.download
             if (current.installLoader != kind || current.installVersionId != version) return
@@ -612,14 +634,15 @@ internal class DownloadsActions(private val model: AppModel) {
         val title = InstanceFormat.taskTitle(event.name)
         val isOurDownload = event.taskId == pendingDownloadTaskId
         when (event.state) {
-            "succeeded" -> {
+            TaskState.RUNNING -> Unit
+            TaskState.SUCCEEDED -> {
                 model.showNotice("$title 完成", Notice.Tone.SUCCESS)
                 model.scope.launch {
                     if (isOurDownload) finishGameDownload() else model.refreshCoreData()
                 }
             }
 
-            "failed" -> {
+            TaskState.FAILED -> {
                 val message = event.detail.firstOrNull() ?: "未知原因"
                 model.showError(
                     "$title 失败",
@@ -630,13 +653,13 @@ internal class DownloadsActions(private val model: AppModel) {
                 model.scope.launch { model.refreshCoreData() }
             }
 
-            "cancelled" -> {
+            TaskState.CANCELLED -> {
                 model.showNotice("$title 已取消")
                 if (isOurDownload) clearPendingDownload()
                 model.scope.launch { model.refreshCoreData() }
             }
 
-            "paused" -> {
+            TaskState.PAUSED -> {
                 model.showNotice("$title 已暂停")
                 // Keep the pending task id so resuming from the queue still
                 // opens the new instance once the replayed graph finishes.

@@ -1,23 +1,22 @@
 package com.fograin.launcher.desktop
 
 import androidx.compose.ui.ExperimentalComposeUiApi
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.ImageComposeScene
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.unit.Density
 import com.fograin.launcher.App
-import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AccountStage
+import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.app.ContentDependencyPrompt
 import com.fograin.launcher.app.ContentManagerTab
 import com.fograin.launcher.app.DownloadStage
-import com.fograin.launcher.app.LibraryStage
-import com.fograin.launcher.model.DownloadsCategory
-import com.fograin.launcher.app.ModpackUiState
-import com.fograin.launcher.app.DiagUiState
 import com.fograin.launcher.app.ExportModpackUiState
 import com.fograin.launcher.app.ExportStep
+import com.fograin.launcher.app.LibraryStage
+import com.fograin.launcher.app.ModpackUiState
+import com.fograin.launcher.model.DownloadsCategory
 import com.fograin.launcher.model.GameLoaderKind
 import com.fograin.launcher.platform.CoreContentInstallItem
 import com.fograin.launcher.platform.CoreExportSection
@@ -41,7 +40,7 @@ import kotlinx.coroutines.runBlocking
 import org.jetbrains.skia.EncodedImageFormat
 
 /**
- * R2 acceptance: render every page, the instance detail/settings pages, the
+ * Renders every page, the instance detail/settings pages, the
  * remaining sheets and the game install flow with deterministic data, in both
  * dark and light themes plus compact and landscape phone-sized layouts. Each
  * frame is written to a temp PNG and printed so a reviewer can compare against
@@ -57,7 +56,7 @@ class ScreensRenderTest {
             platform = testPlatform(),
             scope = CoroutineScope(Dispatchers.Unconfined),
         )
-        model.loadDownloadVersions()
+        model.downloads.loadVersions()
 
         val base = model.state.value
         model.openJavaSettings()
@@ -68,9 +67,9 @@ class ScreensRenderTest {
         assertTrue(base.download.versions.isNotEmpty(), "versions.list was not applied")
         assertTrue(base.account.accounts.isNotEmpty(), "accounts.list was not applied")
 
-        model.openInstallPage("1.21.5")
-        model.setInstallLoader(GameLoaderKind.FABRIC)
-        model.setInstallInstanceName("雾林 1.21.5")
+        model.downloads.openInstallPage("1.21.5")
+        model.downloads.setInstallLoader(GameLoaderKind.FABRIC)
+        model.downloads.setInstallInstanceName("雾林 1.21.5")
         val installDownload = model.state.value.download
         assertEquals(DownloadStage.INSTALL, installDownload.stage)
         assertNotNull(installDownload.plan, "version.plan was not applied")
@@ -83,18 +82,18 @@ class ScreensRenderTest {
             download = installDownload,
         )
 
-        model.setDownloadCategory(DownloadsCategory.MOD)
-        model.openContentCategory(DownloadsCategory.MOD)
+        model.downloads.setCategory(DownloadsCategory.MOD)
+        model.contentBrowser.openCategory(DownloadsCategory.MOD)
         val contentBrowser = model.state.value
         assertTrue(contentBrowser.contentBrowser.projects.isNotEmpty(), "content.search was not applied")
-        model.openContentProject(contentBrowser.contentBrowser.projects.first())
+        model.contentBrowser.openProject(contentBrowser.contentBrowser.projects.first())
         val contentProjectState = model.state.value
         assertTrue(contentProjectState.contentBrowser.versions.isNotEmpty(), "content.versions was not applied")
 
-        model.closeContentProject()
-        model.setDownloadCategory(DownloadsCategory.MODPACK)
+        model.contentBrowser.closeProject()
+        model.downloads.setCategory(DownloadsCategory.MODPACK)
         val modpackCategory = model.state.value
-        model.openContentProject(modpackCategory.contentBrowser.projects.first())
+        model.contentBrowser.openProject(modpackCategory.contentBrowser.projects.first())
         val modpackProjectSheet = model.state.value
         val dependencyPromptSheet = contentProjectState.copy(
             contentBrowser = contentProjectState.contentBrowser.copy(
@@ -114,39 +113,39 @@ class ScreensRenderTest {
                 ),
             ),
         )
-        model.closeContentProject()
-        model.setDownloadCategory(DownloadsCategory.DATAPACK)
+        model.contentBrowser.closeProject()
+        model.downloads.setCategory(DownloadsCategory.DATAPACK)
         val datapackCategory = model.state.value
-        model.setDownloadCategory(DownloadsCategory.RESOURCEPACK)
+        model.downloads.setCategory(DownloadsCategory.RESOURCEPACK)
         val resourcepackCategory = model.state.value
 
         model.openInstanceDetail(base.instances.first(), ContentManagerTab.MODS)
         val instanceDetail = model.state.value
         assertTrue(instanceDetail.content.items.isNotEmpty(), "content.local was not applied")
-        model.checkContentUpdates()
+        model.content.checkUpdates()
         // Notices are transient; drop the snackbar so page captures show the
         // page itself rather than a toast from the previous action.
         model.state.value.notice?.let { model.consumeNotice(it.id) }
         val instanceDetailUpdates = model.state.value
         assertTrue(instanceDetailUpdates.content.updates.isNotEmpty(), "content.updates was not applied")
-        model.setContentTab(ContentManagerTab.WORLDS)
+        model.content.setTab(ContentManagerTab.WORLDS)
         val instanceDetailWorlds = model.state.value
         assertTrue(instanceDetailWorlds.content.worlds.isNotEmpty(), "worlds.list was not applied")
 
-        model.setContentTab(ContentManagerTab.DATAPACKS)
+        model.content.setTab(ContentManagerTab.DATAPACKS)
         val instanceDetailDatapacks = model.state.value
         assertTrue(
             instanceDetailDatapacks.content.datapacks.isNotEmpty(),
             "datapacks.list was not applied",
         )
 
-        model.openDiagnostics(base.instances.first())
+        model.diag.open(base.instances.first())
         val diagnosticsPage = model.state.value
         assertTrue(
             diagnosticsPage.diag.findings.isNotEmpty(),
             "diag.analyze was not applied",
         )
-        model.exportDiagnostics()
+        model.diag.export()
         model.state.value.notice?.let { model.consumeNotice(it.id) }
         val diagnosticsExported = model.state.value
         assertNotNull(diagnosticsExported.diag.bundlePath, "diag.export was not applied")
@@ -299,11 +298,11 @@ class ScreensRenderTest {
             platform = testPlatform(),
             scope = CoroutineScope(Dispatchers.Unconfined),
         )
-        model.loadDownloadVersions()
+        model.downloads.loadVersions()
         val base = model.state.value.copy(theme = ThemeMode.LIGHT)
         model.openInstanceDetail(base.instances.first())
         val instanceDetail = model.state.value.copy(theme = ThemeMode.LIGHT)
-        model.openDiagnostics(base.instances.first())
+        model.diag.open(base.instances.first())
         val lightDiagnostics = model.state.value.copy(theme = ThemeMode.LIGHT)
 
         val installPage = base.copy(
@@ -354,27 +353,27 @@ class ScreensRenderTest {
             platform = testPlatform(),
             scope = CoroutineScope(Dispatchers.Unconfined),
         )
-        model.loadDownloadVersions()
+        model.downloads.loadVersions()
         val base = model.state.value
-        model.openInstallPage("1.21.5")
-        model.setInstallLoader(GameLoaderKind.FABRIC)
+        model.downloads.openInstallPage("1.21.5")
+        model.downloads.setInstallLoader(GameLoaderKind.FABRIC)
         val installDownload = model.state.value.download
         assertNotNull(installDownload.plan, "version.plan was not applied")
 
-        model.setDownloadCategory(DownloadsCategory.MOD)
+        model.downloads.setCategory(DownloadsCategory.MOD)
         val compactContentBrowser = model.state.value
-        model.openContentProject(compactContentBrowser.contentBrowser.projects.first())
+        model.contentBrowser.openProject(compactContentBrowser.contentBrowser.projects.first())
         val compactProjectSheet = model.state.value
-        model.closeContentProject()
+        model.contentBrowser.closeProject()
         model.openInstanceDetail(base.instances.first(), ContentManagerTab.MODS)
         val compactInstanceDetail = model.state.value
         model.openInstanceDetail(base.instances.first(), ContentManagerTab.DATAPACKS)
         val compactDatapacks = model.state.value
-        model.setDownloadCategory(DownloadsCategory.MODPACK)
+        model.downloads.setCategory(DownloadsCategory.MODPACK)
         val compactModpack = model.state.value.copy(destination = AppDestination.DOWNLOADS)
-        model.setDownloadCategory(DownloadsCategory.DATAPACK)
+        model.downloads.setCategory(DownloadsCategory.DATAPACK)
         val compactDatapackBrowser = model.state.value.copy(destination = AppDestination.DOWNLOADS)
-        model.openDiagnostics(base.instances.first())
+        model.diag.open(base.instances.first())
         val compactDiagnostics = model.state.value
 
         val pages = listOf(
@@ -437,7 +436,7 @@ class ScreensRenderTest {
         assertTrue(model.state.value.settingsWindow.loaded, "settings.get was not applied")
 
         com.fograin.launcher.app.SettingsSection.entries.forEach { section ->
-            model.selectSettingsSection(section)
+            model.settings.select(section)
             val bytes = renderSettings(model, width = 1120, height = 780)
             val output = Files.createTempFile("fograin-settings-${section.name.lowercase()}-", ".png")
             output.toFile().writeBytes(bytes)
@@ -446,7 +445,7 @@ class ScreensRenderTest {
         }
 
         // Compact list, then a compact detail page.
-        model.state.value.let { model.closeSettings() }
+        model.state.value.let { model.settings.close() }
         model.openSettings()
         val list = renderSettings(model, width = 420, height = 900, compactList = true)
         val listOutput = Files.createTempFile("fograin-settings-compact-list-", ".png")
@@ -454,7 +453,7 @@ class ScreensRenderTest {
         println("FOGRAIN_SETTINGS_PNG_compact-list=$listOutput")
         assertTrue(list.size > 6_000)
 
-        model.selectSettingsSection(com.fograin.launcher.app.SettingsSection.APPEARANCE)
+        model.settings.select(com.fograin.launcher.app.SettingsSection.APPEARANCE)
         val detail = renderSettings(model, width = 420, height = 900)
         val detailOutput = Files.createTempFile("fograin-settings-compact-detail-", ".png")
         detailOutput.toFile().writeBytes(detail)
@@ -470,7 +469,7 @@ class ScreensRenderTest {
             platform = testPlatform(),
             scope = CoroutineScope(Dispatchers.Unconfined),
         )
-        model.setLanguage(com.fograin.launcher.settings.AppLanguage.SIMPLIFIED_CHINESE)
+        model.settings.setLanguage(com.fograin.launcher.settings.AppLanguage.SIMPLIFIED_CHINESE)
         repeat(4) { kotlinx.coroutines.yield() }
 
         val scene = ImageComposeScene(width = 1120, height = 780, density = Density(1f)) {
@@ -502,10 +501,10 @@ class ScreensRenderTest {
             platform = testPlatform(),
             scope = CoroutineScope(Dispatchers.Unconfined),
         )
-        model.setLanguage(com.fograin.launcher.settings.AppLanguage.SIMPLIFIED_CHINESE)
+        model.settings.setLanguage(com.fograin.launcher.settings.AppLanguage.SIMPLIFIED_CHINESE)
         repeat(4) { kotlinx.coroutines.yield() }
         model.openSettings()
-        model.selectSettingsSection(com.fograin.launcher.app.SettingsSection.APPEARANCE)
+        model.settings.select(com.fograin.launcher.app.SettingsSection.APPEARANCE)
 
         val scene = ImageComposeScene(width = 1120, height = 780, density = Density(1f)) {
             App(model)
@@ -513,7 +512,7 @@ class ScreensRenderTest {
         try {
             repeat(40) { scene.render(it * 16_000_000L) }
             scene.render(700_000_000L)
-            model.closeSettings()
+            model.settings.close()
             listOf(16L, 48L, 96L, 160L, 240L, 320L, 420L).forEach { offsetMs ->
                 val image = scene.render((700L + offsetMs) * 1_000_000L)
                 val bytes = image.encodeToData(EncodedImageFormat.PNG)?.bytes ?: byteArrayOf()
@@ -537,7 +536,7 @@ class ScreensRenderTest {
             platform = testPlatform(),
             scope = CoroutineScope(Dispatchers.Unconfined),
         )
-        model.setLanguage(com.fograin.launcher.settings.AppLanguage.SIMPLIFIED_CHINESE)
+        model.settings.setLanguage(com.fograin.launcher.settings.AppLanguage.SIMPLIFIED_CHINESE)
         repeat(4) { kotlinx.coroutines.yield() }
 
         val scene = ImageComposeScene(width = 420, height = 900, density = Density(1f)) {
@@ -571,9 +570,9 @@ class ScreensRenderTest {
             scope = CoroutineScope(Dispatchers.Unconfined),
         )
         model.openSettings()
-        model.selectSettingsSection(com.fograin.launcher.app.SettingsSection.APPEARANCE)
+        model.settings.select(com.fograin.launcher.app.SettingsSection.APPEARANCE)
         repeat(4) { kotlinx.coroutines.yield() }
-        model.setTheme(com.fograin.launcher.settings.ThemeMode.LIGHT)
+        model.settings.setTheme(com.fograin.launcher.settings.ThemeMode.LIGHT)
         repeat(4) { kotlinx.coroutines.yield() }
 
         val bytes = renderSettings(model, width = 1120, height = 780)
@@ -592,7 +591,7 @@ class ScreensRenderTest {
             scope = CoroutineScope(Dispatchers.Unconfined),
         )
         model.openSettings()
-        model.selectSettingsSection(com.fograin.launcher.app.SettingsSection.APPEARANCE)
+        model.settings.select(com.fograin.launcher.app.SettingsSection.APPEARANCE)
         repeat(4) { kotlinx.coroutines.yield() }
 
         val preferences = platformServices().preferences
@@ -619,7 +618,7 @@ class ScreensRenderTest {
             scope = CoroutineScope(Dispatchers.Unconfined),
         )
         model.openSettings()
-        model.selectSettingsSection(com.fograin.launcher.app.SettingsSection.APPEARANCE)
+        model.settings.select(com.fograin.launcher.app.SettingsSection.APPEARANCE)
         repeat(4) { kotlinx.coroutines.yield() }
 
         val preferences = platformServices().preferences
@@ -658,7 +657,7 @@ class ScreensRenderTest {
             scope = CoroutineScope(Dispatchers.Unconfined),
         )
         model.openSettings()
-        model.selectSettingsSection(com.fograin.launcher.app.SettingsSection.APPEARANCE)
+        model.settings.select(com.fograin.launcher.app.SettingsSection.APPEARANCE)
         repeat(4) { kotlinx.coroutines.yield() }
 
         val preferences = platformServices().preferences
@@ -697,7 +696,7 @@ class ScreensRenderTest {
             scope = CoroutineScope(Dispatchers.Unconfined),
         )
         model.openSettings()
-        model.selectSettingsSection(com.fograin.launcher.app.SettingsSection.APPEARANCE)
+        model.settings.select(com.fograin.launcher.app.SettingsSection.APPEARANCE)
         repeat(4) { kotlinx.coroutines.yield() }
 
         listOf(
@@ -705,7 +704,7 @@ class ScreensRenderTest {
             "ja" to com.fograin.launcher.settings.AppLanguage.JAPANESE,
             "zh-hant" to com.fograin.launcher.settings.AppLanguage.TRADITIONAL_CHINESE,
         ).forEach { (name, language) ->
-            model.setLanguage(language)
+            model.settings.setLanguage(language)
             repeat(4) { kotlinx.coroutines.yield() }
             val bytes = renderSettings(model, width = 1120, height = 780)
             val output = Files.createTempFile("fograin-settings-$name-", ".png")
@@ -719,7 +718,7 @@ class ScreensRenderTest {
             println("FOGRAIN_SETTINGS_LANG_PNG_${name}_compact=$compactOutput")
             assertTrue(compactBytes.size > 6_000, "$name compact settings too small")
         }
-        model.setLanguage(com.fograin.launcher.settings.AppLanguage.SYSTEM)
+        model.settings.setLanguage(com.fograin.launcher.settings.AppLanguage.SYSTEM)
         com.fograin.launcher.platform.applyAppLanguage(
             com.fograin.launcher.settings.AppLanguage.SYSTEM,
         )

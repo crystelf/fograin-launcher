@@ -14,10 +14,10 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * Crash analysis page (M9): log sources, ranked findings and the support
+ * Crash analysis page: log sources, ranked findings and the support
  * bundle. Analysis is local, so opening the page never touches the network.
  */
-internal class DiagActions(private val model: AppModel) {
+class DiagActions(private val model: AppModel) {
     private var generation = 0
 
     /** Opens the diagnostics page for [instance] and loads its logs. */

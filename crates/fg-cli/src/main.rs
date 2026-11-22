@@ -1,6 +1,6 @@
 //! Headless debug and CI entry point for the Fograin core.
 //!
-//! M2 shipped the download tooling; M3 adds the install/launch path from §14:
+//! Commands cover downloads, install/launch, accounts, content and diagnostics:
 //!
 //! ```text
 //! fg-cli versions                 # cached version manifest
@@ -13,13 +13,13 @@
 //! fg-cli mirror <url>             # show the candidate list for a URL
 //! fg-cli assets <version>         # download every asset object of a version
 //! fg-cli probe <url>...           # HEAD-probe sources and update health data
-//! fg-cli account list             # offline / third-party accounts (M7)
-//! fg-cli content list <instance>  # local mods / resource packs / shaders (M8)
-//! fg-cli content install ...      # Modrinth / CurseForge content (M8)
-//! fg-cli world list <instance>    # worlds and backups (M8)
-//! fg-cli diag analyze <instance>  # crash analysis and the support bundle (M9)
-//! fg-cli datapack list ...        # per-world data packs (M9)
-//! fg-cli modpack inspect/import   # modpack formats and import (M9)
+//! fg-cli account list             # offline / third-party accounts
+//! fg-cli content list <instance>  # local mods / resource packs / shaders
+//! fg-cli content install ...      # Modrinth / CurseForge content
+//! fg-cli world list <instance>    # worlds and backups
+//! fg-cli diag analyze <instance>  # crash analysis and the support bundle
+//! fg-cli datapack list ...        # per-world data packs
+//! fg-cli modpack inspect/import   # modpack formats and import
 //! ```
 
 use std::{
@@ -54,8 +54,8 @@ use fg_game::manager::InstanceManager;
 use fg_game::resolver::VersionResolver;
 use fg_game::rules::RuleContext;
 use fg_java::{
-    JavaArch, JavaManager, JavaRuntime, JavaScanner, JavaSource, JavaWarning, normalize_home,
-    select,
+    JavaArch, JavaManager, JavaRequirement, JavaRuntime, JavaScanner, JavaSource, JavaWarning,
+    normalize_home, select, select_available, verify_downloaded,
 };
 use fg_loader::{LoaderKind, LoaderPaths, LoaderPlanner, VersionListQuery};
 use fg_net::{
@@ -1519,7 +1519,7 @@ fn human_bytes(bytes: u64) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// M3: install and launch
+// Install and launch
 // ---------------------------------------------------------------------------
 
 fn data_layout(root: &std::path::Path) -> Layout {
@@ -1890,7 +1890,7 @@ async fn command_launch(
         build_shared(root, table, source, region, concurrency, rate_limit_kib)?;
     let mut instance = Instance::load(&layout, &args.instance)?;
     {
-        // M4: `[override]` inherits `launcher.toml [game]` defaults when the
+        // `[override]` inherits `launcher.toml [game]` defaults when the
         // instance does not set its own value.
         let globals = config::read_config(root)?.game;
         instance.overrides = fg_game::manager::overrides_for_launch(&instance, &globals);
@@ -2176,10 +2176,6 @@ fn pick_java(
     Ok(selected.runtime)
 }
 
-fn arch_matches(actual: JavaArch, wanted: JavaArch) -> bool {
-    actual == wanted || actual == JavaArch::Unknown
-}
-
 fn java_warning(warning: &JavaWarning) -> String {
     match warning {
         JavaWarning::TooNew { found, required } => {
@@ -2235,26 +2231,13 @@ async fn ensure_java_for_cli(
     allow_download: bool,
 ) -> Result<fg_java::JavaSelection> {
     let runtimes = scan_java(layout, true).await;
-    let selection = select(&runtimes, required, arch);
-    if let Ok(selection) = &selection
-        && (!require_arch || (selection.exact && arch_matches(selection.runtime.arch, arch)))
-    {
+    let requirement = JavaRequirement::new(required, arch, require_arch);
+    let selection = select_available(&runtimes, requirement);
+    if let Ok(selection) = &selection {
         return Ok(selection.clone());
     }
     if !allow_download {
-        return match selection {
-            Ok(selection)
-                if require_arch
-                    && (!selection.exact || !arch_matches(selection.runtime.arch, arch)) =>
-            {
-                Err(Error::with_detail(
-                    ErrorKind::Unsupported,
-                    "error.java.x86_64_required",
-                    format!("need an exact {arch} Java {required} for this version"),
-                ))
-            }
-            other => other,
-        };
+        return selection;
     }
 
     let candidate = manager.candidate_for(required, component, arch).await?;
@@ -2293,26 +2276,12 @@ async fn ensure_java_for_cli(
     );
     let runtimes = scan_java(layout, true).await;
     let selection = select(&runtimes, required, arch)?;
-    if require_arch && (!selection.exact || !arch_matches(selection.runtime.arch, arch)) {
-        return Err(Error::with_detail(
-            ErrorKind::Unsupported,
-            "error.java.x86_64_required",
-            format!(
-                "downloaded Java {} is {}, but this version needs {arch}",
-                selection
-                    .runtime
-                    .version
-                    .as_ref()
-                    .map_or("?", |value| value.full.as_str()),
-                selection.runtime.arch
-            ),
-        ));
-    }
+    verify_downloaded(&selection, requirement)?;
     Ok(selection)
 }
 
 /// `fg-cli account ...`: account repository, offline creation and third-party
-/// login. Skin management is intentionally absent; see `docs/m7.md`.
+/// login. Skin management is intentionally absent.
 async fn command_account(
     root: &std::path::Path,
     table: &MirrorTable,
@@ -3746,7 +3715,7 @@ fn command_instance(root: &std::path::Path, args: InstanceArgs) -> Result<()> {
             );
         }
         InstanceCommand::Delete(args) => {
-            manager.delete(&args.id, false)?;
+            manager.delete(&args.id)?;
             println!("deleted {}", args.id);
         }
         InstanceCommand::List(args) => {

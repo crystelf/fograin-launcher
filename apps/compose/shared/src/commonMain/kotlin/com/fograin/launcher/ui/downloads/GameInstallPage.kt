@@ -54,11 +54,11 @@ import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.model.GameLoaderKind
-import com.fograin.launcher.ui.titleText
 import com.fograin.launcher.model.InstanceFormat
 import com.fograin.launcher.platform.CoreVersionEntry
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.components.SkeletonBox
+import com.fograin.launcher.ui.titleText
 import org.jetbrains.compose.resources.stringResource
 
 /** Test tag for the primary download button on the install page. */
@@ -308,7 +308,7 @@ private fun InstallContents(
                         Res.string.downloads_plan_error,
                         planError.orEmpty(),
                     ),
-                    onRetry = model::refreshInstallPlan,
+                    onRetry = model.downloads::refreshInstallPlan,
                 )
 
                 else -> Row(
@@ -353,7 +353,7 @@ private fun LoaderSection(
                         LoaderOptionCard(
                             option = option,
                             selected = option == loader,
-                            onClick = { model.setInstallLoader(option) },
+                            onClick = { model.downloads.setInstallLoader(option) },
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight(),
@@ -378,7 +378,7 @@ private fun LoaderSection(
                     value = if (state.isLoadingLoaderVersions) "" else loaderVersion,
                     loading = state.isLoadingLoaderVersions,
                     hasError = state.loaderVersionsError != null,
-                    onClick = model::openLoaderVersionPicker,
+                    onClick = model.downloads::openLoaderVersionPicker,
                 )
                 state.loaderVersionsError?.let { message ->
                     Text(
@@ -406,7 +406,7 @@ private fun InstanceSection(
         )
         OutlinedTextField(
             value = name,
-            onValueChange = model::setInstallInstanceName,
+            onValueChange = model.downloads::setInstallInstanceName,
             modifier = Modifier.fillMaxWidth(),
             placeholder = { Text(version.id) },
             singleLine = true,
@@ -501,7 +501,7 @@ private fun InstallButton(
 ) {
     val busy = download.isInstallRequesting || download.isGameDownloadRunning
     Button(
-        onClick = model::submitInstall,
+        onClick = model.downloads::submitInstall,
         enabled = enabled,
         modifier = modifier
             .height(46.dp)

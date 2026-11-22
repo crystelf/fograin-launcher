@@ -49,10 +49,10 @@ import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.model.GameLoaderKind
-import com.fograin.launcher.ui.titleText
 import com.fograin.launcher.platform.CoreLoaderVersion
 import com.fograin.launcher.resources.*
 import com.fograin.launcher.ui.components.SkeletonBox
+import com.fograin.launcher.ui.titleText
 import org.jetbrains.compose.resources.stringResource
 
 /** Stable test tag for one loader build row. */
@@ -141,7 +141,7 @@ internal fun LoaderVersionsPage(
                     Box(modifier = Modifier.padding(horizontal = 20.dp)) {
                         ErrorState(
                             message = download.loaderVersionsError,
-                            onRetry = model::retryLoaderVersions,
+                            onRetry = model.downloads::retryLoaderVersions,
                         )
                     }
                 }

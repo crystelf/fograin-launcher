@@ -203,7 +203,7 @@ interface SystemAppearance {
     fun applySystemBars(darkTheme: Boolean)
 }
 
-/** 9. Back gesture/escape handling. Desktop installs a no-op until R4. */
+/** 9. Back gesture/escape handling; desktop routes Escape to the same hook. */
 interface BackDispatcher {
     @Composable
     fun handleBack(enabled: Boolean, onBack: () -> Unit)

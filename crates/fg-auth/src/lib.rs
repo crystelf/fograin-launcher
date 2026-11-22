@@ -1,13 +1,13 @@
 //! Accounts for Fograin Launcher (§10.1).
 //!
-//! M7 ships offline accounts and third-party Yggdrasil / authlib-injector
+//! Supports offline accounts and third-party Yggdrasil / authlib-injector
 //! accounts. Skin management is deliberately out of scope: the account model
 //! stores only the metadata the launcher needs to sign in and launch, and the
 //! injector lets the game fetch textures from the server.
 //!
-//! Microsoft login remains reserved for M11. Callers depend on [`AuthSession`]
-//! and [`AccountProfile`], not on the backend, so the Microsoft variant can
-//! reuse the same launch contract later.
+//! Microsoft login is not implemented. Callers depend on [`AuthSession`] and
+//! [`AccountProfile`], not on the backend, so a Microsoft variant can reuse the
+//! same launch contract later.
 
 pub mod account;
 pub mod injector;

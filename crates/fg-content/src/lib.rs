@@ -1,4 +1,4 @@
-//! Local content management and Modrinth / CurseForge integration (M8).
+//! Local content management and Modrinth / CurseForge integration.
 //!
 //! The crate owns three layers:
 //!
@@ -13,8 +13,8 @@
 //!   project/version in the instance's content index.
 //!
 //! Worlds live in `fg-world`; schematics are deliberately not part of either
-//! crate: the feature was removed from the M8 plan (see `docs/m8.md`), so there
-//! is no scanner, no API and no UI for `.litematic` / `.schem` files.
+//! crate, so there is no scanner, no API and no UI for `.litematic` /
+//! `.schem` files.
 
 pub mod curseforge;
 pub mod index;

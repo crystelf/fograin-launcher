@@ -184,19 +184,6 @@ impl Candidate {
         })?;
         Ok(Self::new(url))
     }
-
-    #[must_use]
-    pub fn with_retries(mut self, retries: u32) -> Self {
-        self.retries = Some(retries);
-        self
-    }
-
-    #[must_use]
-    pub fn with_timeouts(mut self, connect: Duration, read: Duration) -> Self {
-        self.connect_timeout = Some(connect);
-        self.read_timeout = Some(read);
-        self
-    }
 }
 
 impl From<Url> for Candidate {
@@ -481,11 +468,6 @@ impl Downloader {
     #[must_use]
     pub fn health(&self) -> &HealthRegistry {
         &self.health
-    }
-
-    #[must_use]
-    pub fn content_cache(&self) -> &ContentCache {
-        &self.cache
     }
 
     #[must_use]

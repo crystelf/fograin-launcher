@@ -7,7 +7,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 /**
- * R4: window geometry must survive a restart. Exercises the real
+ * Window geometry must survive a restart. Exercises the real
  * `java.util.prefs` implementation and restores the previous value so a
  * developer's own window layout is not clobbered.
  */
