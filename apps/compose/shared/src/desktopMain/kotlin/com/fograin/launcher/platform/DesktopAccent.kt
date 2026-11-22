@@ -1,7 +1,11 @@
 package com.fograin.launcher.platform
 
+import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.graphics.Color
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Best-effort read of the desktop accent colour.
@@ -9,13 +13,48 @@ import java.util.concurrent.TimeUnit
  * macOS exposes it through `AppleAccentColor`, Windows through the DWM
  * colorization value and GNOME 47+ through `org.gnome.desktop.interface
  * accent-color`. Every command is bounded to 700 ms and any failure returns
- * `null`, which lets the theme fall back to the Fograin palette. The value is
- * cached for the process lifetime: the launcher only re-reads it on restart.
+ * `null`, which lets the theme fall back to the Fograin palette.
+ *
+ * The probe runs on a daemon thread, not on the Compose/EDT thread: the theme
+ * paints its fallback palette immediately and recomposes when [colorState]
+ * receives the value. This removes a subprocess wait from the startup path
+ * without forcing the launcher to start with the wrong accent.
  */
 internal object DesktopAccent {
-    private val cached: Color? by lazy { detect() }
+    private val detected = mutableStateOf<Color?>(null)
+    private val started = AtomicBoolean(false)
 
-    fun color(): Color? = cached
+    /** Compose-observable accent; `null` until the probe finishes. */
+    val colorState: State<Color?>
+        get() {
+            start()
+            return detected
+        }
+
+    fun color(): Color? = colorState.value
+
+    /** Starts the probe without waiting for it. Idempotent. */
+    fun prefetch() {
+        start()
+    }
+
+    private fun start() {
+        if (!started.compareAndSet(false, true)) return
+        val probe = Thread(
+            {
+                // Run the (bounded) subprocess outside the snapshot, then
+                // publish the result in a short mutable snapshot so the next
+                // recomposition sees it without holding a snapshot open.
+                val color = detect()
+                Snapshot.withMutableSnapshot {
+                    detected.value = color
+                }
+            },
+            "fograin-desktop-accent",
+        )
+        probe.isDaemon = true
+        probe.start()
+    }
 
     private fun detect(): Color? = when {
         isMac() -> macAccent()
@@ -49,27 +88,18 @@ internal object DesktopAccent {
     }
 
     private fun windowsAccent(): Color? {
-        val output = runCommand(
-            listOf(
-                "reg",
-                "query",
-                "HKCU\\Software\\Microsoft\\Windows\\DWM",
-                "/v",
+        // Read the DWM value in-process via JNA. Spawning `reg.exe` from the
+        // GUI launcher flashed a console window on every start; the registry
+        // read is a few microseconds and cannot surprise the user.
+        val value = runCatching {
+            com.sun.jna.platform.win32.Advapi32Util.registryGetIntValue(
+                com.sun.jna.platform.win32.WinReg.HKEY_CURRENT_USER,
+                "Software\\Microsoft\\Windows\\DWM",
                 "ColorizationColor",
-            ),
-        ) ?: return WINDOWS_BLUE
-        val token = output.split(Regex("\\s+"))
-            .firstOrNull { it.startsWith("0x", ignoreCase = true) }
-            ?: return WINDOWS_BLUE
-        val value = token.removePrefix("0x").removePrefix("0X").toLongOrNull(16)
-            ?: return WINDOWS_BLUE
-        val red = ((value shr 16) and 0xFF).toInt()
-        val green = ((value shr 8) and 0xFF).toInt()
-        val blue = (value and 0xFF).toInt()
-        // A fully transparent colorization value means "automatic": keep the
-        // documented Windows accent instead of painting black.
-        if (red == 0 && green == 0 && blue == 0) return WINDOWS_BLUE
-        return Color(red, green, blue)
+            )
+        }.getOrNull() ?: return WINDOWS_BLUE
+
+        return colorizationColor(value) ?: WINDOWS_BLUE
     }
 
     private fun gnomeAccent(): Color? {
@@ -100,6 +130,21 @@ internal object DesktopAccent {
         }
         process.inputStream.bufferedReader().use { it.readText() }.takeIf { it.isNotBlank() }
     }.getOrNull()
+
+    /**
+     * Extracts the RGB part of DWM's `ColorizationColor` DWORD.
+     *
+     * The value is AARRGGBB. A zero RGB triplet means "automatic colorization";
+     * callers substitute the documented Windows accent instead of black.
+     */
+    internal fun colorizationColor(value: Int): Color? {
+        val argb = value.toLong() and 0xFFFF_FFFFL
+        val red = ((argb shr 16) and 0xFF).toInt()
+        val green = ((argb shr 8) and 0xFF).toInt()
+        val blue = (argb and 0xFF).toInt()
+        if (red == 0 && green == 0 && blue == 0) return null
+        return Color(red, green, blue)
+    }
 
     private val MAC_BLUE = Color(0xFF0A84FF)
     private val WINDOWS_BLUE = Color(0xFF60CDFF)

@@ -1026,7 +1026,7 @@ impl GameProcess {
         #[cfg(target_os = "windows")]
         {
             // CREATE_NO_WINDOW; the method is inherent on tokio's Command.
-            command.creation_flags(0x0800_0000);
+            command.creation_flags(fg_core::CREATE_NO_WINDOW);
         }
 
         let mut child = command.spawn().map_err(|error| {

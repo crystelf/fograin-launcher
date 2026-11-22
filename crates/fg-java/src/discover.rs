@@ -295,15 +295,19 @@ fn windows_candidates() -> Vec<(PathBuf, JavaSource)> {
     let mut candidates = Vec::new();
 
     // Registry: JavaSoft stores the home of each installed JRE/JDK.
+    use std::os::windows::process::CommandExt;
+
     for key in [
         r"HKLM\SOFTWARE\JavaSoft\Java Runtime Environment",
         r"HKLM\SOFTWARE\JavaSoft\JDK",
         r"HKLM\SOFTWARE\JavaSoft\Java Development Kit",
     ] {
-        if let Ok(output) = std::process::Command::new("reg")
-            .args(["query", key, "/s"])
-            .output()
-        {
+        let mut command = std::process::Command::new("reg");
+        command.args(["query", key, "/s"]);
+        // CREATE_NO_WINDOW: discovery runs from the GUI launcher, so a bare
+        // `reg.exe` child would briefly open a console window.
+        command.creation_flags(fg_core::CREATE_NO_WINDOW);
+        if let Ok(output) = command.output() {
             let text = String::from_utf8_lossy(&output.stdout);
             for line in text.lines() {
                 if let Some((name, value)) = line.split_once("REG_SZ")

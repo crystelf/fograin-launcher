@@ -11,6 +11,7 @@ pub mod config;
 pub mod error;
 pub mod paths;
 pub mod platform;
+pub mod process;
 pub mod util;
 
 pub use config::{
@@ -20,4 +21,5 @@ pub use config::{
 };
 pub use error::{Error, ErrorKind, Result};
 pub use platform::Platform;
+pub use process::CREATE_NO_WINDOW;
 pub use util::{now_ms, now_ms_i64, write_atomic};

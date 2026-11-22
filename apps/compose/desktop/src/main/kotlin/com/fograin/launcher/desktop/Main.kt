@@ -2,29 +2,41 @@ package com.fograin.launcher.desktop
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.window.WindowDraggableArea
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.KeyShortcut
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.MenuBar
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowDecoration
 import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
@@ -38,8 +50,12 @@ import com.fograin.launcher.platform.currentSystemLanguageTag
 import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.settings.AppLanguage
 import com.fograin.launcher.ui.AppDestination
-import com.fograin.launcher.ui.components.PageHeaderMetrics
+import com.fograin.launcher.ui.components.LocalWindowControlsInset
+import com.fograin.launcher.ui.components.LocalWindowDragModifier
+import com.fograin.launcher.ui.components.WindowChromeMetrics
 import com.fograin.launcher.ui.settings.LocalSettingsTopInset
+import com.fograin.launcher.ui.theme.FograinTheme
+import java.awt.Color as AwtColor
 import java.awt.GraphicsEnvironment
 import java.awt.datatransfer.DataFlavor
 import java.awt.dnd.DnDConstants
@@ -47,6 +63,8 @@ import java.awt.dnd.DropTarget
 import java.awt.dnd.DropTargetDragEvent
 import java.awt.dnd.DropTargetDropEvent
 import java.awt.dnd.DropTargetEvent
+import java.awt.event.ComponentAdapter
+import java.awt.event.ComponentEvent
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.time.Duration
@@ -57,7 +75,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import org.jetbrains.skia.Image as SkiaImage
 
-private val isMac = System.getProperty("os.name").orEmpty().contains("mac", ignoreCase = true)
+private val osName: String = System.getProperty("os.name").orEmpty()
+private val isMac = osName.contains("mac", ignoreCase = true)
+
+/**
+ * Development aid for inspecting the Windows/Linux chrome on a Mac:
+ * `-Dfograin.window.chrome=custom`. Never set by the released application.
+ */
+private val forceCustomChrome = System.getProperty("fograin.window.chrome") == "custom"
+private val windowChrome = windowChromeKind(osName, forceCustomChrome)
+private val usesCustomChrome = windowChrome == WindowChromeKind.CUSTOM
 
 private fun shortcut(key: Key, shift: Boolean = false): KeyShortcut =
     if (isMac) KeyShortcut(key, meta = true, shift = shift) else KeyShortcut(key, ctrl = true, shift = shift)
@@ -89,6 +116,7 @@ private fun installTaskbarIcon() {
     }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 fun main() {
     // Must run before AWT initializes: otherwise macOS paints the window title
     // bar with the light Aqua appearance even when the system is dark.
@@ -118,26 +146,67 @@ fun main() {
 
     application {
         val state by model.state.collectAsState()
-        val saved = remember { platform.preferences.windowFrame }
+        val labels = menuStrings(state.language)
+
+        // Restore geometry in the borderless world too. A frame saved by an
+        // older build may point at a monitor that is no longer connected, so
+        // sanitise it before it reaches AWT.
+        val workAreas = remember { screenWorkAreas() }
+        val restoredFrame = remember {
+            platform.preferences.windowFrame?.let { sanitizeWindowFrame(it, workAreas) }
+        }
+        val initiallyMaximized = restoredFrame?.maximized == true
+        val floatingBounds = restoredFrame?.toRectangle()
+        val initialBounds = floatingBounds?.let { bounds ->
+            if (initiallyMaximized) workAreaFor(bounds, workAreas) else bounds
+        }
         val windowState = rememberWindowState(
-            position = saved?.let { WindowPosition(it.x.dp, it.y.dp) } ?: WindowPosition.PlatformDefault,
-            size = saved?.let { DpSize(it.width.dp, it.height.dp) } ?: DpSize(1120.dp, 780.dp),
-            placement = if (saved?.maximized == true) {
-                WindowPlacement.Maximized
-            } else {
-                WindowPlacement.Floating
-            },
+            position = initialBounds
+                ?.let { WindowPosition(it.x.dp, it.y.dp) }
+                ?: WindowPosition.PlatformDefault,
+            size = initialBounds
+                ?.let { DpSize(it.width.dp, it.height.dp) }
+                ?: DpSize(1120.dp, 780.dp),
+            // The app draws its own caption on Windows/Linux, so AWT's
+            // MAXIMIZED_BOTH (which covers the taskbar on undecorated frames)
+            // is never used. Keep the state floating and move the bounds.
+            placement = WindowPlacement.Floating,
         )
+        val maximized = remember { mutableStateOf(initiallyMaximized) }
+        val restoreBounds = remember { mutableStateOf(floatingBounds) }
+
+        val persistAndExit: () -> Unit = {
+            platform.preferences.windowFrame = frameToPersist(
+                state = windowState,
+                maximized = maximized.value,
+                restoreBounds = restoreBounds.value,
+            )
+            exitApplication()
+        }
 
         val windowIcon = remember { appIconPainter() }
+        val onPreviewKeyEvent = rememberDesktopShortcutHandler(
+            model = model,
+            enabled = usesCustomChrome,
+            onQuit = persistAndExit,
+        )
+        val decoration = remember {
+            if (usesCustomChrome) {
+                // Thin resize grips: the content (and scrollbars) run to the
+                // window edge, so an 8 dp grip would eat too much of them.
+                WindowDecoration.Undecorated(resizerThickness = 4.dp)
+            } else {
+                WindowDecoration.SystemDefault
+            }
+        }
+
         Window(
-            onCloseRequest = {
-                platform.preferences.windowFrame = windowFrame(windowState)
-                exitApplication()
-            },
+            onCloseRequest = persistAndExit,
+            state = windowState,
             title = windowTitle(state.language),
             icon = windowIcon,
-            state = windowState,
+            decoration = decoration,
+            onPreviewKeyEvent = onPreviewKeyEvent,
         ) {
             // Desktop drag-and-drop: dropping an .mrpack/.zip or a
             // MultiMC/Prism instance folder opens the same import sheet as the
@@ -187,20 +256,23 @@ fun main() {
                 onDispose { runCatching { window.dropTarget = null } }
             }
 
-            WindowMenuBar(
-                model = model,
-                language = state.language,
-                onExit = {
-                    platform.preferences.windowFrame = windowFrame(windowState)
-                    exitApplication()
-                },
-            )
+            // macOS keeps the native menu bar (and its accelerators). Windows
+            // and Linux do not: the numbered File/Edit/Go strip was an obvious
+            // non-native seam, and the same commands are reachable through the
+            // UI and the shortcut handler below.
+            if (windowChrome == WindowChromeKind.NATIVE) {
+                WindowMenuBar(
+                    model = model,
+                    language = state.language,
+                    onExit = persistAndExit,
+                )
+            }
 
             LaunchedEffect(Unit) {
-                // Full-window content + a transparent title bar put the native
-                // traffic lights inside the rail; the window title text is
-                // hidden so no separate top bar remains.
-                if (isMac) {
+                if (windowChrome == WindowChromeKind.NATIVE) {
+                    // Full-window content + a transparent title bar put the
+                    // native traffic lights inside the rail; the window title
+                    // text is hidden so no separate top bar remains.
                     window.rootPane.putClientProperty("apple.awt.fullWindowContent", true)
                     window.rootPane.putClientProperty("apple.awt.transparentTitleBar", true)
                     window.rootPane.putClientProperty("apple.awt.windowTitleVisible", false)
@@ -211,41 +283,201 @@ fun main() {
                         ?.let { Duration.between(it, Instant.now()).toMillis() }
                         ?: -1
                     println("FOGRAIN_STARTUP_MS=$elapsed")
+                    println(
+                        "FOGRAIN_WINDOW_CHROME=${windowChrome.name.lowercase()} " +
+                            "undecorated=${window.isUndecorated} " +
+                            "menu=${window.jMenuBar != null} " +
+                            "insets=${window.insets}",
+                    )
                 }
             }
 
-            Box(Modifier.fillMaxSize()) {
-                // Settings is an in-window page now; on macOS it owns the
-                // traffic-light strip exactly like the shell's left rail.
-                CompositionLocalProvider(
-                    LocalSettingsTopInset provides if (isMac) 38.dp else 0.dp,
-                ) {
-                    App(model)
-                }
-                if (isMac) {
-                    // Full-window content hides the native drag area. Keep the
-                    // title region right of the traffic lights and past the
-                    // back button draggable, but stop before the header actions
-                    // so back, avatar, search and page buttons stay clickable.
-                    Box(
-                        Modifier
-                            .align(Alignment.TopStart)
-                            .fillMaxWidth(0.5f)
-                            .height(PageHeaderMetrics.MacHeight)
-                            .padding(start = 168.dp),
-                    ) {
-                        WindowDraggableArea(Modifier.fillMaxSize()) {
-                            Box(Modifier.fillMaxSize())
+            // A borderless window has no native resize grip to refresh its
+            // frame after our own setBounds. Treat any resize away from the
+            // monitor work area as "the user restored this window by dragging
+            // its edge", so the maximise glyph flips back immediately.
+            DisposableEffect(window) {
+                val listener = object : ComponentAdapter() {
+                    override fun componentResized(event: ComponentEvent) {
+                        if (!maximized.value) return
+                        val area = workAreaFor(window.bounds, screenWorkAreas())
+                        if (window.bounds != area) {
+                            maximized.value = false
+                            restoreBounds.value = window.bounds
                         }
+                    }
+                }
+                window.addComponentListener(listener)
+                onDispose { window.removeComponentListener(listener) }
+            }
+
+            FograinTheme(
+                themeMode = state.theme,
+                accent = state.accent.value,
+            ) {
+                val windowBackground = MaterialTheme.colorScheme.surface
+                // Compose paints over this, but a matching AWT background
+                // avoids the white flash during the first frame, resize drags
+                // and the brief gap when a sheet animates in.
+                SideEffect {
+                    if (usesCustomChrome) {
+                        val awtColor = AwtColor(windowBackground.toArgb(), false)
+                        if (window.background != awtColor) {
+                            window.background = awtColor
+                            window.rootPane.background = awtColor
+                        }
+                        if (window.minimumSize.width != MinimumWindowSize.width ||
+                            window.minimumSize.height != MinimumWindowSize.height
+                        ) {
+                            window.minimumSize = MinimumWindowSize
+                        }
+                    }
+                }
+
+                fun toggleMaximize() {
+                    val areas = screenWorkAreas()
+                    if (maximized.value) {
+                        val target = restoreBounds.value
+                            ?.let { sanitizeWindowFrame(it.toWindowFrame(), areas).toRectangle() }
+                            ?: window.bounds
+                        maximized.value = false
+                        window.setBounds(target)
+                    } else {
+                        val current = window.bounds
+                        restoreBounds.value = current
+                        val area = workAreaFor(current, areas)
+                        maximized.value = true
+                        window.setBounds(area)
+                    }
+                }
+
+                val windowFocused = rememberWindowFocused(window)
+                val isMaximized by maximized
+                // The page header applies this to its title slot; the search
+                // field and action buttons sit outside it, so only the title
+                // area starts a drag or a double-click maximize.
+                val dragModifier = remember(window, usesCustomChrome, isMaximized) {
+                    windowDragModifier(
+                        window = window,
+                        dragEnabled = !(usesCustomChrome && isMaximized),
+                        onDoubleClick = if (usesCustomChrome) {
+                            { toggleMaximize() }
+                        } else {
+                            null
+                        },
+                    )
+                }
+
+                Box(Modifier.fillMaxSize()) {
+                    CompositionLocalProvider(
+                        LocalWindowDragModifier provides dragModifier,
+                        LocalWindowControlsInset provides if (usesCustomChrome) {
+                            WindowChromeMetrics.ControlsInset
+                        } else {
+                            0.dp
+                        },
+                        // Settings is an in-window page; on macOS it owns the
+                        // traffic-light strip exactly like the shell's rail.
+                        LocalSettingsTopInset provides if (windowChrome == WindowChromeKind.NATIVE) {
+                            38.dp
+                        } else {
+                            0.dp
+                        },
+                    ) {
+                        App(model)
+                    }
+
+                    if (usesCustomChrome) {
+                        WindowControls(
+                            isMaximized = isMaximized,
+                            focused = windowFocused,
+                            labels = WindowControlLabels(
+                                minimize = labels.windowMinimize,
+                                maximize = labels.windowMaximize,
+                                restore = labels.windowRestore,
+                                close = labels.windowClose,
+                            ),
+                            onMinimize = { windowState.isMinimized = true },
+                            onToggleMaximize = { toggleMaximize() },
+                            onClose = persistAndExit,
+                            modifier = Modifier.align(Alignment.TopEnd),
+                        )
                     }
                 }
             }
         }
-
     }
 }
 
-/** Native menu bar shared by the three desktop targets. */
+/**
+ * Installs the shortcuts that used to live in the native menu bar.
+ *
+ * Only used on Windows/Linux. Keys are latched on KeyDown and released on
+ * KeyUp so auto-repeat cannot toggle the theme (or re-open a sheet) dozens of
+ * times while a key is held.
+ */
+@Composable
+private fun rememberDesktopShortcutHandler(
+    model: AppModel,
+    enabled: Boolean,
+    onQuit: () -> Unit,
+): (KeyEvent) -> Boolean {
+    val pressedKeys = remember { mutableSetOf<Key>() }
+    val currentOnQuit by rememberUpdatedState(onQuit)
+    return remember(model, enabled) {
+        { event ->
+            when {
+                !enabled -> false
+                event.type == KeyEventType.KeyUp -> {
+                    pressedKeys.remove(event.key)
+                    false
+                }
+
+                event.type != KeyEventType.KeyDown -> false
+                else -> {
+                    val command = desktopCommand(
+                        key = event.key,
+                        ctrl = event.isCtrlPressed,
+                        meta = event.isMetaPressed,
+                        alt = event.isAltPressed,
+                        shift = event.isShiftPressed,
+                    )
+                    if (command == null) {
+                        false
+                    } else {
+                        if (pressedKeys.add(event.key)) {
+                            executeDesktopCommand(command, model, currentOnQuit)
+                        }
+                        true
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun executeDesktopCommand(
+    command: DesktopCommand,
+    model: AppModel,
+    onQuit: () -> Unit,
+) {
+    when (command) {
+        DesktopCommand.NEW_INSTANCE -> model.library.openAddInstance()
+        DesktopCommand.OPEN_LIBRARY, DesktopCommand.LIBRARY ->
+            model.navigate(AppDestination.LIBRARY)
+
+        DesktopCommand.OPEN_SETTINGS, DesktopCommand.SETTINGS ->
+            model.openSettings()
+
+        DesktopCommand.QUIT -> onQuit()
+        DesktopCommand.GLOBAL_SEARCH -> model.openGlobalSearch()
+        DesktopCommand.TOGGLE_THEME -> model.toggleTheme()
+        DesktopCommand.HOME -> model.navigate(AppDestination.HOME)
+        DesktopCommand.DOWNLOADS -> model.navigate(AppDestination.DOWNLOADS)
+    }
+}
+
+/** Native menu bar, kept for macOS. */
 @Composable
 private fun FrameWindowScope.WindowMenuBar(
     model: AppModel,
@@ -318,6 +550,10 @@ private data class MenuStrings(
     val library: String,
     val downloads: String,
     val settingsTitle: String,
+    val windowMinimize: String,
+    val windowMaximize: String,
+    val windowRestore: String,
+    val windowClose: String,
 )
 
 private fun menuStrings(language: AppLanguage): MenuStrings =
@@ -328,6 +564,8 @@ private fun menuStrings(language: AppLanguage): MenuStrings =
             settings = "設定…", quit = "結束", globalSearch = "全域搜尋",
             toggleTheme = "切換主題", home = "首頁", library = "實例",
             downloads = "下載", settingsTitle = "設定",
+            windowMinimize = "最小化", windowMaximize = "最大化",
+            windowRestore = "還原", windowClose = "關閉視窗",
         )
 
         AppLanguage.JAPANESE -> MenuStrings(
@@ -336,6 +574,8 @@ private fun menuStrings(language: AppLanguage): MenuStrings =
             settings = "設定…", quit = "終了", globalSearch = "全体検索",
             toggleTheme = "テーマを切り替え", home = "ホーム", library = "インスタンス",
             downloads = "ダウンロード", settingsTitle = "設定",
+            windowMinimize = "最小化", windowMaximize = "最大化",
+            windowRestore = "元に戻す", windowClose = "ウィンドウを閉じる",
         )
 
         AppLanguage.ENGLISH -> MenuStrings(
@@ -344,6 +584,8 @@ private fun menuStrings(language: AppLanguage): MenuStrings =
             settings = "Settings…", quit = "Quit", globalSearch = "Global search",
             toggleTheme = "Toggle theme", home = "Home", library = "Instances",
             downloads = "Downloads", settingsTitle = "Settings",
+            windowMinimize = "Minimize", windowMaximize = "Maximize",
+            windowRestore = "Restore", windowClose = "Close window",
         )
 
         else -> MenuStrings(
@@ -352,6 +594,8 @@ private fun menuStrings(language: AppLanguage): MenuStrings =
             settings = "设置…", quit = "退出", globalSearch = "全局搜索",
             toggleTheme = "切换主题", home = "主页", library = "实例",
             downloads = "下载", settingsTitle = "设置",
+            windowMinimize = "最小化", windowMaximize = "最大化",
+            windowRestore = "还原", windowClose = "关闭窗口",
         )
     }
 

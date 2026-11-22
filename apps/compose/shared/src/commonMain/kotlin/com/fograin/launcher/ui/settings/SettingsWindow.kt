@@ -94,6 +94,8 @@ import com.fograin.launcher.resources.settings_group_data
 import com.fograin.launcher.resources.settings_title
 import com.fograin.launcher.resources.settings_window_title
 import com.fograin.launcher.ui.components.FograinSnackbarHost
+import com.fograin.launcher.ui.components.LocalWindowControlsInset
+import com.fograin.launcher.ui.components.LocalWindowDragModifier
 import com.fograin.launcher.ui.components.SettingsRootTransitionMillis
 import com.fograin.launcher.ui.components.SteveAvatar
 import com.fograin.launcher.ui.components.contentPanelShape
@@ -591,6 +593,10 @@ private fun SettingsSidebar(
                     text = stringResource(Res.string.settings_window_title),
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .weight(1f)
+                        .then(LocalWindowDragModifier.current)
+                        .padding(vertical = 6.dp),
                 )
             }
 
@@ -895,6 +901,7 @@ private fun CompactSettings(model: AppModel, state: AppUiState) {
 @Composable
 private fun CompactSettingsList(model: AppModel, state: AppUiState) {
     val topInset = LocalSettingsTopInset.current
+    val windowControlsInset = LocalWindowControlsInset.current
     val account = state.account
     Column(
         modifier = Modifier
@@ -904,7 +911,12 @@ private fun CompactSettingsList(model: AppModel, state: AppUiState) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 10.dp, end = 18.dp, top = topInset + 8.dp, bottom = 4.dp),
+                .padding(
+                    start = 10.dp,
+                    end = 18.dp + windowControlsInset,
+                    top = topInset + 8.dp,
+                    bottom = 4.dp,
+                ),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
@@ -923,6 +935,10 @@ private fun CompactSettingsList(model: AppModel, state: AppUiState) {
                 text = stringResource(Res.string.settings_title),
                 style = MaterialTheme.typography.headlineMedium,
                 color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .weight(1f)
+                    .then(LocalWindowDragModifier.current)
+                    .padding(vertical = 4.dp),
             )
         }
         SettingsProfileCard(
@@ -970,12 +986,18 @@ private fun CompactSettingsList(model: AppModel, state: AppUiState) {
 @Composable
 private fun CompactSettingsDetail(model: AppModel, state: AppUiState) {
     val topInset = LocalSettingsTopInset.current
+    val windowControlsInset = LocalWindowControlsInset.current
     val section = state.settingsWindow.section
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 8.dp, end = 18.dp, top = topInset + 6.dp, bottom = 2.dp),
+                .padding(
+                    start = 8.dp,
+                    end = 18.dp + windowControlsInset,
+                    top = topInset + 6.dp,
+                    bottom = 2.dp,
+                ),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
@@ -991,6 +1013,10 @@ private fun CompactSettingsDetail(model: AppModel, state: AppUiState) {
             }
             AnimatedContent(
                 targetState = section,
+                modifier = Modifier
+                    .weight(1f)
+                    .then(LocalWindowDragModifier.current)
+                    .padding(vertical = 4.dp),
                 transitionSpec = {
                     fadeIn(tween(180)) togetherWith fadeOut(tween(120))
                 },

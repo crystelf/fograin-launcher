@@ -74,6 +74,10 @@ kotlin {
     sourceSets.getByName("desktopMain").dependencies {
         implementation(compose.desktop.currentOs)
         implementation(libs.kotlinx.coroutines.swing)
+        // Reads the Windows DWM accent in-process. The previous `reg query`
+        // child process flashed a console in the GUI launcher at every start.
+        implementation(libs.jna)
+        implementation(libs.jna.platform)
     }
 }
 

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -74,11 +75,12 @@ import org.jetbrains.compose.resources.stringResource
 /**
  * Vertical metrics shared by the page header and the desktop navigation rail.
  *
- * macOS draws the native traffic lights over the content, so the header uses a
- * 48 dp title-bar row: removing the old 40 dp content inset puts the page title
- * on the same line as the traffic lights. Other platforms keep the roomier
- * 64 dp row. The rail uses [ContentGap] to align its search button with the
- * first content card (the home hero image).
+ * Every desktop window is borderless. macOS draws its native traffic lights
+ * over the content, and Windows/Linux draw the window controls into the header
+ * itself, so both desktop families use the same 48 dp title-bar row. Android
+ * keeps the roomier 64 dp row because it has no desktop window chrome. The
+ * rail uses [ContentGap] to align its search button with the first content card
+ * (the home hero image).
  */
 const val PageHeaderBackTag: String = "page-header-back"
 
@@ -92,23 +94,31 @@ const val PageHeaderBackTag: String = "page-header-back"
 val LocalPageHeaderTopInset = staticCompositionLocalOf { 0.dp }
 
 object PageHeaderMetrics {
-    val DesktopHeight: Dp = 64.dp
-    val MacHeight: Dp = 48.dp
+    /** Desktop title-bar row; also the draggable strip on Windows/Linux. */
+    val DesktopHeight: Dp = WindowChromeMetrics.HeaderHeight
+
+    /** Phone layout keeps the original, roomier header. */
+    val AndroidHeight: Dp = 64.dp
+
     val ContentGap: Dp = 8.dp
 
+    /** Desktop headers are dense title bars; Android keeps the taller row. */
+    fun isDense(platformName: String): Boolean = platformName != "android"
+
     fun heightFor(platformName: String): Dp =
-        if (platformName == "macos") MacHeight else DesktopHeight
+        if (isDense(platformName)) DesktopHeight else AndroidHeight
 }
 
 /**
  * The single page header used by every destination.
  *
  * One row: the page title on the left, the search box and page actions on the
- * right, all vertically centred. The row is 64 dp on regular platforms and
- * 48 dp on macOS, where it doubles as the title-bar strip beside the native
- * traffic lights. The old `LargeTopAppBar` stacked the title under the action
- * icons and reserved a second line for a subtitle; this compact header gives
- * the content roughly 56–72 dp more room on a phone.
+ * right, all vertically centred. The row is 64 dp on Android and 48 dp on
+ * desktop, where it doubles as the title-bar strip (beside native traffic
+ * lights on macOS, under app-drawn window controls on Windows/Linux). The old
+ * `LargeTopAppBar` stacked the title under the action icons and reserved a
+ * second line for a subtitle; this compact header gives the content roughly
+ * 56–72 dp more room on a phone.
  *
  * The search field is persistent on wide windows and collapses to an icon on
  * compact ones. When it expands on compact, the title fades out and the field
@@ -137,16 +147,21 @@ fun PageHeader(
     val focusRequester = remember { FocusRequester() }
     val platformName = remember { platformServices().platformName }
     val headerHeight = PageHeaderMetrics.heightFor(platformName)
-    val denseHeader = platformName == "macos"
+    val denseHeader = PageHeaderMetrics.isDense(platformName)
     val topInset = LocalPageHeaderTopInset.current
+    val windowControlsInset = LocalWindowControlsInset.current
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
             .windowInsetsPadding(WindowInsets.statusBars),
     ) {
-        val compact = maxWidth < 640.dp
-        val wideSearchWidth = if (maxWidth >= 980.dp) 300.dp else 236.dp
+        // The window controls occupy the right edge on Windows/Linux; count
+        // the remaining width so the search collapses before the header gets
+        // cramped instead of after.
+        val availableWidth = maxWidth - windowControlsInset
+        val compact = availableWidth < 640.dp
+        val wideSearchWidth = if (availableWidth >= 980.dp) 300.dp else 236.dp
         val searchMode = compact && searchExpanded && searchPlaceholder != null
 
         // Compact search expands inside the title slot; wide windows keep the
@@ -169,7 +184,13 @@ fun PageHeader(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = topInset, start = 20.dp, end = 20.dp)
+                    .padding(
+                        top = topInset,
+                        start = 20.dp,
+                        // Windows/Linux draw their window controls into this
+                        // row; keep search and actions clear of them.
+                        end = 20.dp + windowControlsInset,
+                    )
                     .height(headerHeight),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -199,18 +220,30 @@ fun PageHeader(
                             modifier = Modifier.testTag(PageHeaderBackTag),
                         )
                     }
-                    Text(
-                        text = title,
-                        style = if (compact || denseHeader) {
-                            MaterialTheme.typography.headlineSmall
-                        } else {
-                            MaterialTheme.typography.headlineMedium
-                        },
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
+                    // The title slot doubles as the window drag handle. It is
+                    // a dedicated Box (not the whole header) so double clicks
+                    // on the search field, chips and buttons never reach the
+                    // window gesture.
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .then(LocalWindowDragModifier.current),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        Text(
+                            text = title,
+                            style = if (compact || denseHeader) {
+                                MaterialTheme.typography.headlineSmall
+                            } else {
+                                MaterialTheme.typography.headlineMedium
+                            },
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
 
                     leadingActions()
 
