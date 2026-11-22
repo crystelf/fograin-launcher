@@ -32,6 +32,7 @@ import com.fograin.launcher.platform.CoreNetworkSettings
 import com.fograin.launcher.platform.CorePlanPreview
 import com.fograin.launcher.platform.CoreSettings
 import com.fograin.launcher.platform.CoreVersionEntry
+import com.fograin.launcher.platform.ReleaseInfo
 import com.fograin.launcher.platform.CoreWorld
 import com.fograin.launcher.platform.CoreWorldBackup
 import com.fograin.launcher.platform.CoreYggdrasilProfile
@@ -485,6 +486,23 @@ data class ContentBrowserUiState(
             dependencyPrompt == null
 }
 
+/**
+ * State for the startup update check.
+ *
+ * [available] is kept after the prompt is dismissed so Settings → About can
+ * still show the release; [visible] is the value the bottom-right prompt uses.
+ */
+data class UpdateUiState(
+    val checking: Boolean = false,
+    val available: ReleaseInfo? = null,
+    val dismissed: Boolean = false,
+    val checked: Boolean = false,
+    val failed: Boolean = false,
+) {
+    val visible: ReleaseInfo?
+        get() = available?.takeIf { !dismissed }
+}
+
 /** Everything the Compose shell renders. */
 data class AppUiState(
     val settings: CoreSettings,
@@ -519,6 +537,7 @@ data class AppUiState(
     val isInitialLoading: Boolean = true,
     val notice: Notice? = null,
     val alert: AppAlert? = null,
+    val updates: UpdateUiState = UpdateUiState(),
     val download: DownloadUiState = DownloadUiState(),
     val java: JavaUiState = JavaUiState(),
     val account: AccountUiState = AccountUiState(),

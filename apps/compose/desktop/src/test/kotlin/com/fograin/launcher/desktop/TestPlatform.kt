@@ -4,6 +4,7 @@ import com.fograin.launcher.platform.FileBrowser
 import com.fograin.launcher.platform.FilePick
 import com.fograin.launcher.platform.FileSavePick
 import com.fograin.launcher.platform.PlatformServices
+import com.fograin.launcher.platform.UpdateService
 import com.fograin.launcher.platform.platformServices
 
 /**
@@ -36,5 +37,6 @@ internal fun testPlatform(): PlatformServices {
                 sourcePath: String,
             ): Boolean = true
         },
+        updates = UpdateService.Disabled,
     )
 }

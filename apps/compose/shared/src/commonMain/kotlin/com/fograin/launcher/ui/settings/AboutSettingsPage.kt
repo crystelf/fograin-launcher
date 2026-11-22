@@ -1,5 +1,7 @@
 package com.fograin.launcher.ui.settings
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,23 +13,28 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.FolderOpen
-import androidx.compose.material.icons.outlined.Forest
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
+import com.fograin.launcher.app.Notice
 import com.fograin.launcher.app.SettingsSection
+import com.fograin.launcher.platform.ReleaseInfo
 import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.resources.Res
+import com.fograin.launcher.resources.app_icon
 import com.fograin.launcher.resources.settings_about_body
 import com.fograin.launcher.resources.settings_about_build
 import com.fograin.launcher.resources.settings_about_config
@@ -39,6 +46,7 @@ import com.fograin.launcher.resources.settings_about_license_value
 import com.fograin.launcher.resources.settings_about_runtime
 import com.fograin.launcher.resources.settings_about_subtitle
 import com.fograin.launcher.resources.settings_about_title
+import com.fograin.launcher.resources.settings_about_update_title
 import com.fograin.launcher.resources.settings_about_version
 import com.fograin.launcher.resources.settings_app_version
 import com.fograin.launcher.resources.settings_core
@@ -54,10 +62,21 @@ import com.fograin.launcher.resources.settings_thanks_body
 import com.fograin.launcher.resources.settings_trademark
 import com.fograin.launcher.resources.settings_ui
 import com.fograin.launcher.resources.settings_ui_value
+import com.fograin.launcher.resources.update_available_title
+import com.fograin.launcher.resources.update_check
+import com.fograin.launcher.resources.update_check_failed
+import com.fograin.launcher.resources.update_check_hint
+import com.fograin.launcher.resources.update_checking
+import com.fograin.launcher.resources.update_group
+import com.fograin.launcher.resources.update_open
+import com.fograin.launcher.resources.update_open_failed
+import com.fograin.launcher.resources.update_up_to_date
+import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
 const val SettingsCopyDiagnosticsTag = "settings-copy-diagnostics"
 const val SettingsOpenAboutRootTag = "settings-open-about-root"
+const val SettingsCheckUpdatesTag = "settings-check-updates"
 
 /** About: build identity, paths and acknowledgements. */
 @Composable
@@ -73,6 +92,20 @@ internal fun AboutSettingsPage(
     val platformName = state.settings.platform
     val abiVersion = state.settings.abiVersion
     val coreReady = model.isCoreAvailable
+    val updates = state.updates
+    val updateStatus = when {
+        updates.checking -> stringResource(Res.string.update_checking)
+        updates.available != null ->
+            stringResource(Res.string.update_available_title, updates.available.version)
+
+        updates.failed -> stringResource(Res.string.update_check_failed)
+        updates.checked -> stringResource(Res.string.update_up_to_date)
+        else -> stringResource(Res.string.update_check_hint)
+    }
+    val updateOpenFailed = stringResource(
+        Res.string.update_open_failed,
+        updates.available?.url.orEmpty(),
+    )
     val labels = AboutLabels(
         version = stringResource(Res.string.settings_about_version),
         ui = stringResource(Res.string.settings_ui),
@@ -96,13 +129,17 @@ internal fun AboutSettingsPage(
             ) {
                 Surface(
                     shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    border = BorderStroke(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                    ),
                 ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Forest,
+                    Image(
+                        painter = painterResource(Res.drawable.app_icon),
                         contentDescription = null,
-                        modifier = Modifier.padding(14.dp).size(30.dp),
+                        modifier = Modifier.size(56.dp),
+                        contentScale = ContentScale.Crop,
                     )
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -149,6 +186,37 @@ internal fun AboutSettingsPage(
             SettingsDivider()
         }
 
+        item { SettingsGroupHeader(stringResource(Res.string.update_group)) }
+        item {
+            SettingsRow(
+                title = stringResource(Res.string.settings_about_update_title),
+                subtitle = updateStatus,
+                trailing = {
+                    if (updates.available != null) {
+                        TextButton(onClick = { openUpdate(model, updates.available, updateOpenFailed) }) {
+                            Text(stringResource(Res.string.update_open))
+                        }
+                    } else {
+                        TextButton(
+                            onClick = { model.checkForUpdates() },
+                            enabled = !updates.checking,
+                            modifier = Modifier.testTag(SettingsCheckUpdatesTag),
+                        ) {
+                            if (updates.checking) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(15.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Text(stringResource(Res.string.update_check))
+                            }
+                        }
+                    }
+                },
+            )
+            SettingsDivider()
+        }
+
         item { SettingsGroupHeader(stringResource(Res.string.settings_about_runtime)) }
         item {
             SettingsValueRow(
@@ -191,7 +259,7 @@ internal fun AboutSettingsPage(
                         val report = buildString {
                             appendLine("Fograin Launcher $appVersion")
                             appendLine("${labels.ui}: $uiValue")
-                            appendLine("${labels.core}: Rust fg-* crates")
+                            appendLine("${labels.core}: Rust")
                             appendLine("${labels.ffi}: $abiVersion")
                             appendLine("${labels.platform}: $platformName")
                             appendLine("${labels.data}: ${state.settings.dataRoot}")
@@ -234,6 +302,16 @@ internal fun AboutSettingsPage(
                 modifier = Modifier.padding(bottom = 14.dp),
             )
         }
+    }
+}
+
+private fun openUpdate(
+    model: AppModel,
+    update: ReleaseInfo?,
+    failureMessage: String,
+) {
+    if (!model.openUpdate(update)) {
+        model.showNotice(failureMessage, Notice.Tone.WARNING)
     }
 }
 

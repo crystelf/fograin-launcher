@@ -55,17 +55,20 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
+import com.fograin.launcher.app.Notice
 import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.resources.Res
 import com.fograin.launcher.resources.action_ok
 import com.fograin.launcher.resources.global_search_open
 import com.fograin.launcher.resources.modpack_drop_body
 import com.fograin.launcher.resources.modpack_drop_title
+import com.fograin.launcher.resources.update_open_failed
 import com.fograin.launcher.ui.accounts.AccountSheet
 import com.fograin.launcher.ui.components.AnimatedSheetHost
 import com.fograin.launcher.ui.components.FograinSnackbarHost
 import com.fograin.launcher.ui.components.LocalPageHeaderTopInset
 import com.fograin.launcher.ui.components.PageHeaderMetrics
+import com.fograin.launcher.ui.components.UpdatePrompt
 import com.fograin.launcher.ui.components.contentPanelShape
 import com.fograin.launcher.ui.components.fograinPageTransition
 import com.fograin.launcher.ui.content.ContentProjectSheet
@@ -121,6 +124,10 @@ fun FograinApp(
     // that puts the title row on the same line as the native traffic lights;
     // the header itself uses a shorter 48 dp row for that title-bar feel.
     val headerHeight = PageHeaderMetrics.heightFor(services.platformName)
+    val updateOpenFailed = stringResource(
+        Res.string.update_open_failed,
+        state.updates.available?.url.orEmpty(),
+    )
 
     // One handler for Android's back gesture and the desktop Escape key. It
     // peels sheets and dialogs before it leaves the current destination and is
@@ -335,6 +342,19 @@ fun FograinApp(
                         }
                     }
                 }
+                UpdatePrompt(
+                    update = state.updates.visible,
+                    currentVersion = state.settings.appVersion,
+                    onOpen = {
+                        if (!model.openUpdate()) {
+                            model.showNotice(updateOpenFailed, Notice.Tone.WARNING)
+                        }
+                    },
+                    onDismiss = model::dismissUpdate,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(16.dp),
+                )
             }
         }
 

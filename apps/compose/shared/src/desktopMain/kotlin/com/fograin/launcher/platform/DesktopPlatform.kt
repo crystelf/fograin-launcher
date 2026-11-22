@@ -115,6 +115,7 @@ private val desktopServices: PlatformServices by lazy {
         },
         backDispatcher = DesktopBackDispatcher,
         links = DesktopSystemLinks,
+        updates = JvmUpdateService,
     )
 }
 

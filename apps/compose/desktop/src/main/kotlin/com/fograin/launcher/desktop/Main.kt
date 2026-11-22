@@ -112,6 +112,9 @@ fun main() {
         platform = platform,
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
     )
+    // Fire-and-forget: the shell paints the first frame while GitHub answers,
+    // so a slow or blocked release feed never delays startup.
+    model.checkForUpdates(initial = true)
 
     application {
         val state by model.state.collectAsState()

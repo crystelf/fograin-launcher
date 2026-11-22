@@ -17,10 +17,28 @@ dependencies {
 
     testImplementation(kotlin("test"))
     testImplementation(libs.kotlinx.serialization.json)
-    testImplementation(compose.desktop.uiTestJUnit4)
+    testImplementation(libs.compose.ui.test.junit4)
 }
 
 val fograinPackageVersion = providers.gradleProperty("fograin.packageVersion").get()
+
+// Desktop signing is opt-in and driven by the Release workflow. Without these
+// variables the installers are built unsigned exactly like a local build.
+// See docs/RELEASING.md for the certificate and notarization setup.
+fun envValue(name: String): String? =
+    providers.environmentVariable(name).orNull?.takeIf { it.isNotBlank() }
+
+val macSignIdentity = envValue("FOGRAIN_MAC_SIGN_IDENTITY")
+val macKeychain = envValue("FOGRAIN_MAC_KEYCHAIN")
+val macAppleId = envValue("FOGRAIN_MAC_APPLE_ID")
+val macPassword = envValue("FOGRAIN_MAC_PASSWORD")
+val macTeamId = envValue("FOGRAIN_MAC_TEAM_ID")
+val macNotarizationReady =
+    !macSignIdentity.isNullOrBlank() &&
+        !macAppleId.isNullOrBlank() &&
+        !macPassword.isNullOrBlank() &&
+        !macTeamId.isNullOrBlank()
+val macIcons = project.layout.projectDirectory.dir("icons")
 
 compose.desktop {
     application {
@@ -42,9 +60,37 @@ compose.desktop {
 
             macOS {
                 bundleID = "com.fograin.launcher"
+                appCategory = "public.app-category.games"
+                iconFile.set(macIcons.file("icon.icns"))
+                if (!macSignIdentity.isNullOrBlank()) {
+                    signing {
+                        sign.set(true)
+                        identity.set(macSignIdentity)
+                        if (!macKeychain.isNullOrBlank()) {
+                            keychain.set(macKeychain)
+                        }
+                    }
+                }
+                if (macNotarizationReady) {
+                    notarization {
+                        appleID.set(macAppleId)
+                        password.set(macPassword)
+                        teamID.set(macTeamId)
+                    }
+                }
+            }
+            windows {
+                iconFile.set(macIcons.file("icon.ico"))
+                // A stable UUID lets an MSI from a later tag upgrade the
+                // existing installation instead of installing side by side.
+                upgradeUuid = "bed53dbe-3054-41f8-acbf-43d85abacaa9"
+                menuGroup = "Fograin"
+                shortcut = true
             }
             linux {
                 packageName = "fograin"
+                appCategory = "Game"
+                iconFile.set(macIcons.file("icon.png"))
             }
         }
     }

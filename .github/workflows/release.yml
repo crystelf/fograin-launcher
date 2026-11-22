@@ -1,42 +1,70 @@
 name: Release
 
-# Tag-driven release: `git tag -a v0.1.0 -m "0.1.0" && git push origin v0.1.0`.
-# Each runner packages the artifact for its own OS because jpackage cannot
-# cross-compile; the Android APK is built once on Linux.
+# Tag-driven release. Bump the version, commit it, and push an annotated tag:
 #
-# The artifacts are unsigned. Signing/notarization needs repository secrets
-# (APPLE_ID / APPLE_TEAM_ID / WINDOWS_CERT_*).
-
+#   ./scripts/version.sh set 0.2.0
+#   git add Cargo.toml Cargo.lock apps/compose/gradle.properties
+#   git commit -m "chore(release): 0.2.0"
+#   ./scripts/version.sh tag --push
+#
+# The same workflow runs the full CI gate, builds every supported OS on its
+# own runner (jpackage cannot cross-compile), then publishes one GitHub
+# Release with the installers and a SHA-256 manifest.
 on:
   push:
     tags: ['v*']
-  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 jobs:
+  # The tag must match Cargo.toml and gradle.properties, and every test that
+  # runs on main must also pass on the exact commit being released.
+  verify:
+    name: Verify the tag
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   desktop:
-    name: Package desktop (${{ matrix.os }})
+    name: Package desktop (${{ matrix.platform }})
+    needs: verify
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: macos-15
+            platform: macos
             format: dmg
           - os: windows-2025
+            platform: windows
             format: msi
           - os: ubuntu-24.04
+            platform: linux
             format: deb
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
+    env:
+      # Optional desktop signing material. Empty secrets simply produce
+      # unsigned installers, which is why the release notes call that out.
+      MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+      MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+      FOGRAIN_MAC_APPLE_ID: ${{ secrets.MACOS_APPLE_ID }}
+      FOGRAIN_MAC_PASSWORD: ${{ secrets.MACOS_APP_PASSWORD }}
+      FOGRAIN_MAC_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+      WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 }}
+      WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+      - name: Read the version
+        run: echo "VERSION=$(./scripts/version.sh current)" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@1.100.0
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-java@v5
@@ -44,27 +72,144 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
-      - name: Linux packaging dependencies
+
+      # ---- macOS signing / notarization --------------------------------
+      - name: Import the macOS signing certificate
+        if: matrix.os == 'macos-15' && env.MACOS_CERT_P12 != ''
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/fograin-signing.keychain-db"
+          CERT="$RUNNER_TEMP/fograin-signing.p12"
+          echo "$MACOS_CERT_P12" | base64 -D > "$CERT"
+          security create-keychain -p actions "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p actions "$KEYCHAIN"
+          security import "$CERT" -k "$KEYCHAIN" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          EXISTING="$(security list-keychains -d user | tr -d '"')"
+          # shellcheck disable=SC2086
+          security list-keychains -d user -s "$KEYCHAIN" $EXISTING
+          security set-key-partition-list -S apple-tool:,apple: -s -k actions "$KEYCHAIN" >/dev/null
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | sed -n 's/.*"\(.*\)".*/\1/p' | head -1)"
+          if [[ -z "$IDENTITY" ]]; then
+            echo "::error::The imported certificate has no code-signing identity."
+            exit 1
+          fi
+          echo "FOGRAIN_MAC_SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "FOGRAIN_MAC_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+
+      # ---- Windows signing material ------------------------------------
+      - name: Stage the Windows signing certificate
+        if: matrix.os == 'windows-2025' && env.WINDOWS_CERT_BASE64 != ''
+        shell: pwsh
+        env:
+          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 }}
+        run: |
+          $certPath = Join-Path $env:RUNNER_TEMP 'fograin-codesign.pfx'
+          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_CERT_BASE64))
+          "SIGN_CERT_PATH=$certPath" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Ensure WiX Toolset for the MSI
+        if: matrix.os == 'windows-2025'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command candle.exe -ErrorAction SilentlyContinue)) {
+            choco install wixtoolset --yes --no-progress
+          }
+
+      - name: Install Linux packaging dependencies
         if: matrix.os == 'ubuntu-24.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends fakeroot binutils
+
       - name: Build the host JNI library
         run: ./scripts/build-jni-desktop.sh
+
       - name: Package with jpackage
         run: ./apps/compose/gradlew -p apps/compose :desktop:packageDistributionForCurrentOS
+
+      - name: Verify the macOS signature
+        if: matrix.os == 'macos-15' && env.MACOS_CERT_P12 != ''
+        run: |
+          codesign --verify --deep --strict --verbose=2 \
+            apps/compose/desktop/build/compose/binaries/main/app/Fograin.app
+
+      - name: Sign the Windows MSI
+        if: matrix.os == 'windows-2025' && env.SIGN_CERT_PATH != ''
+        shell: pwsh
+        run: |
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -match '\\x64\\' } |
+            Sort-Object FullName |
+            Select-Object -Last 1
+          if (-not $signtool) { throw 'signtool.exe was not found in the Windows SDK.' }
+          $msi = Get-ChildItem "apps/compose/desktop/build/compose/binaries/main/msi/*.msi" | Select-Object -First 1
+          if (-not $msi) { throw 'No MSI was produced.' }
+          & $signtool.FullName sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+            /f $env:SIGN_CERT_PATH /p $env:WINDOWS_CERT_PASSWORD $msi.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'signtool sign failed.' }
+          & $signtool.FullName verify /pa $msi.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'signtool verify failed.' }
+
+      - name: Collect the installer
+        run: |
+          set -euo pipefail
+          case "${{ matrix.os }}" in
+            macos-15) os=macos ;;
+            windows-2025) os=windows ;;
+            *) os=linux ;;
+          esac
+          arch="$(uname -m)"
+          case "$arch" in
+            arm64|aarch64) arch=arm64 ;;
+            *) arch=x64 ;;
+          esac
+          mkdir -p dist
+          shopt -s nullglob
+          files=(apps/compose/desktop/build/compose/binaries/main/${{ matrix.format }}/*)
+          if [[ ${#files[@]} -eq 0 ]]; then
+            echo "::error::jpackage produced no ${{ matrix.format }} artifact."
+            exit 1
+          fi
+          installer=""
+          for candidate in "${files[@]}"; do
+            if [[ "$candidate" == *."${{ matrix.format }}" ]]; then
+              installer="$candidate"
+              break
+            fi
+          done
+          if [[ -z "$installer" ]]; then
+            echo "::error::No .${{ matrix.format }} file was produced."
+            exit 1
+          fi
+          target="dist/Fograin-${VERSION}-${os}-${arch}.${{ matrix.format }}"
+          cp "$installer" "$target"
+          echo "Collected $target"
+
       - name: Upload the installer
         uses: actions/upload-artifact@v4
         with:
-          name: fograin-${{ matrix.format }}
-          path: apps/compose/desktop/build/compose/binaries/main/${{ matrix.format }}/*
+          name: fograin-desktop-${{ matrix.platform }}
+          path: dist/*
           if-no-files-found: error
+          retention-days: 7
 
   android:
     name: Package Android APK
+    needs: verify
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+      - name: Read the version
+        run: echo "VERSION=$(./scripts/version.sh current)" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@1.100.0
         with:
           targets: aarch64-linux-android,x86_64-linux-android
@@ -76,29 +221,112 @@ jobs:
       - uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools platforms;android-37.0 build-tools;37.0.0 ndk;27.2.12479018'
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Decode the release keystore
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        run: |
+          set -euo pipefail
+          KEYSTORE="$RUNNER_TEMP/fograin-release.keystore"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE"
+          {
+            echo "FOGRAIN_ANDROID_KEYSTORE=$KEYSTORE"
+            echo "FOGRAIN_ANDROID_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD"
+            echo "FOGRAIN_ANDROID_KEY_ALIAS=$ANDROID_KEY_ALIAS"
+            echo "FOGRAIN_ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+
+      - name: Warn when the APK will be unsigned
+        if: env.ANDROID_KEYSTORE_BASE64 == ''
+        run: |
+          echo "::warning title=Unsigned Android APK::ANDROID_KEYSTORE_BASE64 is not configured; the APK in this release cannot be installed until it is signed."
+
       - name: Build the Rust JNI library
         run: ./scripts/build-android.sh
-      - uses: gradle/actions/setup-gradle@v4
       - name: Assemble the release APK
         run: ./apps/compose/gradlew -p apps/compose :android:assembleRelease
+
+      - name: Collect and verify the APK
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          apk="$(ls apps/compose/android/build/outputs/apk/release/*.apk | head -1)"
+          if [[ "$apk" == *unsigned* && -n "${ANDROID_KEYSTORE_BASE64:-}" ]]; then
+            echo "::error::A release keystore is configured but Gradle produced an unsigned APK."
+            exit 1
+          fi
+          if [[ "$apk" == *unsigned* ]]; then
+            target="dist/Fograin-${VERSION}-android-unsigned.apk"
+          else
+            target="dist/Fograin-${VERSION}-android.apk"
+            apksigner="$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -name apksigner -type f | sort -V | tail -1)"
+            if [[ -n "$apksigner" ]]; then
+              "$apksigner" verify --print-certs "$apk"
+            fi
+          fi
+          cp "$apk" "$target"
+          echo "Collected $target"
+
       - name: Upload the APK
         uses: actions/upload-artifact@v4
         with:
-          name: fograin-apk
-          path: apps/compose/android/build/outputs/apk/release/*.apk
+          name: fograin-android
+          path: dist/*
           if-no-files-found: error
+          retention-days: 7
 
   publish:
     name: Publish the GitHub release
     needs: [desktop, android]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-      - name: Create the release
+          merge-multiple: true
+
+      - name: Generate the SHA-256 manifest
+        run: |
+          set -euo pipefail
+          cd artifacts
+          sha256sum Fograin-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Compose the release notes
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          {
+            echo "## 雾雨启动器 ${version}"
+            echo
+            echo "下载对应平台的安装包；校验值见 \`SHA256SUMS.txt\`。"
+            echo
+            echo "> 安装包是否签名取决于发布时的 Secrets 配置。未签名时 macOS / Windows 会显示系统安全提示，Android 未签名 APK 无法安装；详见 [发布与签名](https://github.com/crystelf/fograin-launcher/blob/main/docs/RELEASING.md)。"
+            echo
+            if ls artifacts/*unsigned* >/dev/null 2>&1; then
+              echo "> **注意：本次发布包含未签名产物。** 未签名的 Android APK 无法直接安装；Windows 可能触发 SmartScreen，macOS 可能触发 Gatekeeper。"
+              echo
+            fi
+            echo "### 安装"
+            echo "- **Windows**：运行 \`.msi\`。"
+            echo "- **macOS**：打开 \`.dmg\`，将 Fograin 拖入 Applications。"
+            echo "- **Linux**：\`sudo apt install ./Fograin-*.deb\`。"
+            echo "- **Android**：安装 \`.apk\`（Android 8.0+，arm64 / x86_64）。"
+            echo
+            echo "启动器会在启动时自动检查本页是否有新版本；右下角的提示可以直接跳转到对应的 Release。"
+          } > release-body.md
+          cat release-body.md
+
+      - name: Publish
         uses: softprops/action-gh-release@v2
         with:
+          name: Fograin Launcher ${{ github.ref_name }}
+          body_path: release-body.md
           generate_release_notes: true
-          files: artifacts/**/*
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}
+          fail_on_unmatched_files: true
+          files: artifacts/*

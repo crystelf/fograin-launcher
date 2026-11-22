@@ -69,7 +69,7 @@ class MainActivity : ComponentActivity() {
 
         enableEdgeToEdge()
         setContent {
-            App(core)
+            App(core = core, checkForUpdates = true)
         }
     }
 }

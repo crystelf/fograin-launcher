@@ -8,4 +8,6 @@ echo "pre-push: cargo clippy"
 cargo clippy --workspace --all-targets --locked -- -D warnings
 echo "pre-push: cargo test"
 cargo test --workspace --locked
+echo "pre-push: version"
+./scripts/version.sh check
 echo "pre-push: ok"

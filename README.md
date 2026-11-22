@@ -15,6 +15,7 @@ Minecraft Java 版启动器。Rust 核心负责下载、安装、账户与启动
 - **整合包与数据包**：`.mrpack` / CurseForge / HMCL / MultiMC 导入与 `.mrpack` 导出；数据包按世界管理。
 - **诊断**：`latest.log`、崩溃报告与 `hs_err` 分析，导出脱敏诊断包。
 - **网络**：镜像源自动回退、断点续传、分段下载、内容寻址缓存。
+- **更新提示**：启动时异步检查 GitHub Release，右下角提示新版本并跳转到发布页。
 - **多语言**：简体中文、繁體中文、English、日本語。
 
 ## 下载与安装
@@ -24,12 +25,15 @@ Minecraft Java 版启动器。Rust 核心负责下载、安装、账户与启动
 | 平台      | 产物     | 说明                                    |
 |---------|--------|---------------------------------------|
 | Windows | `.msi` | Windows 10 及以上                        |
-| macOS   | `.dmg` | Apple 芯片或 Intel                       |
+| macOS   | `.dmg` | Apple 芯片（arm64）                       |
 | Linux   | `.deb` | 需要 GTK 3 与 OpenGL                     |
 | Android | `.apk` | Android 8.0（API 26）及以上，arm64 与 x86_64 |
 
-**安装包未签名。** macOS 首次打开需要在「系统设置 → 隐私与安全性」里允许，或执行
-`xattr -dr com.apple.quarantine /Applications/Fograin.app`；Windows SmartScreen 需要选择「仍要运行」。
+**签名状态取决于发布时配置的证书。** 未签名时，macOS 首次打开需要在
+「系统设置 → 隐私与安全性」里允许，或执行
+`xattr -dr com.apple.quarantine /Applications/Fograin.app`；Windows SmartScreen
+需要选择「仍要运行」。Android 未签名 APK 无法直接安装。签名所需的密钥与证书见
+[发布与签名](docs/RELEASING.md)。
 
 ## 首次运行
 
@@ -50,8 +54,8 @@ Minecraft Java 版启动器。Rust 核心负责下载、安装、账户与启动
 
 - 不提供微软正版登录（需要 Azure 应用审核）。
 - 不提供皮肤与披风管理；第三方皮肤由服务端与 authlib-injector 在游戏内处理。
-- 没有自动更新，需要手动下载新版本安装包。
-- 安装包未签名、未公证；macOS 只有当前架构的构建。
+- 更新提示只负责检查版本并跳转到 GitHub Release；下载和安装仍需手动完成。
+- 未配置签名时为未签名、未公证构建；macOS 目前只发布 Apple 芯片版本。
 - 目标平台为 Windows / macOS / Linux 桌面与 Android；不提供 iOS 与 Web 版本。
 
 ## 常见问题
@@ -90,9 +94,28 @@ cargo test --workspace
 测试：`./apps/compose/gradlew -p apps/compose :shared:desktopTest :desktop:test`。
 打包：`./apps/compose/gradlew -p apps/compose :desktop:packageDistributionForCurrentOS`（只能打当前系统的包）。
 
+## 版本与发布
+
+版本号由 Git 标签 `vMAJOR.MINOR.PATCH` 驱动。`scripts/version.sh` 会同步
+`Cargo.toml`、`Cargo.lock` 与 `apps/compose/gradle.properties`：
+
+```bash
+./scripts/version.sh set 0.2.0
+git add Cargo.toml Cargo.lock apps/compose/gradle.properties
+git commit -m "chore(release): 0.2.0"
+./scripts/version.sh tag --push
+```
+
+推送标签后，[Release 工作流](.github/workflows/release.yml)会先跑完整 CI，再在
+macOS / Windows / Linux / Android 上分别构建安装包，最后发布附带
+`SHA256SUMS.txt` 的 GitHub Release。签名需要的密钥、证书与 GitHub Secrets 见
+[发布与签名](docs/RELEASING.md)。
+
 ## 许可
 
 [GPL-3.0-only](LICENSE)。第三方依赖遵循各自的许可；分发时请一并保留其许可声明。
+启动器的实现思路参考了 PCL / PCL.Core（Apache-2.0）与 HMCL / HMCLCore
+（GPL-3.0），本项目为独立实现，并保留上述项目的开源许可。
 
 ## 反馈
 

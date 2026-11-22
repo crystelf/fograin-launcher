@@ -4,19 +4,39 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
   workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
 jobs:
+  # The tag is the release source of truth. Every other job depends on this
+  # one, so a tag that disagrees with Cargo.toml / gradle.properties fails
+  # before any artifact is built.
+  version:
+    name: Version and wrapper
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.100.0
+      - uses: gradle/actions/wrapper-validation@v4
+      - name: Check version consistency
+        env:
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: ./scripts/version.sh check "$RELEASE_TAG"
+
   rust:
     name: Rust core
+    needs: version
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -33,6 +53,7 @@ jobs:
   # every OS, not just macOS.
   compose-desktop-macos:
     name: Compose Desktop (macOS)
+    needs: version
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -50,6 +71,7 @@ jobs:
 
   compose-desktop-linux:
     name: Compose Desktop (Linux)
+    needs: version
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -72,6 +94,7 @@ jobs:
 
   compose-desktop-windows:
     name: Compose Desktop (Windows)
+    needs: version
     runs-on: windows-2025
     defaults:
       run:
@@ -92,6 +115,7 @@ jobs:
 
   compose-android:
     name: Compose Android + Rust JNI
+    needs: version
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -113,6 +137,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Build the Android client
         run: ./apps/compose/gradlew -p apps/compose :android:assembleDebug
+      - name: Build the release APK (unsigned without signing secrets)
+        run: ./apps/compose/gradlew -p apps/compose :android:assembleRelease
       - name: Upload the debug APK
         uses: actions/upload-artifact@v4
         with:

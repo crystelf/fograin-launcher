@@ -258,6 +258,7 @@ private val androidServices: PlatformServices by lazy {
                 BackHandler(enabled = enabled, onBack = onBack)
             }
         },
+        updates = JvmUpdateService,
         links = AndroidSystemLinks,
     )
 }

@@ -234,6 +234,11 @@ data class PlatformServices(
     val appearance: SystemAppearance,
     val backDispatcher: BackDispatcher,
     val links: SystemLinks,
+    /**
+     * GitHub Releases lookup for the startup update prompt. Defaults to a
+     * no-op so tests and headless tools never touch the network.
+     */
+    val updates: UpdateService = UpdateService.Disabled,
 )
 
 /**

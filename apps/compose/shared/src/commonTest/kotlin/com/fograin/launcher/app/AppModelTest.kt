@@ -5,6 +5,8 @@ import com.fograin.launcher.model.DownloadsCategory
 import com.fograin.launcher.model.GameLoaderKind
 import com.fograin.launcher.model.Instance
 import com.fograin.launcher.platform.CoreEvent
+import com.fograin.launcher.platform.ReleaseInfo
+import com.fograin.launcher.platform.UpdateService
 import com.fograin.launcher.platform.stringOrNull
 import com.fograin.launcher.settings.ThemeMode
 import com.fograin.launcher.ui.AppDestination
@@ -47,6 +49,55 @@ class AppModelTest {
         assertEquals("Steve_Fog", state.gameConfig?.username)
         assertNotNull(state.appSnapshot)
         assertFalse(state.isInitialLoading)
+    }
+
+    @Test
+    fun updateCheckPromptsOnlyForANewerRelease() = runTest {
+        val platform = FakePlatform()
+        val service = object : UpdateService {
+            override suspend fun fetchLatestRelease(): ReleaseInfo? = ReleaseInfo(
+                version = "0.2.0",
+                url = "https://github.com/crystelf/fograin-launcher/releases/tag/v0.2.0",
+            )
+        }
+        val model = AppModel.create(
+            core = FakeCore(),
+            platform = platform.services.copy(updates = service),
+            scope = backgroundScope,
+        )
+        runCurrent()
+
+        model.checkForUpdates()
+        runCurrent()
+        assertEquals("0.2.0", model.state.value.updates.available?.version)
+        assertNotNull(model.state.value.updates.visible)
+        assertTrue(model.state.value.updates.checked)
+
+        model.dismissUpdate()
+        assertNull(model.state.value.updates.visible)
+        assertNotNull(model.state.value.updates.available)
+    }
+
+    @Test
+    fun updateCheckIgnoresTheCurrentVersion() = runTest {
+        val platform = FakePlatform()
+        val service = object : UpdateService {
+            override suspend fun fetchLatestRelease(): ReleaseInfo? = ReleaseInfo(
+                version = "0.1.0",
+                url = "https://github.com/crystelf/fograin-launcher/releases/tag/v0.1.0",
+            )
+        }
+        val model = AppModel.create(
+            core = FakeCore(),
+            platform = platform.services.copy(updates = service),
+            scope = backgroundScope,
+        )
+        runCurrent()
+
+        model.checkForUpdates()
+        runCurrent()
+        assertNull(model.state.value.updates.available)
+        assertTrue(model.state.value.updates.checked)
     }
 
     @Test

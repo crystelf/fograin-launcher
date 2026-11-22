@@ -6,6 +6,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -33,10 +34,22 @@ import com.fograin.launcher.ui.theme.FograinTheme
  * same model, then calls the [App] overload that takes it.
  */
 @Composable
-fun App(core: CoreClient) {
+fun App(
+    core: CoreClient,
+    /**
+     * Android passes true so the startup update check runs once per activity
+     * composition. Desktop renders [App] with a shell-owned model instead and
+     * triggers the check from `main`; tests keep the default `false` so they
+     * never touch the network.
+     */
+    checkForUpdates: Boolean = false,
+) {
     val platform = remember { platformServices() }
     val scope = rememberCoroutineScope()
     val model = remember(core) { AppModel.create(core = core, platform = platform, scope = scope) }
+    LaunchedEffect(model, checkForUpdates) {
+        if (checkForUpdates) model.checkForUpdates(initial = true)
+    }
     App(model)
 }
 

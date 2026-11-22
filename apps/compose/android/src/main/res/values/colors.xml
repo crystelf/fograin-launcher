@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="fograin_window_background">#F7FBF7</color>
+    <!-- The warm-white plate behind the Crystelf emblem in the adaptive icon. -->
+    <color name="ic_launcher_background">#FAFAF9</color>
 </resources>

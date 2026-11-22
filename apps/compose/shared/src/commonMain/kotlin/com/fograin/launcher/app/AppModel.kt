@@ -19,7 +19,9 @@ import com.fograin.launcher.platform.CoreNetworkSettings
 import com.fograin.launcher.platform.CoreTaskRow
 import com.fograin.launcher.platform.CoreWorldBackup
 import com.fograin.launcher.platform.PlatformServices
+import com.fograin.launcher.platform.ReleaseInfo
 import com.fograin.launcher.platform.decode
+import com.fograin.launcher.platform.isNewerVersion
 import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.platform.resultRows
 import com.fograin.launcher.settings.AccentPreference
@@ -94,6 +96,7 @@ class AppModel internal constructor(
     private var idGenerator = 0L
     private var noticeJob: Job? = null
     private var pollJob: Job? = null
+    private var updateJob: Job? = null
 
     /** True once the JNI library loaded and the settings snapshot answered. */
     val isCoreAvailable: Boolean
@@ -315,6 +318,69 @@ class AppModel internal constructor(
 
     fun dismissAlert() {
         _state.update { it.copy(alert = null) }
+    }
+
+    // ------------------------------------------------------------------
+    // Update check. The shells call this once after startup; Settings →
+    // About calls it again on demand. Failure is silent on the automatic
+    // path and surfaced only where the user asked for a check.
+    // ------------------------------------------------------------------
+
+    /**
+     * Checks the latest GitHub Release without blocking the first frame.
+     *
+     * [initial] adds a short delay so the launch, instance list and Java scan
+     * get the network first and the prompt appears once the shell is calm.
+     */
+    fun checkForUpdates(initial: Boolean = false) {
+        if (updateJob?.isActive == true) return
+        updateJob = scope.launch {
+            if (initial) delay(2_000)
+            _state.update { it.copy(updates = it.updates.copy(checking = true, failed = false)) }
+            val release = try {
+                platform.updates.fetchLatestRelease()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                platform.logger.warn(TAG, "update check failed", error)
+                null
+            }
+            val currentVersion = state.value.settings.appVersion
+            val newer = release?.takeIf {
+                it.version.isNotBlank() && isNewerVersion(it.version, currentVersion)
+            }
+            _state.update {
+                // A transient network failure keeps the last known update;
+                // a successful check with no newer tag clears it.
+                val available = newer ?: if (release == null) it.updates.available else null
+                it.copy(
+                    updates = it.updates.copy(
+                        checking = false,
+                        available = available,
+                        // A fresh release replaces an earlier "later" choice.
+                        dismissed = if (newer != null) false else it.updates.dismissed,
+                        checked = true,
+                        failed = release == null,
+                    ),
+                )
+            }
+        }
+    }
+
+    /** Hides the prompt for this session; Settings → About keeps the details. */
+    fun dismissUpdate() {
+        _state.update { it.copy(updates = it.updates.copy(dismissed = true)) }
+    }
+
+    /**
+     * Opens the release page. Returns false when the host has no browser so
+     * the caller can fall back to showing/copying the URL.
+     */
+    fun openUpdate(update: ReleaseInfo? = state.value.updates.available): Boolean {
+        val release = update ?: return false
+        if (!platform.links.openUrl(release.url)) return false
+        dismissUpdate()
+        return true
     }
 
     // ------------------------------------------------------------------
