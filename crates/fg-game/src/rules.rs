@@ -286,33 +286,75 @@ fn current_os_version() -> Option<String> {
 
 #[cfg(target_os = "macos")]
 fn macos_version() -> Option<String> {
-    let output = std::process::Command::new("sw_vers")
-        .arg("-productVersion")
-        .output()
-        .ok()?;
-    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    (!version.is_empty()).then_some(version)
+    // Rules are evaluated for every version row and install plan; `sw_vers`
+    // does not change during the process, so run it once.
+    static VERSION: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    VERSION
+        .get_or_init(|| {
+            let output = std::process::Command::new("sw_vers")
+                .arg("-productVersion")
+                .output()
+                .ok()?;
+            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            (!version.is_empty()).then_some(version)
+        })
+        .clone()
 }
 
 #[cfg(target_os = "windows")]
 fn windows_version() -> Option<String> {
-    // `ver` prints "[Version 10.0.22631.3737]".
-    let output = std::process::Command::new("cmd")
-        .args(["/C", "ver"])
-        .output()
-        .ok()?;
-    let text = String::from_utf8_lossy(&output.stdout);
-    let start = text.find("Version ")? + "Version ".len();
-    let version: String = text[start..]
-        .chars()
-        .take_while(|character| character.is_ascii_digit() || *character == '.')
-        .collect();
-    (!version.is_empty()).then_some(version)
+    use std::os::windows::process::CommandExt;
+
+    // Rules are evaluated for every version row and install plan; caching the
+    // answer avoids spawning one hidden `cmd.exe` per evaluation.
+    static VERSION: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    VERSION
+        .get_or_init(|| {
+            // `ver` prints "[Version 10.0.22631.3737]".
+            let mut command = std::process::Command::new("cmd");
+            command.args(["/C", "ver"]);
+            // CREATE_NO_WINDOW: the GUI launcher must not flash a black
+            // console while the version list or an install is being prepared.
+            command.creation_flags(fg_core::CREATE_NO_WINDOW);
+            let output = command.output().ok()?;
+            let text = String::from_utf8_lossy(&output.stdout);
+            parse_windows_version(&text)
+        })
+        .clone()
+}
+
+/// Extracts `10.0.22631.3737` from `cmd /c ver`.
+///
+/// `ver` is localized (`[版本 10.0.19045.3803]` on Chinese Windows), so looking
+/// for the English word "Version" misses real installations. The first
+/// digit-and-dot token in the banner is the version on every locale.
+#[cfg(any(target_os = "windows", test))]
+fn parse_windows_version(text: &str) -> Option<String> {
+    text.split(|character: char| character != '.' && !character.is_ascii_digit())
+        .map(|token| token.trim_matches('.'))
+        .find(|token| {
+            token.split('.').count() >= 2
+                && token.chars().next().is_some_and(|c| c.is_ascii_digit())
+        })
+        .map(ToString::to_string)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_windows_version_banner_in_any_locale() {
+        assert_eq!(
+            parse_windows_version("Microsoft Windows [Version 10.0.22631.3737]").as_deref(),
+            Some("10.0.22631.3737")
+        );
+        assert_eq!(
+            parse_windows_version("Microsoft Windows [版本 10.0.19045.3803]").as_deref(),
+            Some("10.0.19045.3803")
+        );
+        assert_eq!(parse_windows_version("no version here"), None);
+    }
 
     fn context(name: &str, arch: JavaArch, version: &str) -> RuleContext {
         RuleContext::new(

@@ -3,10 +3,54 @@ package com.fograin.launcher.ui.components
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
 import com.fograin.launcher.platform.platformServices
+
+/**
+ * Metrics shared by the desktop shell and every page header.
+ *
+ * Windows and Linux windows are drawn by Compose (no native caption), so the
+ * page header doubles as their title bar: a 48 dp row with the window controls
+ * pinned to its top-right corner. macOS keeps its 48 dp traffic-light row and
+ * reports a zero [LocalWindowControlsInset] because the native lights sit on
+ * the left instead.
+ */
+object WindowChromeMetrics {
+    /** Height of the draggable title-bar strip / first page-header row. */
+    val HeaderHeight = 48.dp
+
+    /** Width of one minimise / maximise / close hit target. */
+    val ControlWidth = 46.dp
+
+    /** Total width of the three-window-control cluster. */
+    val ControlsWidth = 138.dp
+
+    /** Right inset a page header needs so its actions clear the controls. */
+    val ControlsInset = ControlsWidth + 8.dp
+}
+
+/**
+ * Space the host reserves at the top-right of the content for window controls.
+ *
+ * The shell provides [WindowChromeMetrics.ControlsInset] on borderless Windows
+ * and Linux windows and `0.dp` everywhere else (macOS traffic lights are on the
+ * left, Android has no window controls).
+ */
+val LocalWindowControlsInset = staticCompositionLocalOf { 0.dp }
+
+/**
+ * Platform-provided drag gesture for the title-bar row.
+ *
+ * The page header and the settings sidebar apply it to their title slot. It is
+ * a no-op on Android and a window-drag gesture on desktop. Keeping it on the
+ * title text (rather than the whole header) leaves the search field, chips and
+ * buttons completely outside the hit path.
+ */
+val LocalWindowDragModifier = staticCompositionLocalOf<Modifier> { Modifier }
 
 /**
  * Whether the host window itself has rounded corners.
