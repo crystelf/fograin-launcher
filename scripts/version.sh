@@ -168,7 +168,7 @@ set_versions() {
 
   refresh_lockfile
   check_versions
-  echo "version: $expected -> $next (installer package $package)"
+  echo "version: $previous -> $next (installer package $package)"
   echo "version: next: ./scripts/version.sh tag --push"
 }
 

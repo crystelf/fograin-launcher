@@ -24,14 +24,18 @@ import kotlinx.coroutines.withContext
  * Escape-to-back wiring.
  *
  * `JFileChooser` is a Swing window with a light default look, which feels alien
- * on macOS/Windows. We therefore ask the platform for a folder:
+ * on macOS. We therefore ask the platform for a folder where a native UI is
+ * available:
  *
  * - macOS: `osascript`'s `choose folder` (Finder's own sheet);
- * - Windows: a PowerShell `FolderBrowserDialog` (Explorer's common dialog);
- * - Linux: `zenity` / `kdialog` when installed.
+ * - Linux: `zenity` / `kdialog` when installed;
+ * - Windows: the Swing chooser with the system look and feel.
  *
- * The Swing chooser remains the fallback (headless CI, stripped-down Linux),
- * configured with the system look and feel so it at least matches the host.
+ * Windows deliberately does not use PowerShell/Explorer common dialogs: the
+ * launcher is a GUI process, and starting `powershell.exe` or `cmd.exe` from it
+ * flashes a black console window behind every dialog. The Windows system look
+ * and feel keeps the Swing chooser visually close enough without a child
+ * process.
  */
 internal object DesktopDirectoryPicker : JvmDirectoryBrowser() {
     override val isAvailable: Boolean
@@ -59,7 +63,9 @@ private fun nativePick(title: String, initialPath: String?): DirectoryPick? {
     val initial = initialPath?.let(::File)?.takeIf { it.isDirectory }?.absolutePath
     return when {
         os.contains("mac") -> macPick(title, initial)
-        os.contains("win") -> windowsPick(title, initial)
+        // PowerShell's FolderBrowserDialog would flash a console; let
+        // DesktopDirectoryPicker fall back to the Swing chooser.
+        os.contains("win") -> null
         else -> linuxPick(title, initial)
     }
 }
@@ -87,34 +93,6 @@ private fun macPick(title: String, initialPath: String?): DirectoryPick? {
         }
     }
     return picked(result.output.trim().trimEnd('/').ifEmpty { "/" })
-}
-
-private fun windowsPick(title: String, initialPath: String?): DirectoryPick? {
-    val script = buildString {
-        appendLine("Add-Type -AssemblyName System.Windows.Forms")
-        appendLine("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8")
-        appendLine("\$dialog = New-Object System.Windows.Forms.FolderBrowserDialog")
-        appendLine("\$dialog.Description = '${powershellQuote(title)}'")
-        appendLine("\$dialog.ShowNewFolderButton = \$true")
-        if (initialPath != null) {
-            appendLine("\$dialog.SelectedPath = '${powershellQuote(initialPath)}'")
-        }
-        appendLine(
-            "if (\$dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) " +
-                "{ [Console]::Write(\$dialog.SelectedPath) }",
-        )
-    }
-    val powershell = System.getenv("SystemRoot")
-        ?.let { File(it, "System32/WindowsPowerShell/v1.0/powershell.exe") }
-        ?.takeIf { it.isFile }
-        ?.absolutePath
-        ?: "powershell.exe"
-    val result = runCommand(
-        listOf(powershell, "-NoProfile", "-STA", "-Command", script),
-    ) ?: return null
-    if (result.exitCode != 0) return null
-    val path = result.output.trim()
-    return if (path.isEmpty()) DirectoryPick.Cancelled else picked(path)
 }
 
 private fun linuxPick(title: String, initialPath: String?): DirectoryPick? {
@@ -163,8 +141,6 @@ private fun picked(path: String): DirectoryPick {
 
 private fun appleScriptQuote(value: String): String =
     value.replace("\\", "\\\\").replace("\"", "\\\"")
-
-private fun powershellQuote(value: String): String = value.replace("'", "''")
 
 private var systemLookAndFeelReady = false
 
@@ -233,9 +209,9 @@ internal object DesktopBackDispatcher : BackDispatcher {
  * Desktop file picker for `.mrpack` / `.zip` imports and data packs.
  *
  * Mirrors [DesktopDirectoryPicker]: the native panel is the primary path
- * (Finder's `choose file`, Explorer's `OpenFileDialog`, `zenity`), and a Swing
- * chooser with the system look and feel is the fallback on headless or minimal
- * Linux installs.
+ * (Finder's `choose file`, `zenity`), and a Swing chooser with the system look
+ * and feel handles Windows, headless CI and minimal Linux installs. Avoiding
+ * PowerShell on Windows keeps file dialogs from spawning a console window.
  */
 internal object DesktopFilePicker : FileBrowser {
     override val isAvailable: Boolean
@@ -299,7 +275,9 @@ private fun nativeSaveFile(
     val os = System.getProperty("os.name").orEmpty().lowercase()
     return when {
         os.contains("mac") -> macSaveFile(title, suggestedName)
-        os.contains("win") -> windowsSaveFile(title, suggestedName, extensions)
+        // The GUI launcher avoids a PowerShell console flash on Windows; the
+        // Swing chooser in `save` handles this platform.
+        os.contains("win") -> null
         else -> linuxSaveFile(title, suggestedName, extensions)
     }
 }
@@ -323,36 +301,6 @@ private fun macSaveFile(title: String, suggestedName: String): FileSavePick? {
         }
     }
     return savedFile(result.output.trim())
-}
-
-private fun windowsSaveFile(
-    title: String,
-    suggestedName: String,
-    extensions: List<String>,
-): FileSavePick? {
-    val filter = if (extensions.isEmpty()) "*.*" else extensions.joinToString(";") { "*.$it" }
-    val command = buildString {
-        append("Add-Type -AssemblyName System.Windows.Forms; ")
-        append("\$d = New-Object System.Windows.Forms.SaveFileDialog; ")
-        append("\$d.Title = '")
-        append(powershellQuote(title))
-        append("'; ")
-        append("\$d.FileName = '")
-        append(powershellQuote(suggestedName))
-        append("'; ")
-        append("\$d.Filter = '支持的文件|")
-        append(filter)
-        append("'; ")
-        append("\$d.InitialDirectory = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads'; ")
-        append("\$d.OverwritePrompt = \$true; ")
-        append("if (\$d.ShowDialog() -eq 'OK') { Write-Output \$d.FileName }")
-    }
-    val result = runCommand(
-        listOf("powershell", "-NoProfile", "-STA", "-Command", command),
-    ) ?: return null
-    if (result.exitCode != 0) return FileSavePick.Unavailable("powershell")
-    val path = result.output.trim()
-    return if (path.isEmpty()) FileSavePick.Cancelled else savedFile(path)
 }
 
 private fun linuxSaveFile(
@@ -424,7 +372,9 @@ private fun nativePickFile(title: String, extensions: List<String>): FilePick? {
     val os = System.getProperty("os.name").orEmpty().lowercase()
     return when {
         os.contains("mac") -> macPickFile(title, extensions)
-        os.contains("win") -> windowsPickFile(title, extensions)
+        // The GUI launcher avoids a PowerShell console flash on Windows; the
+        // Swing chooser in `pick` handles this platform.
+        os.contains("win") -> null
         else -> linuxPickFile(title, extensions)
     }
 }
@@ -455,31 +405,6 @@ private fun macPickFile(title: String, extensions: List<String>): FilePick? {
         }
     }
     return pickedFile(result.output.trim())
-}
-
-private fun windowsPickFile(title: String, extensions: List<String>): FilePick? {
-    val filter = if (extensions.isEmpty()) {
-        "*.*"
-    } else {
-        extensions.joinToString(";") { "*.$it" }
-    }
-    val command = buildString {
-        append("Add-Type -AssemblyName System.Windows.Forms; ")
-        append("\$d = New-Object System.Windows.Forms.OpenFileDialog; ")
-        append("\$d.Title = '")
-        append(powershellQuote(title))
-        append("'; ")
-        append("\$d.Filter = '支持的文件|")
-        append(filter)
-        append("'; ")
-        append("if (\$d.ShowDialog() -eq 'OK') { Write-Output \$d.FileName }")
-    }
-    val result = runCommand(
-        listOf("powershell", "-NoProfile", "-STA", "-Command", command),
-    ) ?: return null
-    if (result.exitCode != 0) return FilePick.Unavailable("powershell")
-    val path = result.output.trim()
-    return if (path.isEmpty()) FilePick.Cancelled else pickedFile(path)
 }
 
 private fun linuxPickFile(title: String, extensions: List<String>): FilePick? {

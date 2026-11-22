@@ -13,6 +13,9 @@ kotlin {
 dependencies {
     implementation(project(":shared"))
     implementation(compose.desktop.currentOs)
+    // The custom window caption uses Material 3 colours/typography directly;
+    // the shared module keeps its Material dependency implementation-only.
+    implementation(libs.compose.material3)
     implementation(libs.kotlinx.coroutines.swing)
 
     testImplementation(kotlin("test"))

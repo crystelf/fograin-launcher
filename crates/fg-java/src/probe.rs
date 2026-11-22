@@ -55,6 +55,13 @@ pub async fn probe(executable: &Path, timeout: Duration) -> Result<ProbeInfo> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    #[cfg(target_os = "windows")]
+    {
+        // The launcher is a GUI process. Without CREATE_NO_WINDOW every
+        // `java -version` probe would flash a console window during startup
+        // and when the Java list is refreshed.
+        command.creation_flags(fg_core::CREATE_NO_WINDOW);
+    }
 
     let child = command.spawn().map_err(|error| {
         Error::with_detail(

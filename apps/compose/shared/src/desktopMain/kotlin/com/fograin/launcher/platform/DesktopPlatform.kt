@@ -18,6 +18,11 @@ import java.util.prefs.Preferences
 actual fun platformServices(): PlatformServices = desktopServices
 
 private val desktopServices: PlatformServices by lazy {
+    // The accent probe may shell out (defaults / gsettings) or read the
+    // Windows registry through JNA. Start it on a daemon thread now so the
+    // first Compose frame never waits on it; the theme observes the result
+    // through DesktopAccent.colorState.
+    DesktopAccent.prefetch()
     PlatformServices(
         platformName = desktopPlatformName(),
         nativeLibrary = object : NativeLibrary {
@@ -101,10 +106,12 @@ private val desktopServices: PlatformServices by lazy {
 
             @Composable
             override fun dynamicColorScheme(darkTheme: Boolean): ColorScheme? {
-                // Higher-contrast seeded scheme from the OS accent. `remember`
-                // keeps the palette stable while the appearance page offers
-                // the other options.
-                val seed = remember { DesktopAccent.color() } ?: return null
+                // Higher-contrast seeded scheme from the OS accent. Reading
+                // the state (instead of a blocking probe) lets the first frame
+                // use the Fograin fallback palette and repaint as soon as the
+                // background probe answers.
+                val accent = remember { DesktopAccent.colorState }
+                val seed = accent.value ?: return null
                 return remember(seed, darkTheme) {
                     com.fograin.launcher.ui.theme.seedColorScheme(seed, darkTheme)
                 }
@@ -142,40 +149,13 @@ private fun desktopPlatformName(): String {
     val os = System.getProperty("os.name").lowercase()
     return when {
         os.contains("mac") -> "macos"
-        os.contains("win") -> windowsPlatformName()
+        // JDK 21 already reports "Windows 11" for Windows 11. Parsing os.name
+        // avoids a synchronous `reg query` child process (up to its 700 ms
+        // timeout) before the first frame; a Windows 10 string simply keeps
+        // the square-corner treatment, which is what Windows 10 draws anyway.
+        os.contains("win") -> if (os.contains("11")) "win11" else "win10"
         else -> "gnome"
     }
-}
-
-/**
- * Windows 11 (build 22000+) draws rounded native window corners; Windows 10
- * and 7 do not. The shared `windowContentShape` uses this to decide whether
- * the content pane gets rounded left corners or stays rectangular.
- */
-private fun windowsPlatformName(): String {
-    if (System.getProperty("os.name").orEmpty().contains("11")) return "win11"
-    val build = runCatching {
-        val process = ProcessBuilder(
-            "reg",
-            "query",
-            "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
-            "/v",
-            "CurrentBuildNumber",
-        )
-            .redirectErrorStream(true)
-            .start()
-        if (!process.waitFor(700, java.util.concurrent.TimeUnit.MILLISECONDS)) {
-            process.destroyForcibly()
-            null
-        } else {
-            process.inputStream.bufferedReader().use { it.readText() }
-                .trim()
-                .split(Regex("\\s+"))
-                .lastOrNull()
-                ?.toIntOrNull()
-        }
-    }.getOrNull()
-    return if (build != null && build >= 22_000) "win11" else "win10"
 }
 
 private fun totalPhysicalMemory(): Long = runCatching {

@@ -273,6 +273,12 @@ async fn run_java(
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped());
+    #[cfg(target_os = "windows")]
+    {
+        // Forge/NeoForge/OptiFine processors run from the GUI launcher; hide
+        // their console window so an install does not flash a black box.
+        command.creation_flags(fg_core::CREATE_NO_WINDOW);
+    }
     let mut child = command.spawn().map_err(|error| {
         Error::with_detail(
             ErrorKind::Io,
