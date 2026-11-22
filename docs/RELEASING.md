@@ -47,6 +47,28 @@ git push origin main
 
 `jpackage` 不能跨平台打包，所以每个安装包必须由对应系统的 runner 生成。
 
+### Release 文案
+
+每个版本的正文放在 `release-notes/vX.Y.Z.md`，文件名必须和 Git 标签完全一致，
+包括 `v`。例如 `v0.2.0` 对应 `release-notes/v0.2.0.md`。
+
+- 有对应文件：文件内容就是完整的 Release 正文；
+- 没有对应文件：Release 正文为空，**不会**回退到默认模板，也**不会**自动追加
+  GitHub 生成的提交列表；
+- 标题、产物附件和 `SHA256SUMS.txt` 仍由工作流自动处理。
+
+从 `release-notes/TEMPLATE.md` 复制一份即可开始写：
+
+```bash
+cp release-notes/TEMPLATE.md release-notes/v0.2.0.md
+# 编辑 release-notes/v0.2.0.md
+git add release-notes/v0.2.0.md
+git commit -m "docs(release): 0.2.0 发布文案"
+```
+
+如果标签尚未推送，可以改完文案后重新打标签；已经推送的标签不要重写，直接编辑
+GitHub Release 的正文，或发布下一个 patch 版本。
+
 只检查版本、不构建：
 
 ```bash

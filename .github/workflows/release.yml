@@ -298,26 +298,16 @@ jobs:
       - name: Compose the release notes
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          {
-            echo "## 雾雨启动器 ${version}"
-            echo
-            echo "下载对应平台的安装包；校验值见 \`SHA256SUMS.txt\`。"
-            echo
-            echo "> 安装包是否签名取决于发布时的 Secrets 配置。未签名时 macOS / Windows 会显示系统安全提示，Android 未签名 APK 无法安装；详见 [发布与签名](https://github.com/crystelf/fograin-launcher/blob/main/docs/RELEASING.md)。"
-            echo
-            if ls artifacts/*unsigned* >/dev/null 2>&1; then
-              echo "> **注意：本次发布包含未签名产物。** 未签名的 Android APK 无法直接安装；Windows 可能触发 SmartScreen，macOS 可能触发 Gatekeeper。"
-              echo
-            fi
-            echo "### 安装"
-            echo "- **Windows**：运行 \`.msi\`。"
-            echo "- **macOS**：打开 \`.dmg\`，将 Fograin 拖入 Applications。"
-            echo "- **Linux**：\`sudo apt install ./Fograin-*.deb\`。"
-            echo "- **Android**：安装 \`.apk\`（Android 8.0+，arm64 / x86_64）。"
-            echo
-            echo "启动器会在启动时自动检查本页是否有新版本；右下角的提示可以直接跳转到对应的 Release。"
-          } > release-body.md
+          notes="release-notes/${GITHUB_REF_NAME}.md"
+          if [[ -f "$notes" ]]; then
+            cp "$notes" release-body.md
+            echo "Using release notes from $notes"
+          else
+            # No per-version copy: keep the release body empty instead of
+            # falling back to a generic template.
+            : > release-body.md
+            echo "No $notes; publishing an empty release body."
+          fi
           cat release-body.md
 
       - name: Publish
@@ -325,7 +315,9 @@ jobs:
         with:
           name: Fograin Launcher ${{ github.ref_name }}
           body_path: release-body.md
-          generate_release_notes: true
+          # The per-version file is the complete body. Do not append GitHub's
+          # generated commit list, so a release without a file stays empty.
+          generate_release_notes: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}
           fail_on_unmatched_files: true
