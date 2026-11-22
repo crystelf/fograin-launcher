@@ -108,8 +108,9 @@ git commit -m "chore(release): 0.2.0"
 
 推送标签后，[Release 工作流](.github/workflows/release.yml)会先跑完整 CI，再在
 macOS / Windows / Linux / Android 上分别构建安装包，最后发布附带
-`SHA256SUMS.txt` 的 GitHub Release。签名需要的密钥、证书与 GitHub Secrets 见
-[发布与签名](docs/RELEASING.md)。
+`SHA256SUMS.txt` 的 GitHub Release。Release 正文取自
+`release-notes/vX.Y.Z.md`；没有对应文件时正文为空。签名需要的密钥、证书与
+GitHub Secrets 见 [发布与签名](docs/RELEASING.md)。
 
 ## 许可
 
