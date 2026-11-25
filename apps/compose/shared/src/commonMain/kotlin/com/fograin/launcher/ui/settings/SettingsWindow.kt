@@ -4,10 +4,13 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseInOut
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -93,13 +96,15 @@ import com.fograin.launcher.resources.settings_group_app
 import com.fograin.launcher.resources.settings_group_data
 import com.fograin.launcher.resources.settings_title
 import com.fograin.launcher.resources.settings_window_title
+import com.fograin.launcher.ui.components.FograinMotion
 import com.fograin.launcher.ui.components.FograinSnackbarHost
 import com.fograin.launcher.ui.components.LocalWindowControlsInset
-import com.fograin.launcher.ui.components.LocalWindowDragModifier
+import com.fograin.launcher.ui.components.LocalWindowDragAreaActive
 import com.fograin.launcher.ui.components.SettingsRootTransitionMillis
 import com.fograin.launcher.ui.components.SteveAvatar
 import com.fograin.launcher.ui.components.contentPanelShape
 import com.fograin.launcher.ui.components.fograinSettingsTransition
+import com.fograin.launcher.ui.components.windowTitleDragArea
 import com.fograin.launcher.ui.locale.AppLocale
 import com.fograin.launcher.ui.theme.FograinTheme
 import kotlinx.coroutines.Job
@@ -112,6 +117,7 @@ const val SettingsSidebarPageTag: String = "settings-sidebar-page"
 const val SettingsSplitterTag: String = "settings-splitter"
 const val SettingsContentTag: String = "settings-content"
 const val SettingsContentPageTag: String = "settings-content-page"
+const val SettingsDragRailTag: String = "settings-drag-rail"
 const val SettingsWindowBackTag: String = "settings-window-back"
 const val SettingsCompactListTag: String = "settings-compact-list"
 const val SettingsCompactBackTag: String = "settings-compact-back"
@@ -134,6 +140,22 @@ private const val PaneMinRatio = 0.32f
 private const val DefaultSidebarRatio = 1f / 3f
 
 private val SplitterWidth = 18.dp
+
+/**
+ * Displayed sidebar width for the user's [preferred] width.
+ *
+ * [preferred] is intent, not the current frame: full-screen transitions on
+ * macOS briefly report a much narrower (even zero) content width while the
+ * window is reparented. Clamping is therefore applied only to the value that
+ * is drawn; the stored preference is never rewritten by a resize. Returning
+ * to the original window size then restores the divider exactly where it was.
+ */
+internal fun settingsSplitTarget(preferred: Dp, windowWidth: Dp): Dp {
+    val maxPaneWidth = windowWidth.coerceAtLeast(0.dp)
+    val minPaneWidth = (windowWidth * PaneMinRatio).coerceAtMost(maxPaneWidth)
+    val maxSidebarWidth = (windowWidth - SplitterWidth - minPaneWidth).coerceAtLeast(minPaneWidth)
+    return preferred.coerceIn(minPaneWidth, maxSidebarWidth)
+}
 
 /**
  * Part of the divider's overscroll the pages follow. Slightly below 1 so a
@@ -209,6 +231,13 @@ private val CompactBreakpoint = 820.dp
 @Composable
 fun SettingsPageHost(model: AppModel, state: AppUiState) {
     val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
+    val preferences = remember { platformServices().preferences }
+    // The split view's user intent. It deliberately lives above the compact /
+    // wide switch: crossing that breakpoint must not reset the divider, and a
+    // full-screen round trip must return to the same width.
+    var preferredSidebarWidth by remember {
+        mutableStateOf(preferences.settingsSidebarWidth.takeIf { it > 0f }?.dp)
+    }
 
     LaunchedEffect(state.notice?.id) {
         val notice = state.notice ?: return@LaunchedEffect
@@ -256,35 +285,53 @@ fun SettingsPageHost(model: AppModel, state: AppUiState) {
             )
         }
 
-        if (compact) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .offset(x = maxWidth * (1f - transition.value)),
-                color = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface,
-            ) {
+        AnimatedContent(
+            targetState = compact,
+            modifier = Modifier.fillMaxSize(),
+            transitionSpec = {
+                // A window can cross 820 dp while it is still being resized
+                // (or while macOS animates in/out of full screen). Settle the
+                // new arrangement in with the same spring as the shell rather
+                // than swapping the whole settings layout on one frame.
+                (fadeIn(animationSpec = tween(200)) +
+                    scaleIn(animationSpec = FograinMotion.Layout, initialScale = 0.985f)) togetherWith
+                    (fadeOut(animationSpec = tween(140)) +
+                        scaleOut(animationSpec = tween(160), targetScale = 0.985f))
+            },
+            label = "settings-layout",
+        ) { compactLayout ->
+            if (compactLayout) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .offset(x = maxWidth * (1f - transition.value)),
+                    color = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .windowInsetsPadding(WindowInsets.statusBars)
+                            .imePadding(),
+                    ) {
+                        CompactSettings(model = model, state = state)
+                    }
+                }
+            } else {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .windowInsetsPadding(WindowInsets.statusBars)
                         .imePadding(),
                 ) {
-                    CompactSettings(model = model, state = state)
+                    WideSettings(
+                        model = model,
+                        state = state,
+                        preferredSidebarWidth = preferredSidebarWidth,
+                        onPreferredSidebarWidthChange = { preferredSidebarWidth = it },
+                        transitionProgress = transition.value,
+                    )
                 }
-            }
-        } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .windowInsetsPadding(WindowInsets.statusBars)
-                    .imePadding(),
-            ) {
-                WideSettings(
-                    model = model,
-                    state = state,
-                    transitionProgress = transition.value,
-                )
             }
         }
         FograinSnackbarHost(
@@ -334,14 +381,19 @@ fun SettingsWindowRoot(model: AppModel) {
 private fun WideSettings(
     model: AppModel,
     state: AppUiState,
+    preferredSidebarWidth: Dp?,
+    onPreferredSidebarWidthChange: (Dp) -> Unit,
     transitionProgress: Float,
 ) {
     val preferences = remember { platformServices().preferences }
-    val savedWidth = remember {
-        preferences.settingsSidebarWidth.takeIf { it > 0f }?.dp
-    }
     val scope = rememberCoroutineScope()
     var dragging by remember { mutableStateOf(false) }
+    // Raw pointer width while dragging or while the return bounce plays.
+    // While it is non-null it is authoritative over the resting width.
+    var dragWidth by remember { mutableStateOf<Dp?>(null) }
+    // Animated resting width. Null until the first layout pass, so the first
+    // frame is drawn at the correct position instead of animating from 0.
+    var restingWidth by remember { mutableStateOf<Dp?>(null) }
     var bounceJob by remember { mutableStateOf<Job?>(null) }
     val bounceAnim = remember { Animatable(0f) }
 
@@ -352,27 +404,39 @@ private fun WideSettings(
         // without leaving a splitter-wide sliver behind.
         val maxPaneWidth = windowWidth
         val minPaneWidth = (windowWidth * PaneMinRatio).coerceAtMost(maxPaneWidth)
-        val maxSidebarWidth = (windowWidth - SplitterWidth - minPaneWidth)
-            .coerceAtLeast(minPaneWidth)
         val defaultLeftWidth = windowWidth * DefaultSidebarRatio
-        val defaultRightWidth = (windowWidth - defaultLeftWidth).coerceAtLeast(0.dp)
+        val preferred = preferredSidebarWidth ?: defaultLeftWidth
+        val restingTarget = settingsSplitTarget(preferred, windowWidth)
 
-        var paneWidth by remember {
-            mutableStateOf(
-                (savedWidth ?: defaultLeftWidth).coerceIn(minPaneWidth, maxSidebarWidth),
-            )
-        }
-
-        // Window changes clamp the resting width directly; the splitter only
-        // animates as the result of an explicit drag past a ratio floor.
-        LaunchedEffect(windowWidth) {
-            bounceJob?.cancel()
-            if (!dragging) {
-                paneWidth = paneWidth.coerceIn(minPaneWidth, maxSidebarWidth)
+        // Freeze the initial third into an absolute width once the wide
+        // layout is first shown. Without this a window resize (not just a
+        // full-screen round trip) would keep recomputing a third of the new
+        // width, while the old split view kept the width the user saw.
+        LaunchedEffect(windowWidth, preferredSidebarWidth) {
+            if (preferredSidebarWidth == null) {
+                onPreferredSidebarWidthChange(windowWidth * DefaultSidebarRatio)
             }
         }
 
-        val displayedWidth = paneWidth.coerceIn(0.dp, maxPaneWidth)
+        // A width the user chose is kept as-is; only the running layout is
+        // clamped by the current window. When a resize crosses a pane floor
+        // the correction glides with the layout spring. With no saved width
+        // the resting third follows the window immediately, as before.
+        LaunchedEffect(restingTarget, preferredSidebarWidth) {
+            val current = restingWidth
+            if (current == null || preferredSidebarWidth == null || current == restingTarget) {
+                restingWidth = restingTarget
+            } else {
+                animate(
+                    initialValue = current.value,
+                    targetValue = restingTarget.value,
+                    animationSpec = FograinMotion.Layout,
+                ) { value, _ -> restingWidth = value.dp }
+            }
+        }
+
+        val displayedWidth = (dragWidth ?: restingWidth ?: restingTarget)
+            .coerceIn(0.dp, maxPaneWidth)
         val rightVisibleWidth = (windowWidth - displayedWidth).coerceAtLeast(0.dp)
         val enterSlide = 1f - transitionProgress
 
@@ -432,16 +496,18 @@ private fun WideSettings(
                     // current visible width.
                     bounceJob?.cancel()
                     dragging = true
-                    paneWidth = displayedWidth
+                    dragWidth = displayedWidth
                 },
                 onDrag = { delta ->
-                    paneWidth = (paneWidth + delta).coerceIn(0.dp, maxPaneWidth)
+                    dragWidth = ((dragWidth ?: displayedWidth) + delta)
+                        .coerceIn(0.dp, maxPaneWidth)
                 },
                 onDragEnd = {
                     dragging = false
-                    val released = paneWidth.coerceIn(0.dp, maxPaneWidth)
-                    val target = released.coerceIn(minPaneWidth, maxSidebarWidth)
+                    val released = (dragWidth ?: displayedWidth).coerceIn(0.dp, maxPaneWidth)
+                    val target = settingsSplitTarget(released, windowWidth)
                     preferences.settingsSidebarWidth = target.value
+                    onPreferredSidebarWidthChange(target)
                     if (target != released) {
                         // Past a side's 32 % floor: ease back with a tiny
                         // overshoot. The main leg uses EaseInOut (accelerate,
@@ -466,18 +532,25 @@ private fun WideSettings(
                                     durationMillis = ReturnDurationMillis,
                                     easing = EaseInOut,
                                 ),
-                            ) { paneWidth = value.dp }
+                            ) { dragWidth = value.dp }
                             bounceAnim.animateTo(
                                 targetValue = target.value,
                                 animationSpec = tween(
                                     durationMillis = SettleDurationMillis,
                                     easing = EaseInOut,
                                 ),
-                            ) { paneWidth = value.dp }
+                            ) { dragWidth = value.dp }
+                            restingWidth = target
+                            dragWidth = null
                         }
+                    } else {
+                        // Released inside the band: stay exactly at the
+                        // pointer's position. Syncing the resting value before
+                        // clearing the override avoids a spring chase back to
+                        // the old width for one frame.
+                        restingWidth = target
+                        dragWidth = null
                     }
-                    // Released inside the band: stay exactly at the pointer's
-                    // position; no snap and no extra animation.
                 },
             )
         }
@@ -595,7 +668,7 @@ private fun SettingsSidebar(
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier
                         .weight(1f)
-                        .then(LocalWindowDragModifier.current)
+                        .windowTitleDragArea()
                         .padding(vertical = 6.dp),
                 )
             }
@@ -805,6 +878,9 @@ private fun SettingsContentPane(
     showTitle: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val dragAreaActive = LocalWindowDragAreaActive.current
+    val topInset = LocalSettingsTopInset.current
+    val controlsInset = LocalWindowControlsInset.current
     Box(
         modifier = modifier
             .testTag(SettingsContentTag)
@@ -875,6 +951,23 @@ private fun SettingsContentPane(
                 }
             }
         }
+        // The content pane's own title-bar strip. It spans the full pane
+        // width (minus any app-drawn window controls), so dragging the blank
+        // part to the right of the section title moves the window too. On
+        // macOS it covers the 38 dp traffic-light strip; on Windows it is the
+        // top 12 dp that the native hit test turns into HTCAPTION.
+        if (dragAreaActive) {
+            val railHeight = if (topInset > 12.dp) topInset else 12.dp
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .fillMaxWidth()
+                    .height(railHeight)
+                    .padding(end = controlsInset)
+                    .windowTitleDragArea()
+                    .testTag(SettingsDragRailTag),
+            )
+        }
     }
 }
 
@@ -937,7 +1030,7 @@ private fun CompactSettingsList(model: AppModel, state: AppUiState) {
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .weight(1f)
-                    .then(LocalWindowDragModifier.current)
+                    .windowTitleDragArea()
                     .padding(vertical = 4.dp),
             )
         }
@@ -1015,7 +1108,7 @@ private fun CompactSettingsDetail(model: AppModel, state: AppUiState) {
                 targetState = section,
                 modifier = Modifier
                     .weight(1f)
-                    .then(LocalWindowDragModifier.current)
+                    .windowTitleDragArea()
                     .padding(vertical = 4.dp),
                 transitionSpec = {
                     fadeIn(tween(180)) togetherWith fadeOut(tween(120))

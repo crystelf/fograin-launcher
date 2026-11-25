@@ -12,9 +12,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Borderless windows cannot use AWT's MAXIMIZED_BOTH (it covers the taskbar),
- * so the shell owns the work-area math, restore geometry and off-screen
- * recovery. These tests pin that logic without opening a window server.
+ * The custom preview cannot use AWT's MAXIMIZED_BOTH (it covers the taskbar),
+ * and every chrome style still needs the work-area math, restore geometry and
+ * off-screen recovery. These tests pin that logic without opening a window
+ * server.
  */
 class WindowGeometryTest {
     private val primary = Rectangle(0, 0, 1920, 1040)

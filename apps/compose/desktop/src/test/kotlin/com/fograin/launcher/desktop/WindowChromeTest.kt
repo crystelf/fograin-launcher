@@ -8,15 +8,20 @@ import kotlin.test.assertNull
 class WindowChromeTest {
     @Test
     fun macOSKeepsItsNativeTrafficLights() {
-        assertEquals(WindowChromeKind.NATIVE, windowChromeKind("Mac OS X"))
-        assertEquals(WindowChromeKind.NATIVE, windowChromeKind("macOS"))
+        assertEquals(WindowChromeKind.MACOS, windowChromeKind("Mac OS X"))
+        assertEquals(WindowChromeKind.MACOS, windowChromeKind("macOS"))
     }
 
     @Test
-    fun windowsAndLinuxUseTheAppDrawnCaption() {
-        assertEquals(WindowChromeKind.CUSTOM, windowChromeKind("Windows 11"))
-        assertEquals(WindowChromeKind.CUSTOM, windowChromeKind("Windows 10"))
-        assertEquals(WindowChromeKind.CUSTOM, windowChromeKind("Linux"))
+    fun windowsKeepsTheNativeFrameAndDrawsItsOwnCaption() {
+        assertEquals(WindowChromeKind.WINDOWS, windowChromeKind("Windows 11"))
+        assertEquals(WindowChromeKind.WINDOWS, windowChromeKind("Windows 10"))
+    }
+
+    @Test
+    fun linuxLeavesTheTitleBarToTheWindowManager() {
+        assertEquals(WindowChromeKind.SYSTEM, windowChromeKind("Linux"))
+        assertEquals(WindowChromeKind.SYSTEM, windowChromeKind("FreeBSD"))
     }
 
     @Test
@@ -24,6 +29,10 @@ class WindowChromeTest {
         assertEquals(
             WindowChromeKind.CUSTOM,
             windowChromeKind("macOS", forceCustom = true),
+        )
+        assertEquals(
+            WindowChromeKind.CUSTOM,
+            windowChromeKind("Windows 11", forceCustom = true),
         )
     }
 

@@ -2,22 +2,28 @@ package com.fograin.launcher.ui.components
 
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import com.fograin.launcher.platform.platformServices
 
 /**
  * Metrics shared by the desktop shell and every page header.
  *
- * Windows and Linux windows are drawn by Compose (no native caption), so the
- * page header doubles as their title bar: a 48 dp row with the window controls
- * pinned to its top-right corner. macOS keeps its 48 dp traffic-light row and
- * reports a zero [LocalWindowControlsInset] because the native lights sit on
- * the left instead.
+ * Windows hides its native caption and draws the page header as the title
+ * bar: a 48 dp row with the window controls pinned to its top-right corner.
+ * macOS keeps its 48 dp traffic-light row and reports a zero
+ * [LocalWindowControlsInset] because the native lights sit on the left
+ * instead. Linux leaves the title bar to the window manager, so it also
+ * reports a zero inset.
  */
 object WindowChromeMetrics {
     /** Height of the draggable title-bar strip / first page-header row. */
@@ -36,9 +42,10 @@ object WindowChromeMetrics {
 /**
  * Space the host reserves at the top-right of the content for window controls.
  *
- * The shell provides [WindowChromeMetrics.ControlsInset] on borderless Windows
- * and Linux windows and `0.dp` everywhere else (macOS traffic lights are on the
- * left, Android has no window controls).
+ * The shell provides [WindowChromeMetrics.ControlsInset] on Windows (where the
+ * app draws the caption) and `0.dp` everywhere else (macOS traffic lights are
+ * on the left, Linux delegates the title bar to the window manager, Android
+ * has no window controls).
  */
 val LocalWindowControlsInset = staticCompositionLocalOf { 0.dp }
 
@@ -51,6 +58,57 @@ val LocalWindowControlsInset = staticCompositionLocalOf { 0.dp }
  * buttons completely outside the hit path.
  */
 val LocalWindowDragModifier = staticCompositionLocalOf<Modifier> { Modifier }
+
+/**
+ * Whether the current window has a title-bar area inside the Compose content.
+ *
+ * macOS draws its traffic lights over a transparent title bar and Windows
+ * hides the native title bar in favour of the app-drawn caption, so both need
+ * in-content drag regions. Linux keeps the window manager's title bar, and
+ * Android has no window chrome at all.
+ */
+val LocalWindowDragAreaActive = staticCompositionLocalOf { false }
+
+/**
+ * Receives the window-relative bounds of in-content title-bar drag regions.
+ *
+ * Windows cannot move a window from a Compose pointer gesture and still keep
+ * Snap/Aero animations; it needs the regions up front so `WM_NCHITTEST` can
+ * answer `HTCAPTION` and let the system own the drag. The desktop shell
+ * implements this over the native window procedure; other platforms leave it
+ * null and use [LocalWindowDragModifier] instead.
+ */
+interface WindowCaptionRegionReporter {
+    fun update(key: Any, bounds: Rect)
+
+    fun remove(key: Any)
+}
+
+val LocalWindowCaptionRegionReporter = staticCompositionLocalOf<WindowCaptionRegionReporter?> { null }
+
+/**
+ * Marks its layout bounds as the window's title-bar strip.
+ *
+ * On Windows the bounds are reported to the native window procedure, which
+ * hands the area to the system (native drag, Snap, double-click maximize). On
+ * macOS and the development-only custom chrome the platform drag gesture is
+ * applied directly. Everywhere else this is a no-op.
+ */
+@Composable
+fun Modifier.windowTitleDragArea(): Modifier {
+    val reporter = LocalWindowCaptionRegionReporter.current
+    val gesture = LocalWindowDragModifier.current
+    val key = remember { Any() }
+    DisposableEffect(reporter, key) {
+        onDispose { reporter?.remove(key) }
+    }
+    val reported = if (reporter == null) {
+        this
+    } else {
+        this.onGloballyPositioned { coordinates -> reporter.update(key, coordinates.boundsInWindow()) }
+    }
+    return reported.then(gesture)
+}
 
 /**
  * Whether the host window itself has rounded corners.
@@ -118,4 +176,20 @@ fun contentPanelShape(inset: Boolean): Shape {
         topStart = ContentPanelCorner,
         bottomStart = ContentPanelCorner,
     )
+}
+
+/**
+ * [contentPanelShape] for the animated shell.
+ *
+ * [expansion] is the spring-driven `0..1` progress between the compact shell
+ * (no rail, panel flush with the window) and the rail layout. The left corner
+ * follows the rail as it slides in, so the panel does not pop from square to
+ * rounded when the breakpoint is crossed.
+ */
+@Composable
+fun animatedContentPanelShape(expansion: Float): Shape {
+    val platformName = remember { platformServices().platformName }
+    val restingRadius = windowCornerRadius(platformName)
+    val radius = lerp(restingRadius, ContentPanelCorner, expansion.coerceIn(0f, 1f))
+    return RoundedCornerShape(topStart = radius, bottomStart = radius)
 }
