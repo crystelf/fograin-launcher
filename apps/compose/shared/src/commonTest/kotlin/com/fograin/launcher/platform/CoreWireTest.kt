@@ -151,6 +151,14 @@ class CoreWireTest {
             json("""{"type":"game.exited","instanceId":"fog","exitCode":0,"playSeconds":44}"""),
         )
         assertEquals(CoreEvent.GameExited("fog", 0, 44), exited)
+
+        val modpack = CoreEvent.parse(
+            json("""{"type":"modpack.finished","instanceId":"calm","name":"Calm","state":"failed","detail":["modpack: boom"]}"""),
+        )
+        assertEquals(
+            CoreEvent.ModpackFinished("calm", "Calm", TaskState.FAILED, listOf("modpack: boom")),
+            modpack,
+        )
         assertNull(CoreEvent.parse(json("""{"type":"unknown"}""")))
     }
 }

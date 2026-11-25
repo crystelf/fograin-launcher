@@ -213,7 +213,6 @@
     <string name="download_queue_history">最近任務</string>
     <string name="download_queue_speed_value">%1$s/s</string>
     <string name="downloads_settings">下載設定</string>
-    <string name="downloads_settings_pending">下載設定將在後續接入</string>
     <string name="downloads_version_list">版本清單</string>
     <string name="downloads_no_match">沒有符合的版本</string>
     <string name="downloads_channel_label">版本類型</string>

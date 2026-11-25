@@ -1,6 +1,8 @@
 package com.fograin.launcher.app
 
 import com.fograin.launcher.model.Instance
+import com.fograin.launcher.model.TaskState
+import com.fograin.launcher.platform.CoreEvent
 import com.fograin.launcher.platform.CoreExportPlan
 import com.fograin.launcher.platform.CoreModpack
 import com.fograin.launcher.platform.CoreModpackExport
@@ -137,10 +139,19 @@ class ModpackActions(private val model: AppModel) {
                 ).decode<CoreModpackImport>()
                 model.setState {
                     it.copy(
-                        modpack = ModpackUiState(
-                            taskId = result.taskId,
-                            importedInstanceId = result.instanceId,
-                        ),
+                        modpack = if (result.external) {
+                            // An external MultiMC/Prism instance is registered
+                            // in place; there is no follow-up graph to track.
+                            ModpackUiState()
+                        } else {
+                            ModpackUiState(
+                                taskId = result.taskId,
+                                importedInstanceId = result.instanceId,
+                                // Keep the chosen name so the terminal event can
+                                // label the result after the page state is reset.
+                                name = state.name,
+                            )
+                        },
                     )
                 }
                 model.showNotice(
@@ -152,6 +163,11 @@ class ModpackActions(private val model: AppModel) {
                     Notice.Tone.SUCCESS,
                 )
                 model.refreshCoreData()
+                if (result.external) {
+                    model.state.value.instances
+                        .firstOrNull { it.id == result.instanceId }
+                        ?.let { instance -> model.openInstanceDetail(instance) }
+                }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
@@ -426,6 +442,54 @@ class ModpackActions(private val model: AppModel) {
 
     fun onTaskFinished(taskId: String) {
         if (model.state.value.modpack.taskId != taskId) return
+        // The base install task finished; refresh so the new instance appears
+        // while the pack files are still being imported. `onModpackFinished`
+        // owns the final success/failure hand-off.
         model.scope.launch { model.refreshCoreData() }
+    }
+
+    /**
+     * Terminal state of a local `.mrpack` import. The core reports this after
+     * the base install and the pack-file graph have both finished, so the
+     * instance page is only opened once it is actually usable.
+     */
+    fun onModpackFinished(event: CoreEvent.ModpackFinished) {
+        val state = model.state.value.modpack
+        val instanceId = state.importedInstanceId
+        if (instanceId.isNullOrBlank() || instanceId != event.instanceId) return
+        val name = state.name.ifBlank { event.name }
+        when (event.state) {
+            TaskState.SUCCEEDED -> {
+                model.setState { it.copy(modpack = ModpackUiState()) }
+                model.scope.launch {
+                    model.refreshCoreData()
+                    val instance = model.state.value.instances
+                        .firstOrNull { it.id == event.instanceId }
+                    if (instance != null) model.openInstanceDetail(instance)
+                    model.showNotice(
+                        if (name.isBlank()) "整合包安装完成" else "整合包“$name”安装完成",
+                        Notice.Tone.SUCCESS,
+                    )
+                }
+            }
+
+            TaskState.FAILED -> {
+                model.setState { it.copy(modpack = ModpackUiState()) }
+                model.showError(
+                    if (name.isBlank()) "整合包安装失败" else "整合包“$name”安装失败",
+                    event.detail.firstOrNull() ?: "未知原因",
+                    event.detail.drop(1).joinToString("\n").ifBlank { null },
+                )
+                model.scope.launch { model.refreshCoreData() }
+            }
+
+            TaskState.CANCELLED -> {
+                model.setState { it.copy(modpack = ModpackUiState()) }
+                model.showNotice("整合包安装已取消")
+                model.scope.launch { model.refreshCoreData() }
+            }
+
+            else -> Unit
+        }
     }
 }

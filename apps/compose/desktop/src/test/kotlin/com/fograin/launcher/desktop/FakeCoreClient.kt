@@ -338,7 +338,7 @@ class FakeCoreClient : CoreClient {
 
         "modpack.inspect" -> json(MODPACK_JSON)
         "modpack.install" -> json(
-            """{"ok":true,"taskId":"modpack-task-1","name":"Calm Pack","versionId":"calm-v1","versionNumber":"1.2.0","source":"modrinth"}""",
+            """{"ok":true,"taskId":"modpack-task-1","instanceId":"calmpack","name":"Calm Pack","versionId":"calm-v1","versionNumber":"1.2.0","source":"modrinth"}""",
         )
         "modpack.import" -> json(
             """{"ok":true,"instanceId":"calmpack","taskId":"task-modpack","external":false,"pack":$MODPACK_JSON_BODY}""",

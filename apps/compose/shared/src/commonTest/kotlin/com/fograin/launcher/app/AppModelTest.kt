@@ -791,6 +791,81 @@ class AppModelTest {
     }
 
     @Test
+    fun downloadedModpackOpensTheNewInstanceWhenInstallFinishes() = runTest {
+        val core = FakeCore()
+        core.extraInstanceRow =
+            """{"id":"calm","name":"Calm","minecraft":"1.21.4","loaderKind":"fabric","loaderVersion":"0.16.9","favorite":false,"installed":true,"modCount":3,"sizeBytes":100,"playSeconds":0,"lastPlayedMs":null}"""
+        val model = model(backgroundScope, core)
+        runCurrent()
+
+        model.navigate(AppDestination.DOWNLOADS)
+        model.downloads.setCategory(DownloadsCategory.MODPACK)
+        runCurrent()
+        val project = model.state.value.contentBrowser.projects.first()
+        model.contentBrowser.openProject(project)
+        runCurrent()
+        model.contentBrowser.installSelected()
+        runCurrent()
+
+        // The archive download alone must not end the flow.
+        model.handleEvent(
+            CoreEvent.TaskFinished(
+                taskId = "modpack-task-1",
+                name = "整合包下载:${project.title}",
+                state = TaskState.SUCCEEDED,
+                detail = emptyList(),
+            ),
+        )
+        runCurrent()
+        assertEquals(AppDestination.DOWNLOADS, model.state.value.destination)
+        assertTrue(model.state.value.notice?.message.orEmpty().contains("正在安装"))
+
+        model.handleEvent(
+            CoreEvent.ModpackFinished(
+                instanceId = "calm",
+                name = "Calm",
+                state = TaskState.SUCCEEDED,
+                detail = emptyList(),
+            ),
+        )
+        runCurrent()
+
+        val state = model.state.value
+        assertEquals(AppDestination.LIBRARY, state.destination)
+        assertEquals(LibraryStage.DETAIL, state.libraryStage)
+        assertEquals("calm", state.libraryDetailId)
+    }
+
+    @Test
+    fun modpackInstallFailureIsReportedAfterTheDownload() = runTest {
+        val core = FakeCore()
+        val model = model(backgroundScope, core)
+        runCurrent()
+
+        model.downloads.setCategory(DownloadsCategory.MODPACK)
+        runCurrent()
+        model.contentBrowser.openProject(model.state.value.contentBrowser.projects.first())
+        runCurrent()
+        model.contentBrowser.installSelected()
+        runCurrent()
+
+        model.handleEvent(
+            CoreEvent.ModpackFinished(
+                instanceId = "calm",
+                name = "Calm",
+                state = TaskState.FAILED,
+                detail = listOf("modpack: install failed"),
+            ),
+        )
+        runCurrent()
+
+        val alert = model.state.value.alert
+        assertNotNull(alert)
+        assertTrue(alert.title.contains("Calm"))
+        assertTrue(alert.message.contains("install failed"))
+    }
+
+    @Test
     fun datapackCategoryLoadsWorldsAndInstallsIntoTheWorld() = runTest {
         val core = FakeCore()
         val model = model(backgroundScope, core)
@@ -881,6 +956,41 @@ class AppModelTest {
         runCurrent()
         assertEquals("task-modpack", model.state.value.modpack.taskId)
         assertEquals("calm", model.state.value.modpack.importedInstanceId)
+    }
+
+    @Test
+    fun localModpackImportOpensTheNewInstanceWhenItFinishes() = runTest {
+        val platform = FakePlatform().apply { nextFilePick = "/tmp/calm.mrpack" }
+        val core = FakeCore()
+        core.extraInstanceRow =
+            """{"id":"calm","name":"Calm","minecraft":"1.21.4","loaderKind":"fabric","loaderVersion":"0.16.9","favorite":false,"installed":true,"modCount":3,"sizeBytes":100,"playSeconds":0,"lastPlayedMs":null}"""
+        val model = AppModel.create(
+            core = core,
+            platform = platform.services,
+            scope = backgroundScope,
+        )
+        runCurrent()
+
+        model.modpack.startImport()
+        runCurrent()
+        model.modpack.confirmImport()
+        runCurrent()
+
+        model.handleEvent(
+            CoreEvent.ModpackFinished(
+                instanceId = "calm",
+                name = "Calm",
+                state = TaskState.SUCCEEDED,
+                detail = emptyList(),
+            ),
+        )
+        runCurrent()
+
+        val state = model.state.value
+        assertNull(state.modpack.importedInstanceId)
+        assertEquals(AppDestination.LIBRARY, state.destination)
+        assertEquals(LibraryStage.DETAIL, state.libraryStage)
+        assertEquals("calm", state.libraryDetailId)
     }
 
     @Test

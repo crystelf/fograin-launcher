@@ -73,6 +73,10 @@ impl Service {
             }
         }
         let name = non_empty(request.name.as_deref()).unwrap_or_else(|| version.project_id.clone());
+        // Pin the instance id now: the download finishes before the import
+        // runs, and the UI needs a stable id to understand which instance the
+        // upcoming `modpack.finished` event belongs to.
+        let instance_id = modpack_instance_id(&self.manager(), &name);
         let directory = self.layout.cache().join("modpacks");
         std::fs::create_dir_all(&directory).map_err(|error| {
             Error::with_detail(
@@ -138,14 +142,30 @@ impl Service {
         let this = Arc::clone(self);
         let wait_id = task_id.clone();
         let import_name = name.clone();
+        let import_instance = instance_id.clone();
+        let finished_name = name.clone();
+        let events = Arc::clone(&self.events);
         self.runtime.spawn(async move {
             if let Err(error) = this.wait_task(&wait_id).await {
+                // Pausing/cancelling is user-driven; a failed graph already
+                // reaches the UI as `task.finished`, so this pipeline only
+                // logs and stays quiet.
                 tracing::warn!(%error, "modpack download failed; import skipped");
                 return;
             }
-            let payload = json!({ "path": dest, "name": import_name });
+            let payload = json!({
+                "path": dest,
+                "name": import_name,
+                "instanceId": import_instance,
+            });
             if let Err(error) = this.modpack_import(&payload).await {
                 tracing::warn!(%error, "modpack import failed after download");
+                events.push_modpack_finished(
+                    &import_instance,
+                    &finished_name,
+                    "failed",
+                    &[error.to_string()],
+                );
             }
         });
         self.runtime
@@ -153,6 +173,7 @@ impl Service {
 
         Ok(json!({
             "taskId": task_id,
+            "instanceId": instance_id,
             "name": name,
             "versionId": version.version_id,
             "versionNumber": version.version_number,
@@ -169,6 +190,9 @@ impl Service {
                 Error::with_detail(ErrorKind::Internal, "error.modpack.read", error.to_string())
             })??;
         let name = non_empty(request.name.as_deref()).unwrap_or_else(|| pack.name.clone());
+        // `modpack.install` pins this before the archive download so the UI can
+        // match the terminal event even though the import starts later.
+        let requested_instance = non_empty(request.instance_id.as_deref());
         if pack.minecraft.trim().is_empty() {
             return Err(Error::with_detail(
                 ErrorKind::InvalidInput,
@@ -195,6 +219,8 @@ impl Service {
                 let _ =
                     manager.set_loader(&instance.id, &pack.loader_kind, &pack.loader_version, "");
             }
+            self.events
+                .push_modpack_finished(&instance.id, &name, "succeeded", &[]);
             return Ok(json!({
                 "instanceId": instance.id,
                 "taskId": Value::Null,
@@ -203,7 +229,8 @@ impl Service {
             }));
         }
 
-        let instance_id = modpack_instance_id(&self.manager(), &name);
+        let instance_id =
+            requested_instance.unwrap_or_else(|| modpack_instance_id(&self.manager(), &name));
         let loader_kind = if pack.loader_kind.eq_ignore_ascii_case("vanilla") {
             String::new()
         } else {
@@ -227,11 +254,14 @@ impl Service {
         let replay_params = json!({
             "path": pack.source_path,
             "name": pack.name,
+            "instanceId": instance_id,
         });
         let this = Arc::clone(self);
+        let events = Arc::clone(&self.events);
         let task_name = format!("整合包:{}", pack.name);
         let pack_for_task = pack.clone();
         let instance_for_task = instance_id.clone();
+        let finished_name = name.clone();
         let task_name_for_task = task_name.clone();
         let base_task_for_task = base_task.clone();
         self.runtime.spawn(async move {
@@ -239,12 +269,32 @@ impl Service {
                 && let Err(error) = this.wait_task(&task).await
             {
                 tracing::warn!(%error, "base install failed; modpack import stopped");
+                // Pause/cancel leaves the base task in the queue so the user
+                // can resume it; the pack files can then be imported by
+                // replaying `modpack.import` from the queue.
+                let state = if error.kind == ErrorKind::Cancelled {
+                    "cancelled"
+                } else {
+                    "failed"
+                };
+                events.push_modpack_finished(
+                    &instance_for_task,
+                    &finished_name,
+                    state,
+                    &[error.to_string()],
+                );
                 return;
             }
             let instance = match this.manager().load(&instance_for_task) {
                 Ok(instance) => instance,
                 Err(error) => {
                     tracing::warn!(%error, "modpack instance disappeared");
+                    events.push_modpack_finished(
+                        &instance_for_task,
+                        &finished_name,
+                        "failed",
+                        &[error.to_string()],
+                    );
                     return;
                 }
             };
@@ -252,6 +302,12 @@ impl Service {
                 Ok(client) => client,
                 Err(error) => {
                     tracing::warn!(%error, "modpack import has no content client");
+                    events.push_modpack_finished(
+                        &instance_for_task,
+                        &finished_name,
+                        "failed",
+                        &[error.to_string()],
+                    );
                     return;
                 }
             };
@@ -273,9 +329,20 @@ impl Service {
                     params: replay_params,
                 }),
             );
-            this.clone()
-                .watch_task(task_id, control, task_name_for_task)
-                .await;
+            let (_, result) = tokio::join!(
+                this.clone()
+                    .watch_task(task_id.clone(), control, task_name_for_task),
+                this.wait_task(&task_id),
+            );
+            let (state, detail) = match result {
+                Ok(()) => ("succeeded", Vec::new()),
+                Err(error) if error.kind == ErrorKind::Cancelled => {
+                    ("cancelled", vec![error.to_string()])
+                }
+
+                Err(error) => ("failed", vec![error.to_string()]),
+            };
+            events.push_modpack_finished(&instance_for_task, &finished_name, state, &detail);
         });
 
         Ok(json!({

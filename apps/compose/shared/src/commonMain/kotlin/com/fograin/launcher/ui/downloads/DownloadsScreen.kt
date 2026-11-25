@@ -64,6 +64,7 @@ import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.app.DownloadRow
 import com.fograin.launcher.app.DownloadStage
+import com.fograin.launcher.app.SettingsSection
 import com.fograin.launcher.model.ContentLoaderFilter
 import com.fograin.launcher.model.DownloadVersionChannel
 import com.fograin.launcher.model.DownloadsCategory
@@ -93,7 +94,6 @@ fun DownloadsScreen(model: AppModel, state: AppUiState) {
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
-    val settingsPending = stringResource(Res.string.downloads_settings_pending)
     val backDispatcher = remember { platformServices().backDispatcher }
     val category = state.download.category
     val stage = state.download.stage
@@ -210,7 +210,10 @@ fun DownloadsScreen(model: AppModel, state: AppUiState) {
                     },
                     actions = {
                         Box {
-                            IconButton(onClick = { menuExpanded = true }) {
+                            IconButton(
+                                onClick = { menuExpanded = true },
+                                modifier = Modifier.testTag(DownloadsOptionsMenuTag),
+                            ) {
                                 Icon(
                                     imageVector = Icons.Filled.MoreVert,
                                     contentDescription = stringResource(Res.string.action_more),
@@ -248,9 +251,15 @@ fun DownloadsScreen(model: AppModel, state: AppUiState) {
                                     leadingIcon = {
                                         Icon(Icons.Outlined.Tune, contentDescription = null)
                                     },
+                                    modifier = Modifier.testTag(DownloadsSettingsMenuTag),
                                     onClick = {
                                         menuExpanded = false
-                                        model.showNotice(settingsPending)
+                                        // 下载设置 is not a second copy of the
+                                        // engine controls: it opens the
+                                        // settings destination on its download
+                                        // section, so both entry points edit
+                                        // the same values.
+                                        model.openSettings(SettingsSection.DOWNLOAD)
                                     },
                                 )
                             }
@@ -294,6 +303,8 @@ fun downloadsCategoryTag(category: DownloadsCategory): String =
 
 const val DownloadsQueueCardTag: String = "downloads-queue-card"
 const val DownloadsQueueMenuTag: String = "downloads-queue-menu"
+const val DownloadsOptionsMenuTag: String = "downloads-options-menu"
+const val DownloadsSettingsMenuTag: String = "downloads-settings-menu"
 
 /** Tag for the target-instance selector that sits in the downloads header. */
 const val ContentTargetTag: String = "content-target-menu"
