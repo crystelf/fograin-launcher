@@ -36,14 +36,24 @@ import kotlinx.serialization.json.put
  * ```
  *
  * Owns the "our download" bookkeeping ([pendingDownloadTaskId] /
- * [pendingDownloadInstanceId]) so the shell can jump to the new instance when
- * the task finishes — the one piece of cross-screen flow in the launcher.
- * State is written through [AppModel.setState]; nothing here renders.
+ * [pendingDownloadInstanceId], plus the modpack chain) so the shell can jump to
+ * the new instance when the task finishes — the one piece of cross-screen flow
+ * in the launcher. State is written through [AppModel.setState]; nothing here
+ * renders.
  */
 class DownloadsActions(private val model: AppModel) {
 
     private var pendingDownloadTaskId: String? = null
     private var pendingDownloadInstanceId: String? = null
+    /**
+     * Downloaded modpacks have a two-stage task chain: the archive download
+     * followed by the base install and the pack import. The core reports the
+     * chain through `modpack.finished`, so these fields link the download row
+     * the user started to the instance that is being created.
+     */
+    private var pendingModpackTaskId: String? = null
+    private var pendingModpackInstanceId: String? = null
+    private var pendingModpackName: String = ""
     private var downloadVersionsGeneration = 0
     private var loaderVersionsGeneration = 0
     private var planGeneration = 0
@@ -555,7 +565,9 @@ class DownloadsActions(private val model: AppModel) {
     }
 
     fun isDownloading(instance: Instance): Boolean =
-        pendingDownloadInstanceId == instance.id || model.state.value.isDownloading(instance)
+        pendingDownloadInstanceId == instance.id ||
+            pendingModpackInstanceId == instance.id ||
+            model.state.value.isDownloading(instance)
 
     // ------------------------------------------------------------------
     // Download queue: one independent page plus inline task controls.
@@ -596,6 +608,12 @@ class DownloadsActions(private val model: AppModel) {
                             it.copy(download = it.download.copy(isGameDownloadRunning = true))
                         }
                     }
+                    // Resuming a modpack download replays `modpack.install`,
+                    // which returns a fresh download task; follow that id so
+                    // the eventual success still starts the install hand-off.
+                    if (pendingModpackTaskId == taskId) {
+                        pendingModpackTaskId = newTaskId
+                    }
                 }
                 model.showNotice("已继续下载", Notice.Tone.SUCCESS)
                 model.refreshTaskList()
@@ -633,10 +651,21 @@ class DownloadsActions(private val model: AppModel) {
         if (event.name.startsWith("java:")) return
         val title = InstanceFormat.taskTitle(event.name)
         val isOurDownload = event.taskId == pendingDownloadTaskId
+        val isOurModpackDownload = event.taskId == pendingModpackTaskId
         when (event.state) {
             TaskState.RUNNING -> Unit
             TaskState.SUCCEEDED -> {
-                model.showNotice("$title 完成", Notice.Tone.SUCCESS)
+                if (isOurModpackDownload) {
+                    // The core immediately continues with `modpack.import`;
+                    // the notice should say so instead of stopping at "done".
+                    pendingModpackTaskId = null
+                    model.showNotice(
+                        "整合包 ${pendingModpackName.ifBlank { title }} 下载完成，正在安装",
+                        Notice.Tone.INFO,
+                    )
+                } else {
+                    model.showNotice("$title 完成", Notice.Tone.SUCCESS)
+                }
                 model.scope.launch {
                     if (isOurDownload) finishGameDownload() else model.refreshCoreData()
                 }
@@ -650,12 +679,14 @@ class DownloadsActions(private val model: AppModel) {
                     event.detail.drop(1).joinToString("\n").ifBlank { null },
                 )
                 if (isOurDownload) clearPendingDownload()
+                if (isOurModpackDownload) clearPendingModpack()
                 model.scope.launch { model.refreshCoreData() }
             }
 
             TaskState.CANCELLED -> {
                 model.showNotice("$title 已取消")
                 if (isOurDownload) clearPendingDownload()
+                if (isOurModpackDownload) clearPendingModpack()
                 model.scope.launch { model.refreshCoreData() }
             }
 
@@ -672,6 +703,64 @@ class DownloadsActions(private val model: AppModel) {
 
             else -> Unit
         }
+    }
+
+    /** Links a `modpack.install` download to the instance it will create. */
+    fun trackModpackInstall(taskId: String?, instanceId: String?, name: String) {
+        pendingModpackTaskId = taskId?.takeIf { it.isNotBlank() }
+        pendingModpackInstanceId = instanceId?.takeIf { it.isNotBlank() }
+        pendingModpackName = name
+    }
+
+    /**
+     * `modpack.finished`: the archive download, base install and pack import
+     * have all run. This is the moment the download page hands the user over
+     * to the new instance, mirroring a normal game install.
+     */
+    fun onModpackFinished(event: CoreEvent.ModpackFinished) {
+        val instanceId = pendingModpackInstanceId ?: return
+        if (event.instanceId != instanceId) return
+        val name = pendingModpackName.ifBlank { event.name }
+        when (event.state) {
+            TaskState.SUCCEEDED -> {
+                clearPendingModpack()
+                model.showNotice(
+                    if (name.isBlank()) "整合包安装完成" else "整合包 $name 安装完成",
+                    Notice.Tone.SUCCESS,
+                )
+                model.scope.launch { openModpackInstance(event.instanceId) }
+            }
+
+            TaskState.FAILED -> {
+                clearPendingModpack()
+                model.showError(
+                    if (name.isBlank()) "整合包安装失败" else "整合包 $name 安装失败",
+                    event.detail.firstOrNull() ?: "未知原因",
+                    event.detail.drop(1).joinToString("\n").ifBlank { null },
+                )
+                model.scope.launch { model.refreshCoreData() }
+            }
+
+            TaskState.CANCELLED -> {
+                clearPendingModpack()
+                model.showNotice("整合包安装已取消")
+                model.scope.launch { model.refreshCoreData() }
+            }
+
+            else -> Unit
+        }
+    }
+
+    private suspend fun openModpackInstance(instanceId: String) {
+        model.refreshCoreData()
+        val instance = model.state.value.instances.firstOrNull { it.id == instanceId } ?: return
+        model.openInstanceDetail(instance)
+    }
+
+    private fun clearPendingModpack() {
+        pendingModpackTaskId = null
+        pendingModpackInstanceId = null
+        pendingModpackName = ""
     }
 
     private suspend fun finishGameDownload() {

@@ -1,5 +1,6 @@
 package com.fograin.launcher.desktop
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -50,12 +51,16 @@ import com.fograin.launcher.platform.currentSystemLanguageTag
 import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.settings.AppLanguage
 import com.fograin.launcher.ui.AppDestination
+import com.fograin.launcher.ui.components.FograinMotion
+import com.fograin.launcher.ui.components.LocalWindowCaptionRegionReporter
 import com.fograin.launcher.ui.components.LocalWindowControlsInset
+import com.fograin.launcher.ui.components.LocalWindowDragAreaActive
 import com.fograin.launcher.ui.components.LocalWindowDragModifier
 import com.fograin.launcher.ui.components.WindowChromeMetrics
 import com.fograin.launcher.ui.settings.LocalSettingsTopInset
 import com.fograin.launcher.ui.theme.FograinTheme
 import java.awt.Color as AwtColor
+import java.awt.Frame as AwtFrame
 import java.awt.GraphicsEnvironment
 import java.awt.datatransfer.DataFlavor
 import java.awt.dnd.DnDConstants
@@ -79,12 +84,21 @@ private val osName: String = System.getProperty("os.name").orEmpty()
 private val isMac = osName.contains("mac", ignoreCase = true)
 
 /**
- * Development aid for inspecting the Windows/Linux chrome on a Mac:
+ * Development aid for inspecting the app-drawn caption on a Mac:
  * `-Dfograin.window.chrome=custom`. Never set by the released application.
  */
 private val forceCustomChrome = System.getProperty("fograin.window.chrome") == "custom"
 private val windowChrome = windowChromeKind(osName, forceCustomChrome)
-private val usesCustomChrome = windowChrome == WindowChromeKind.CUSTOM
+
+/** Windows-style caption drawn by Compose (also the custom dev preview). */
+private val drawsAppCaption =
+    windowChrome == WindowChromeKind.WINDOWS || windowChrome == WindowChromeKind.CUSTOM
+
+/** Windows keeps its native frame styles but hides the non-client area. */
+private val usesWindowsNativeFrame = windowChrome == WindowChromeKind.WINDOWS
+
+/** macOS puts the traffic lights over the Compose content. */
+private val usesImmersiveTitleBar = windowChrome == WindowChromeKind.MACOS
 
 private fun shortcut(key: Key, shift: Boolean = false): KeyShortcut =
     if (isMac) KeyShortcut(key, meta = true, shift = shift) else KeyShortcut(key, ctrl = true, shift = shift)
@@ -148,17 +162,27 @@ fun main() {
         val state by model.state.collectAsState()
         val labels = menuStrings(state.language)
 
-        // Restore geometry in the borderless world too. A frame saved by an
-        // older build may point at a monitor that is no longer connected, so
+        // Restore geometry for every chrome style. A frame saved by an older
+        // build may point at a monitor that is no longer connected, so
         // sanitise it before it reaches AWT.
         val workAreas = remember { screenWorkAreas() }
         val restoredFrame = remember {
             platform.preferences.windowFrame?.let { sanitizeWindowFrame(it, workAreas) }
         }
         val initiallyMaximized = restoredFrame?.maximized == true
-        val floatingBounds = restoredFrame?.toRectangle()
-        val initialBounds = floatingBounds?.let { bounds ->
-            if (initiallyMaximized) workAreaFor(bounds, workAreas) else bounds
+        val restoredBounds = restoredFrame?.toRectangle()
+        // A native frame restores through the OS placement: the window manager
+        // maximises it with its own animation and work-area bounds. The
+        // development-only custom chrome still moves the bounds by hand,
+        // because AWT's MAXIMIZED_BOTH covers the taskbar on an undecorated
+        // frame.
+        val usesNativePlacement = windowChrome != WindowChromeKind.CUSTOM
+        val initialBounds = restoredBounds?.let { bounds ->
+            if (initiallyMaximized && !usesNativePlacement) {
+                workAreaFor(bounds, workAreas)
+            } else {
+                bounds
+            }
         }
         val windowState = rememberWindowState(
             position = initialBounds
@@ -167,35 +191,52 @@ fun main() {
             size = initialBounds
                 ?.let { DpSize(it.width.dp, it.height.dp) }
                 ?: DpSize(1120.dp, 780.dp),
-            // The app draws its own caption on Windows/Linux, so AWT's
-            // MAXIMIZED_BOTH (which covers the taskbar on undecorated frames)
-            // is never used. Keep the state floating and move the bounds.
-            placement = WindowPlacement.Floating,
+            placement = if (usesNativePlacement && initiallyMaximized) {
+                WindowPlacement.Maximized
+            } else {
+                WindowPlacement.Floating
+            },
         )
-        val maximized = remember { mutableStateOf(initiallyMaximized) }
-        val restoreBounds = remember { mutableStateOf(floatingBounds) }
+        // Custom preview only: the maximize rectangle the shell restores to.
+        val customMaximized = remember { mutableStateOf(initiallyMaximized && !usesNativePlacement) }
+        val customRestoreBounds = remember { mutableStateOf(restoredBounds) }
+        // The last floating rectangle, kept while the OS maximizes or enters
+        // full screen so the next launch reopens at a sane size.
+        val floatingBounds = remember { mutableStateOf(restoredBounds) }
+        val windowsCaptionRegions = remember {
+            if (usesWindowsNativeFrame) WindowsCaptionRegions() else null
+        }
 
         val persistAndExit: () -> Unit = {
-            platform.preferences.windowFrame = frameToPersist(
-                state = windowState,
-                maximized = maximized.value,
-                restoreBounds = restoreBounds.value,
-            )
+            platform.preferences.windowFrame = if (usesNativePlacement) {
+                nativeFrameToPersist(windowState, floatingBounds.value)
+            } else {
+                frameToPersist(
+                    state = windowState,
+                    maximized = customMaximized.value,
+                    restoreBounds = customRestoreBounds.value,
+                )
+            }
             exitApplication()
         }
 
         val windowIcon = remember { appIconPainter() }
         val onPreviewKeyEvent = rememberDesktopShortcutHandler(
             model = model,
-            enabled = usesCustomChrome,
+            // macOS still has the native menu bar; Windows/Linux and the
+            // custom preview get the in-window shortcut handler.
+            enabled = windowChrome != WindowChromeKind.MACOS,
             onQuit = persistAndExit,
         )
         val decoration = remember {
-            if (usesCustomChrome) {
+            if (windowChrome == WindowChromeKind.CUSTOM) {
                 // Thin resize grips: the content (and scrollbars) run to the
                 // window edge, so an 8 dp grip would eat too much of them.
                 WindowDecoration.Undecorated(resizerThickness = 4.dp)
             } else {
+                // Windows hides the non-client area from a WndProc but keeps
+                // these styles (and therefore DWM animations, Snap and the
+                // shadow). Linux lets the window manager draw the title bar.
                 WindowDecoration.SystemDefault
             }
         }
@@ -260,7 +301,7 @@ fun main() {
             // and Linux do not: the numbered File/Edit/Go strip was an obvious
             // non-native seam, and the same commands are reachable through the
             // UI and the shortcut handler below.
-            if (windowChrome == WindowChromeKind.NATIVE) {
+            if (windowChrome == WindowChromeKind.MACOS) {
                 WindowMenuBar(
                     model = model,
                     language = state.language,
@@ -268,8 +309,19 @@ fun main() {
                 )
             }
 
+            // Windows keeps its native frame styles so DWM owns the animations,
+            // Snap and the shadow; the procedure hides only the visible
+            // non-client area and hands `HTCAPTION` back to the OS. Install it
+            // before the first frame is presented.
+            if (usesWindowsNativeFrame && windowsCaptionRegions != null) {
+                DisposableEffect(window) {
+                    val frame = installWindowsFrame(window, windowsCaptionRegions)
+                    onDispose { frame.close() }
+                }
+            }
+
             LaunchedEffect(Unit) {
-                if (windowChrome == WindowChromeKind.NATIVE) {
+                if (windowChrome == WindowChromeKind.MACOS) {
                     // Full-window content + a transparent title bar put the
                     // native traffic lights inside the rail; the window title
                     // text is hidden so no separate top bar remains.
@@ -292,18 +344,46 @@ fun main() {
                 }
             }
 
-            // A borderless window has no native resize grip to refresh its
-            // frame after our own setBounds. Treat any resize away from the
-            // monitor work area as "the user restored this window by dragging
-            // its edge", so the maximise glyph flips back immediately.
             DisposableEffect(window) {
                 val listener = object : ComponentAdapter() {
                     override fun componentResized(event: ComponentEvent) {
-                        if (!maximized.value) return
-                        val area = workAreaFor(window.bounds, screenWorkAreas())
-                        if (window.bounds != area) {
-                            maximized.value = false
-                            restoreBounds.value = window.bounds
+                        trackGeometry()
+                    }
+
+                    override fun componentMoved(event: ComponentEvent) {
+                        trackGeometry()
+                    }
+
+                    /**
+                     * Remembers the last floating rectangle for the next launch
+                     * and, for the custom preview, spots a manual maximize that
+                     * the user ended by dragging the window edge.
+                     */
+                    private fun trackGeometry() {
+                        if (windowChrome == WindowChromeKind.CUSTOM && customMaximized.value) {
+                            val area = workAreaFor(window.bounds, screenWorkAreas())
+                            if (window.bounds != area) {
+                                customMaximized.value = false
+                                customRestoreBounds.value = window.bounds
+                            }
+                        }
+                        val placement = windowState.placement
+                        val extendedState = (window as? AwtFrame)?.extendedState ?: 0
+                        val canRecordFloatingBounds =
+                            placement == WindowPlacement.Floating &&
+                                extendedState and AwtFrame.MAXIMIZED_BOTH == 0 &&
+                                extendedState and AwtFrame.ICONIFIED == 0
+                        if (canRecordFloatingBounds) {
+                            floatingBounds.value = window.bounds
+                            // The custom preview maximizes by moving the
+                            // bounds, so its "floating" state is still the
+                            // live window size while maximized. Do not
+                            // overwrite the rectangle it must restore to.
+                            if (windowChrome == WindowChromeKind.CUSTOM &&
+                                !customMaximized.value
+                            ) {
+                                customRestoreBounds.value = window.bounds
+                            }
                         }
                     }
                 }
@@ -320,74 +400,130 @@ fun main() {
                 // avoids the white flash during the first frame, resize drags
                 // and the brief gap when a sheet animates in.
                 SideEffect {
-                    if (usesCustomChrome) {
-                        val awtColor = AwtColor(windowBackground.toArgb(), false)
-                        if (window.background != awtColor) {
-                            window.background = awtColor
-                            window.rootPane.background = awtColor
-                        }
-                        if (window.minimumSize.width != MinimumWindowSize.width ||
-                            window.minimumSize.height != MinimumWindowSize.height
-                        ) {
-                            window.minimumSize = MinimumWindowSize
-                        }
+                    val awtColor = AwtColor(windowBackground.toArgb(), false)
+                    if (window.background != awtColor) {
+                        window.background = awtColor
+                        window.rootPane.background = awtColor
+                    }
+                    if (window.minimumSize.width != MinimumWindowSize.width ||
+                        window.minimumSize.height != MinimumWindowSize.height
+                    ) {
+                        window.minimumSize = MinimumWindowSize
                     }
                 }
 
                 fun toggleMaximize() {
-                    val areas = screenWorkAreas()
-                    if (maximized.value) {
-                        val target = restoreBounds.value
-                            ?.let { sanitizeWindowFrame(it.toWindowFrame(), areas).toRectangle() }
-                            ?: window.bounds
-                        maximized.value = false
-                        window.setBounds(target)
-                    } else {
-                        val current = window.bounds
-                        restoreBounds.value = current
-                        val area = workAreaFor(current, areas)
-                        maximized.value = true
-                        window.setBounds(area)
+                    when (windowChrome) {
+                        // The custom preview moves the bounds itself because
+                        // MAXIMIZED_BOTH covers the taskbar on an undecorated
+                        // frame.
+                        WindowChromeKind.CUSTOM -> {
+                            val areas = screenWorkAreas()
+                            if (customMaximized.value) {
+                                val target = customRestoreBounds.value
+                                    ?.let {
+                                        sanitizeWindowFrame(it.toWindowFrame(), areas).toRectangle()
+                                    }
+                                    ?: window.bounds
+                                customMaximized.value = false
+                                window.setBounds(target)
+                            } else {
+                                val current = window.bounds
+                                customRestoreBounds.value = current
+                                val area = workAreaFor(current, areas)
+                                customMaximized.value = true
+                                window.setBounds(area)
+                            }
+                        }
+
+                        // Windows asks the OS for the placement. AWT calls
+                        // ShowWindow(SW_MAXIMIZE/SW_RESTORE), which is what
+                        // makes DWM play the native maximize/restore
+                        // animation (and keeps Snap and Win+Arrow in sync).
+                        WindowChromeKind.WINDOWS -> {
+                            windowState.placement =
+                                if (windowState.placement == WindowPlacement.Maximized) {
+                                    WindowPlacement.Floating
+                                } else {
+                                    WindowPlacement.Maximized
+                                }
+                        }
+
+                        else -> Unit
                     }
                 }
 
                 val windowFocused = rememberWindowFocused(window)
-                val isMaximized by maximized
+                // The macOS traffic-light strip disappears in native full
+                // screen. Animating the inset instead of switching it keeps
+                // the settings sidebar and content from jumping 38 dp on the
+                // frame the system reports the new placement.
+                val animatedSettingsTopInset by animateDpAsState(
+                    targetValue = if (
+                        usesImmersiveTitleBar &&
+                        windowState.placement != WindowPlacement.Fullscreen
+                    ) {
+                        38.dp
+                    } else {
+                        0.dp
+                    },
+                    animationSpec = FograinMotion.LayoutDp,
+                    label = "settings-top-inset",
+                )
+                // A spring may overshoot zero; padding must stay non-negative.
+                val settingsTopInset = animatedSettingsTopInset.coerceAtLeast(0.dp)
+                val isMaximized = when (windowChrome) {
+                    WindowChromeKind.CUSTOM -> customMaximized.value
+                    WindowChromeKind.WINDOWS -> windowState.placement == WindowPlacement.Maximized
+                    else -> false
+                }
                 // The page header applies this to its title slot; the search
                 // field and action buttons sit outside it, so only the title
                 // area starts a drag or a double-click maximize.
-                val dragModifier = remember(window, usesCustomChrome, isMaximized) {
-                    windowDragModifier(
-                        window = window,
-                        dragEnabled = !(usesCustomChrome && isMaximized),
-                        onDoubleClick = if (usesCustomChrome) {
-                            { toggleMaximize() }
-                        } else {
-                            null
-                        },
-                    )
+                //
+                // Windows does not use this gesture: its title strips report
+                // their bounds through LocalWindowCaptionRegionReporter and
+                // the native WndProc answers HTCAPTION, which gives Snap and
+                // the system drag loop instead of a Compose `setLocation`.
+                val dragModifier = remember(window, windowChrome, isMaximized) {
+                    when (windowChrome) {
+                        WindowChromeKind.MACOS, WindowChromeKind.CUSTOM -> windowDragModifier(
+                            window = window,
+                            dragEnabled = !(windowChrome == WindowChromeKind.CUSTOM && isMaximized),
+                            onDoubleClick = if (windowChrome == WindowChromeKind.CUSTOM) {
+                                { toggleMaximize() }
+                            } else {
+                                null
+                            },
+                        )
+
+                        else -> Modifier
+                    }
                 }
 
                 Box(Modifier.fillMaxSize()) {
                     CompositionLocalProvider(
                         LocalWindowDragModifier provides dragModifier,
-                        LocalWindowControlsInset provides if (usesCustomChrome) {
+                        LocalWindowDragAreaActive provides (
+                            windowChrome == WindowChromeKind.MACOS ||
+                                windowChrome == WindowChromeKind.WINDOWS ||
+                                windowChrome == WindowChromeKind.CUSTOM
+                            ),
+                        LocalWindowCaptionRegionReporter provides windowsCaptionRegions,
+                        LocalWindowControlsInset provides if (drawsAppCaption) {
                             WindowChromeMetrics.ControlsInset
                         } else {
                             0.dp
                         },
                         // Settings is an in-window page; on macOS it owns the
                         // traffic-light strip exactly like the shell's rail.
-                        LocalSettingsTopInset provides if (windowChrome == WindowChromeKind.NATIVE) {
-                            38.dp
-                        } else {
-                            0.dp
-                        },
+                        // Full screen hides the lights, so the strip collapses.
+                        LocalSettingsTopInset provides settingsTopInset,
                     ) {
                         App(model)
                     }
 
-                    if (usesCustomChrome) {
+                    if (drawsAppCaption) {
                         WindowControls(
                             isMaximized = isMaximized,
                             focused = windowFocused,
@@ -412,7 +548,7 @@ fun main() {
 /**
  * Installs the shortcuts that used to live in the native menu bar.
  *
- * Only used on Windows/Linux. Keys are latched on KeyDown and released on
+ * Used on Windows/Linux (and the custom preview). Keys are latched on KeyDown and released on
  * KeyUp so auto-repeat cannot toggle the theme (or re-open a sheet) dozens of
  * times while a key is held.
  */

@@ -1,5 +1,6 @@
 package com.fograin.launcher.desktop
 
+import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowState
 import com.fograin.launcher.platform.WindowFrame
 import java.awt.Dimension
@@ -9,13 +10,13 @@ import java.awt.Rectangle
 import java.awt.Toolkit
 
 /**
- * Geometry helpers for the borderless desktop windows.
+ * Geometry helpers for the desktop windows.
  *
- * Windows and Linux get an app-drawn title bar, which means the OS no longer
- * provides a caption. The shell therefore has to know where the maximized
- * rectangle of the current monitor is (excluding the taskbar / dock), keep the
- * floating rectangle around for restore, and put a window that was last closed
- * on a disconnected monitor back on screen.
+ * Windows keeps its native frame styles but hides the caption, and the
+ * development-only custom chrome has no frame at all; both need the shell to
+ * know where the maximized rectangle of the current monitor is (excluding the
+ * taskbar / dock), keep the floating rectangle around for restore, and put a
+ * window that was last closed on a disconnected monitor back on screen.
  */
 
 /** Smallest window we allow; below this the compact shell stops being usable. */
@@ -153,7 +154,7 @@ private fun centeredFrame(
 /**
  * A window is usable when its title row is fully on a monitor: the user needs
  * a 96 x 48 dp grip to drag it back. Merely showing the bottom half of a window
- * that sits above the screen is not enough for a borderless frame.
+ * that sits above the screen is not enough for an undecorated frame.
  */
 private fun hasUsableOverlap(candidate: Rectangle, areas: List<Rectangle>): Boolean =
     areas.any { area ->
@@ -180,4 +181,28 @@ internal fun frameToPersist(
         return restoreBounds.toWindowFrame(maximized = true)
     }
     return windowFrame(state).copy(maximized = maximized)
+}
+
+/**
+ * Frame to persist for a window whose maximize/full-screen state is owned by
+ * the OS (Windows, Linux and macOS).
+ *
+ * While maximized the live bounds are the work area, so store the floating
+ * rectangle from the component listener instead. Full screen is not restored
+ * as such (the launcher would otherwise reopen on the full-screen Space);
+ * only the floating rectangle is kept.
+ */
+internal fun nativeFrameToPersist(
+    state: WindowState,
+    floatingBounds: Rectangle?,
+): WindowFrame = when (state.placement) {
+    WindowPlacement.Maximized ->
+        floatingBounds?.toWindowFrame(maximized = true)
+            ?: windowFrame(state).copy(maximized = true)
+
+    WindowPlacement.Fullscreen ->
+        floatingBounds?.toWindowFrame(maximized = false)
+            ?: windowFrame(state).copy(maximized = false)
+
+    WindowPlacement.Floating -> windowFrame(state).copy(maximized = false)
 }

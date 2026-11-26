@@ -32,7 +32,7 @@ import kotlinx.coroutines.runBlocking
 import org.jetbrains.skia.EncodedImageFormat
 
 /**
- * Renders the borderless Windows/Linux header: the shared page header plus the
+ * Renders the app-drawn Windows header: the shared page header plus the
  * app-drawn caption buttons. The shell composes these two pieces outside of
  * the shared App, so an off-screen render is the cheapest way to confirm the
  * right inset and the hover-control geometry on every CI platform.

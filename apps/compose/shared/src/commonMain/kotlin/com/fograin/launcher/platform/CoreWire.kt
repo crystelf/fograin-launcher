@@ -736,6 +736,8 @@ data class CoreModpackImport(
 @Serializable
 data class CoreModpackInstallTask(
     val taskId: String? = null,
+    /** Instance pinned by the core before the archive download starts. */
+    val instanceId: String = "",
     val name: String = "",
     val versionId: String = "",
     val versionNumber: String = "",

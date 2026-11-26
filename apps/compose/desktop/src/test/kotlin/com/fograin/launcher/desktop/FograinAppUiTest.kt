@@ -45,7 +45,9 @@ import com.fograin.launcher.ui.diagnostics.DiagnosticsExportTag
 import com.fograin.launcher.ui.diagnostics.DiagnosticsPageTag
 import com.fograin.launcher.ui.downloads.ContentTargetTag
 import com.fograin.launcher.ui.downloads.DownloadQueueTag
+import com.fograin.launcher.ui.downloads.DownloadsOptionsMenuTag
 import com.fograin.launcher.ui.downloads.DownloadsQueueCardTag
+import com.fograin.launcher.ui.downloads.DownloadsSettingsMenuTag
 import com.fograin.launcher.ui.downloads.InstallDownloadTag
 import com.fograin.launcher.ui.downloads.contentTargetOptionTag
 import com.fograin.launcher.ui.downloads.downloadQueuePauseTag
@@ -355,6 +357,24 @@ class FograinAppUiTest {
             waitForIdle()
             assertTrue(appModel.state.value.downloadQueueOpen)
             onNodeWithTag(DownloadQueueTag).assertIsDisplayed()
+        }
+
+    @Test
+    fun downloadsSettingsMenuOpensTheDownloadSettingsSection() =
+        runDesktopComposeUiTest(width = 1280, height = 900) {
+            val appModel = model()
+            appModel.navigate(AppDestination.DOWNLOADS)
+            setContent { App(appModel) }
+            waitForIdle()
+
+            onNodeWithTag(DownloadsOptionsMenuTag).performClick()
+            waitForIdle()
+            onNodeWithTag(DownloadsSettingsMenuTag).performClick()
+            waitForIdle()
+
+            assertTrue(appModel.state.value.settingsWindow.open)
+            assertEquals(SettingsSection.DOWNLOAD, appModel.state.value.settingsWindow.section)
+            onNodeWithTag(SettingsContentPageTag).assertIsDisplayed()
         }
 
     @Test

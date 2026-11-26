@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*", "bindings/fg-ffi", "bindings/fg-ffi-jni"]
 
 [workspace.package]
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 edition = "2024"
 rust-version = "1.90"
 license = "GPL-3.0-only"

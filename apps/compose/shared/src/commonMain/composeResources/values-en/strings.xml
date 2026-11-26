@@ -213,7 +213,6 @@
     <string name="download_queue_history">Recent tasks</string>
     <string name="download_queue_speed_value">%1$s/s</string>
     <string name="downloads_settings">Download settings</string>
-    <string name="downloads_settings_pending">Download settings will be wired up later</string>
     <string name="downloads_version_list">Version list</string>
     <string name="downloads_no_match">No matching versions</string>
     <string name="downloads_channel_label">Version type</string>

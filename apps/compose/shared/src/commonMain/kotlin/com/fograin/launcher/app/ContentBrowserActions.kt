@@ -591,6 +591,14 @@ class ContentBrowserActions(private val model: AppModel) {
                         put("name", project.title)
                     },
                 ).decode<CoreModpackInstallTask>()
+                // The core continues with base install + pack import on its
+                // own; register the instance so `modpack.finished` can open it
+                // exactly like a finished game install.
+                model.downloads.trackModpackInstall(
+                    taskId = payload.taskId,
+                    instanceId = payload.instanceId,
+                    name = payload.name.ifBlank { project.title },
+                )
                 closeAfterInstall(taskId = payload.taskId)
                 model.showNotice(
                     "正在下载整合包 ${payload.name.ifBlank { project.title }}，完成后会自动创建实例",

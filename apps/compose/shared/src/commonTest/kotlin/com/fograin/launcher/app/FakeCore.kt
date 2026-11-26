@@ -47,6 +47,8 @@ internal class FakeCore : CoreClient {
     val modpackInstallRequests = mutableListOf<JsonObject>()
     val taskControlRequests = mutableListOf<Pair<String, String>>()
     var taskRows = """{"ok":true,"result":[]}"""
+    /** Optional extra row appended to `instances.list` for a flow test. */
+    var extraInstanceRow: String? = null
     var resumeTaskId = "task-resumed"
     val accountLoginRequests = mutableListOf<JsonObject>()
     var yggdrasilNeedsProfile = false
@@ -85,10 +87,18 @@ internal class FakeCore : CoreClient {
         rpcCalls += method
         return when (method) {
             "instances.list" -> json(
-                """{"ok":true,"result":[
+                buildString {
+                    append(
+                        """{"ok":true,"result":[
                   {"id":"fog-forest","name":"雾林生存","minecraft":"1.21.4","loaderKind":"fabric","loaderVersion":"0.16.9","favorite":true,"installed":true,"modCount":42,"sizeBytes":3100000000,"playSeconds":5400,"lastPlayedMs":1793000000000},
-                  {"id":"vanilla","name":"原版纯净","minecraft":"1.21.4","loaderKind":"vanilla","loaderVersion":"","favorite":false,"installed":false,"modCount":null,"sizeBytes":0,"playSeconds":0,"lastPlayedMs":null}
-                ]}""".trimIndent(),
+                  {"id":"vanilla","name":"原版纯净","minecraft":"1.21.4","loaderKind":"vanilla","loaderVersion":"","favorite":false,"installed":false,"modCount":null,"sizeBytes":0,"playSeconds":0,"lastPlayedMs":null}""".trimIndent(),
+                    )
+                    extraInstanceRow?.let { row ->
+                        append(",")
+                        append(row)
+                    }
+                    append("]}")
+                },
             )
 
             "app.snapshot" -> json(
@@ -340,7 +350,7 @@ internal class FakeCore : CoreClient {
             "modpack.install" -> {
                 modpackInstallRequests += params
                 json(
-                    """{"ok":true,"taskId":"modpack-task-1","name":"Calm","versionId":"calm-v1","versionNumber":"1.0","source":"modrinth"}""",
+                    """{"ok":true,"taskId":"modpack-task-1","instanceId":"calm","name":"Calm","versionId":"calm-v1","versionNumber":"1.0","source":"modrinth"}""",
                 )
             }
 

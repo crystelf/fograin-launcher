@@ -55,32 +55,47 @@ import kotlin.math.abs
 /**
  * Which kind of frame the shell should create.
  *
- * macOS keeps the native traffic lights inside a transparent title bar, which
- * is exactly the look the app wants and costs no custom hit-testing. Windows
- * and Linux have no equivalent native traffic lights, so they get an
- * undecorated window whose header is drawn by Compose instead.
+ * - [MACOS] keeps the native traffic lights inside a transparent title bar,
+ *   exactly like the system's own full-window apps. The title row is dragged
+ *   by a Compose gesture because the content covers AppKit's title bar.
+ * - [WINDOWS] keeps the native window styles (so DWM owns the shadow, Snap,
+ *   minimize/maximize animations and the system menu) but hides the non-client
+ *   area with a `WM_NCCALCSIZE` hook, then draws the app's caption over the
+ *   client area. `WM_NCHITTEST` hands the title strip back to the system as
+ *   `HTCAPTION`. This is the same split Ani uses.
+ * - [SYSTEM] leaves the whole title bar to the window manager. Linux window
+ *   managers already animate maximize/minimize and provide their own drag,
+ *   snap and resize affordances, so the launcher does not draw a caption
+ *   there.
+ * - [CUSTOM] is a development-only preview of the app-drawn caption on macOS
+ *   (`-Dfograin.window.chrome=custom`). It uses an undecorated AWT window and
+ *   Compose-driven dragging/maximizing, and is never selected by the released
+ *   application.
  */
 internal enum class WindowChromeKind {
-    NATIVE,
+    MACOS,
+    WINDOWS,
+    SYSTEM,
     CUSTOM,
 }
 
 /**
  * [forceCustom] is a development aid: `-Dfograin.window.chrome=custom` renders
- * the Windows/Linux chrome on macOS so the layout can be inspected without a
+ * the app-drawn caption on any host so the layout can be inspected without a
  * Windows machine. It is never set by the released application.
  */
 internal fun windowChromeKind(osName: String, forceCustom: Boolean = false): WindowChromeKind =
-    if (osName.contains("mac", ignoreCase = true) && !forceCustom) {
-        WindowChromeKind.NATIVE
-    } else {
-        WindowChromeKind.CUSTOM
+    when {
+        forceCustom -> WindowChromeKind.CUSTOM
+        osName.contains("mac", ignoreCase = true) -> WindowChromeKind.MACOS
+        osName.contains("win", ignoreCase = true) -> WindowChromeKind.WINDOWS
+        else -> WindowChromeKind.SYSTEM
     }
 
 /**
  * Keyboard commands the native [androidx.compose.ui.window.MenuBar] used to
  * own. macOS still has the real menu bar, so this table is only consulted by
- * the borderless Windows/Linux shell.
+ * the Windows shell (and the custom preview).
  */
 internal enum class DesktopCommand {
     NEW_INSTANCE,

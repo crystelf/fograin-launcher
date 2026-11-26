@@ -25,6 +25,21 @@ sealed interface CoreEvent {
 
     data class GameStarted(val instanceId: String, val pid: Int?) : CoreEvent
 
+    /**
+     * Terminal event for a downloaded modpack's whole install pipeline.
+     *
+     * `modpack.install` only downloads the archive; the base game install and
+     * the pack files follow as separate tasks. This event closes that gap so
+     * the shell can open the new instance (or report why it could not finish)
+     * without polling the task list.
+     */
+    data class ModpackFinished(
+        val instanceId: String,
+        val name: String,
+        val state: TaskState,
+        val detail: List<String>,
+    ) : CoreEvent
+
     data class GameWindowReady(val instanceId: String) : CoreEvent
 
     data class GameLine(val instanceId: String, val text: String) : CoreEvent
@@ -56,6 +71,13 @@ sealed interface CoreEvent {
                     detail = json.stringRows("detail"),
                 )
             }
+
+            "modpack.finished" -> ModpackFinished(
+                instanceId = json.stringOrNull("instanceId").orEmpty(),
+                name = json.stringOrNull("name").orEmpty(),
+                state = TaskState.fromWire(json.stringOrNull("state") ?: "succeeded"),
+                detail = json.stringRows("detail"),
+            )
 
             "game.started" -> GameStarted(
                 instanceId = json.stringOrNull("instanceId").orEmpty(),

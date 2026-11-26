@@ -2,12 +2,17 @@ package com.fograin.launcher.ui
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -65,11 +70,12 @@ import com.fograin.launcher.resources.modpack_drop_title
 import com.fograin.launcher.resources.update_open_failed
 import com.fograin.launcher.ui.accounts.AccountSheet
 import com.fograin.launcher.ui.components.AnimatedSheetHost
+import com.fograin.launcher.ui.components.FograinMotion
 import com.fograin.launcher.ui.components.FograinSnackbarHost
 import com.fograin.launcher.ui.components.LocalPageHeaderTopInset
 import com.fograin.launcher.ui.components.PageHeaderMetrics
 import com.fograin.launcher.ui.components.UpdatePrompt
-import com.fograin.launcher.ui.components.contentPanelShape
+import com.fograin.launcher.ui.components.animatedContentPanelShape
 import com.fograin.launcher.ui.components.fograinPageTransition
 import com.fograin.launcher.ui.content.ContentProjectSheet
 import com.fograin.launcher.ui.downloads.DownloadQueueScreen
@@ -144,6 +150,15 @@ fun FograinApp(
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val expanded = maxWidth >= ExpandedWidth
+        // Breakpoint crossings happen mid-resize (the macOS green button
+        // animation, a dragged window edge). Drive the rail/bottom-bar swap
+        // from one spring so the content, corner radius and navigation all
+        // settle together instead of flashing to the other layout.
+        val expansion by animateFloatAsState(
+            targetValue = if (expanded) 1f else 0f,
+            animationSpec = FograinMotion.Layout,
+            label = "shell-expansion",
+        )
         // A narrow macOS window has no rail for the traffic lights to sit in,
         // so move the whole header below them. The body then behaves like a
         // phone layout instead of being squeezed to the right.
@@ -153,6 +168,15 @@ fun FograinApp(
             } else {
                 0.dp
             }
+        val contentPanelColor by animateColorAsState(
+            targetValue = if (expanded) {
+                MaterialTheme.colorScheme.surfaceContainer
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+            animationSpec = tween(240),
+            label = "content-panel-color",
+        )
 
         Scaffold(
             modifier = Modifier.fillMaxSize(),
@@ -160,7 +184,13 @@ fun FograinApp(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             snackbarHost = { FograinSnackbarHost(snackbarHostState) },
             bottomBar = {
-                if (!expanded) {
+                AnimatedVisibility(
+                    visible = !expanded,
+                    enter = expandVertically(animationSpec = FograinMotion.LayoutSize) +
+                        fadeIn(animationSpec = tween(180)),
+                    exit = shrinkVertically(animationSpec = FograinMotion.LayoutSize) +
+                        fadeOut(animationSpec = tween(130)),
+                ) {
                     NavigationBar(
                         modifier = Modifier.testTag(NavBarTag),
                         containerColor = MaterialTheme.colorScheme.surface,
@@ -211,7 +241,14 @@ fun FograinApp(
                                 },
                             ),
                     ) {
-                        if (expanded) {
+                        AnimatedVisibility(
+                            visible = expanded,
+                            modifier = Modifier.fillMaxHeight(),
+                            enter = expandHorizontally(animationSpec = FograinMotion.LayoutSize) +
+                                fadeIn(animationSpec = tween(180)),
+                            exit = shrinkHorizontally(animationSpec = FograinMotion.LayoutSize) +
+                                fadeOut(animationSpec = tween(120)),
+                        ) {
                             NavigationRail(
                                 modifier = Modifier.testTag(NavRailTag),
                                 containerColor = MaterialTheme.colorScheme.surface,
@@ -279,23 +316,15 @@ fun FograinApp(
                             }
                         }
                         // The right half is flush with the window's top,
-                        // right and bottom edges. Only its left corners are
-                        // rounded, and only when the host window is rounded
-                        // (macOS, Windows 11, GNOME); otherwise it stays
-                        // rectangular so it merges with the system chrome.
+                        // right and bottom edges. Its left corner follows the
+                        // rail as it slides in; the colour cross-fades from the
+                        // compact window surface to the raised content panel.
                         Surface(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight(),
-                            shape = contentPanelShape(inset = expanded),
-                            // Wide: a lighter content card cut out of the
-                            // darker rail. Compact: the page is the window
-                            // itself, so it keeps the window surface colour.
-                            color = if (expanded) {
-                                MaterialTheme.colorScheme.surfaceContainer
-                            } else {
-                                MaterialTheme.colorScheme.surface
-                            },
+                            shape = animatedContentPanelShape(expansion),
+                            color = contentPanelColor,
                             contentColor = MaterialTheme.colorScheme.onSurface,
                         ) {
                             AnimatedContent(

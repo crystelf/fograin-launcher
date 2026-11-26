@@ -5,6 +5,7 @@
 //!
 //! - `task.progress` — `{ type, taskId, name, fraction, speed }`
 //! - `task.finished` — `{ type, taskId, name, state }`
+//! - `modpack.finished` — `{ type, instanceId, name, state, detail }`
 //! - `game.line` — `{ type, instanceId, text }`
 //! - `game.started` — `{ type, instanceId, pid }`
 //! - `game.exited` — `{ type, instanceId, exitCode, playSeconds }`
@@ -95,6 +96,29 @@ impl EventQueue {
         let payload = serde_json::json!({
             "type": "task.finished",
             "taskId": task_id,
+            "name": name,
+            "state": state,
+            "detail": detail,
+        });
+        self.push(payload.to_string());
+    }
+
+    /// Terminal event for the whole modpack install pipeline.
+    ///
+    /// `modpack.install` only downloads the archive; the base game install and
+    /// the pack files run as follow-up tasks in the background. This event is
+    /// the hand-off the UI needs to leave "downloaded" and open/finish the new
+    /// instance even though those follow-up tasks have their own ids.
+    pub fn push_modpack_finished(
+        &self,
+        instance_id: &str,
+        name: &str,
+        state: &str,
+        detail: &[String],
+    ) {
+        let payload = serde_json::json!({
+            "type": "modpack.finished",
+            "instanceId": instance_id,
             "name": name,
             "state": state,
             "detail": detail,
@@ -213,5 +237,17 @@ mod tests {
         let event = queue.next().expect("event");
         assert!(event.contains("\"playSeconds\":42"), "{event}");
         assert!(event.contains("\"exitCode\":0"), "{event}");
+    }
+
+    #[test]
+    fn modpack_finished_carries_the_instance_and_state() {
+        let queue = EventQueue::new();
+        queue.push_modpack_finished("calm", "Calm", "failed", &["modpack: boom".to_string()]);
+        let event = queue.next().expect("event");
+        assert!(event.contains("\"type\":\"modpack.finished\""), "{event}");
+        assert!(event.contains("\"instanceId\":\"calm\""), "{event}");
+        assert!(event.contains("\"name\":\"Calm\""), "{event}");
+        assert!(event.contains("\"state\":\"failed\""), "{event}");
+        assert!(event.contains("modpack: boom"), "{event}");
     }
 }

@@ -169,6 +169,10 @@ pub(super) struct ModpackImportRequest {
     pub(super) path: String,
     #[serde(default)]
     pub(super) name: Option<String>,
+    /// Instance chosen by `modpack.install` before the download finished.
+    /// Kept optional so older clients and local imports keep deriving one.
+    #[serde(default)]
+    pub(super) instance_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

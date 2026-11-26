@@ -213,7 +213,6 @@
     <string name="download_queue_history">最近のタスク</string>
     <string name="download_queue_speed_value">%1$s/s</string>
     <string name="downloads_settings">ダウンロード設定</string>
-    <string name="downloads_settings_pending">ダウンロード設定は後日接続されます</string>
     <string name="downloads_version_list">バージョン一覧</string>
     <string name="downloads_no_match">一致するバージョンはありません</string>
     <string name="downloads_channel_label">バージョン種別</string>

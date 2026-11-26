@@ -6,6 +6,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -75,12 +77,12 @@ import org.jetbrains.compose.resources.stringResource
 /**
  * Vertical metrics shared by the page header and the desktop navigation rail.
  *
- * Every desktop window is borderless. macOS draws its native traffic lights
- * over the content, and Windows/Linux draw the window controls into the header
- * itself, so both desktop families use the same 48 dp title-bar row. Android
- * keeps the roomier 64 dp row because it has no desktop window chrome. The
- * rail uses [ContentGap] to align its search button with the first content card
- * (the home hero image).
+ * macOS draws its native traffic lights over the content and Windows draws the
+ * window controls into the header itself, so both use the same 48 dp title-bar
+ * row. Linux keeps the window manager's title bar outside the content but uses
+ * the same row for consistency. Android keeps the roomier 64 dp row because it
+ * has no desktop window chrome. The rail uses [ContentGap] to align its search
+ * button with the first content card (the home hero image).
  */
 const val PageHeaderBackTag: String = "page-header-back"
 
@@ -94,7 +96,7 @@ const val PageHeaderBackTag: String = "page-header-back"
 val LocalPageHeaderTopInset = staticCompositionLocalOf { 0.dp }
 
 object PageHeaderMetrics {
-    /** Desktop title-bar row; also the draggable strip on Windows/Linux. */
+    /** Desktop title-bar row; also the draggable strip on macOS and Windows. */
     val DesktopHeight: Dp = WindowChromeMetrics.HeaderHeight
 
     /** Phone layout keeps the original, roomier header. */
@@ -115,7 +117,7 @@ object PageHeaderMetrics {
  * One row: the page title on the left, the search box and page actions on the
  * right, all vertically centred. The row is 64 dp on Android and 48 dp on
  * desktop, where it doubles as the title-bar strip (beside native traffic
- * lights on macOS, under app-drawn window controls on Windows/Linux). The old
+ * lights on macOS, under the app-drawn caption on Windows). The old
  * `LargeTopAppBar` stacked the title under the action icons and reserved a
  * second line for a subtitle; this compact header gives the content roughly
  * 56–72 dp more room on a phone.
@@ -156,7 +158,7 @@ fun PageHeader(
             .fillMaxWidth()
             .windowInsetsPadding(WindowInsets.statusBars),
     ) {
-        // The window controls occupy the right edge on Windows/Linux; count
+        // The window controls occupy the right edge on Windows; count
         // the remaining width so the search collapses before the header gets
         // cramped instead of after.
         val availableWidth = maxWidth - windowControlsInset
@@ -187,8 +189,8 @@ fun PageHeader(
                     .padding(
                         top = topInset,
                         start = 20.dp,
-                        // Windows/Linux draw their window controls into this
-                        // row; keep search and actions clear of them.
+                        // Windows draws its window controls into this row;
+                        // keep search and actions clear of them.
                         end = 20.dp + windowControlsInset,
                     )
                     .height(headerHeight),
@@ -228,7 +230,7 @@ fun PageHeader(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
-                            .then(LocalWindowDragModifier.current),
+                            .windowTitleDragArea(),
                         contentAlignment = Alignment.CenterStart,
                     ) {
                         Text(
@@ -248,20 +250,35 @@ fun PageHeader(
                     leadingActions()
 
                     if (searchPlaceholder != null) {
-                        if (compact) {
-                            HeaderIconButton(
-                                icon = Icons.Outlined.Search,
-                                contentDescription = stringResource(Res.string.search_action),
-                                onClick = { onSearchExpandedChange(true) },
-                            )
-                        } else {
-                            PageSearchField(
-                                query = searchQuery,
-                                onQueryChange = onSearchQueryChange,
-                                placeholder = searchPlaceholder,
-                                focusRequester = focusRequester,
-                                modifier = Modifier.width(wideSearchWidth),
-                            )
+                        // A window resize crosses the compact threshold while
+                        // the user is still dragging its edge. Cross-fading the
+                        // search affordance keeps the header from popping from
+                        // a 300 dp field to a 40 dp icon on a single frame.
+                        AnimatedContent(
+                            targetState = compact,
+                            transitionSpec = {
+                                (fadeIn(tween(180)) +
+                                    scaleIn(FograinMotion.Layout, initialScale = 0.94f)) togetherWith
+                                    (fadeOut(tween(120)) +
+                                        scaleOut(tween(140), targetScale = 0.94f))
+                            },
+                            label = "page-header-search",
+                        ) { compactSearch ->
+                            if (compactSearch) {
+                                HeaderIconButton(
+                                    icon = Icons.Outlined.Search,
+                                    contentDescription = stringResource(Res.string.search_action),
+                                    onClick = { onSearchExpandedChange(true) },
+                                )
+                            } else {
+                                PageSearchField(
+                                    query = searchQuery,
+                                    onQueryChange = onSearchQueryChange,
+                                    placeholder = searchPlaceholder,
+                                    focusRequester = focusRequester,
+                                    modifier = Modifier.width(wideSearchWidth),
+                                )
+                            }
                         }
                     }
                     actions()

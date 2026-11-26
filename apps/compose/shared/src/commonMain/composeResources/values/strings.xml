@@ -213,7 +213,6 @@
     <string name="download_queue_history">最近任务</string>
     <string name="download_queue_speed_value">%1$s/s</string>
     <string name="downloads_settings">下载设置</string>
-    <string name="downloads_settings_pending">下载设置将在后续接入</string>
     <string name="downloads_version_list">版本列表</string>
     <string name="downloads_no_match">没有匹配的版本</string>
     <string name="downloads_channel_label">版本类型</string>

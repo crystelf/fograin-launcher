@@ -17,6 +17,11 @@ dependencies {
     // the shared module keeps its Material dependency implementation-only.
     implementation(libs.compose.material3)
     implementation(libs.kotlinx.coroutines.swing)
+    // Windows keeps its native frame styles (DWM animations, Snap, shadow)
+    // while the launcher hides the visible caption through WM_NCCALCSIZE and
+    // answers WM_NCHITTEST itself. That needs a WndProc subclass.
+    implementation(libs.jna)
+    implementation(libs.jna.platform)
 
     testImplementation(kotlin("test"))
     testImplementation(libs.kotlinx.serialization.json)

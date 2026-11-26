@@ -767,6 +767,14 @@ class AppModel internal constructor(
             }
 
             is CoreEvent.TaskProgress -> Unit
+
+            is CoreEvent.ModpackFinished -> {
+                // Download-page modpacks open the new instance; a local import
+                // refreshes the page that confirmed it.
+                downloads.onModpackFinished(event)
+                modpack.onModpackFinished(event)
+            }
+
             else -> launch.onEvent(event)
         }
     }
