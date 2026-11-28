@@ -423,7 +423,7 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
 name = "fg-auth"
-version = "0.2.0-rc.2"
+version = "0.2.0-rc.3"
 dependencies = [
  "fg-core",
  "fg-net",
@@ -440,7 +440,7 @@ dependencies = [
 
 [[package]]
 name = "fg-cli"
-version = "0.2.0-rc.2"
+version = "0.2.0-rc.3"
 dependencies = [
  "clap",
  "fg-auth",
@@ -462,7 +462,7 @@ dependencies = [
 
 [[package]]
 name = "fg-content"
-version = "0.2.0-rc.2"
+version = "0.2.0-rc.3"
 dependencies = [
  "fg-core",
  "fg-net",
@@ -481,7 +481,7 @@ dependencies = [
 
 [[package]]
 name = "fg-core"
-version = "0.2.0-rc.2"
+version = "0.2.0-rc.3"
 dependencies = [
  "dirs",
  "serde",
@@ -492,7 +492,7 @@ dependencies = [
 
 [[package]]
 name = "fg-diag"
-version = "0.2.0-rc.2"
+version = "0.2.0-rc.3"
 dependencies = [
  "fg-core",
  "regex",
@@ -507,7 +507,7 @@ dependencies = [
 
 [[package]]
 name = "fg-ffi"
-version = "0.2.0-rc.2"
+version = "0.2.0-rc.3"
 dependencies = [
  "fg-auth",
  "fg-content",
@@ -532,7 +532,7 @@ dependencies = [
 
 [[package]]
 name = "fg-ffi-jni"
-version = "0.2.0-rc.2"
+version = "0.2.0-rc.3"
 dependencies = [
  "fg-ffi",
  "jni",
@@ -540,7 +540,7 @@ dependencies = [
 
 [[package]]
 name = "fg-game"
-version = "0.2.0-rc.2"
+version = "0.2.0-rc.3"
 dependencies = [
  "bytes",
  "fg-auth",
@@ -564,7 +564,7 @@ dependencies = [
 
 [[package]]
 name = "fg-java"
-version = "0.2.0-rc.2"
+version = "0.2.0-rc.3"
 dependencies = [
  "dirs",
  "fg-core",
@@ -581,7 +581,7 @@ dependencies = [
 
 [[package]]
 name = "fg-loader"
-version = "0.2.0-rc.2"
+version = "0.2.0-rc.3"
 dependencies = [
  "fg-core",
  "fg-net",
@@ -597,7 +597,7 @@ dependencies = [
 
 [[package]]
 name = "fg-net"
-version = "0.2.0-rc.2"
+version = "0.2.0-rc.3"
 dependencies = [
  "bytes",
  "fg-core",
@@ -618,7 +618,7 @@ dependencies = [
 
 [[package]]
 name = "fg-task"
-version = "0.2.0-rc.2"
+version = "0.2.0-rc.3"
 dependencies = [
  "fg-core",
  "fg-net",
@@ -633,7 +633,7 @@ dependencies = [
 
 [[package]]
 name = "fg-world"
-version = "0.2.0-rc.2"
+version = "0.2.0-rc.3"
 dependencies = [
  "fg-core",
  "flate2",
