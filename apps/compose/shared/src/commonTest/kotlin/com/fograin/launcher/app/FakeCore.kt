@@ -15,6 +15,7 @@ import com.fograin.launcher.platform.DirectoryPick
 import com.fograin.launcher.platform.FileBrowser
 import com.fograin.launcher.platform.FilePick
 import com.fograin.launcher.platform.FileSavePick
+import com.fograin.launcher.community.CommunityGateway
 import com.fograin.launcher.platform.LocalPreferences
 import com.fograin.launcher.platform.NativeLibrary
 import com.fograin.launcher.platform.PlatformServices
@@ -422,6 +423,8 @@ internal class FakePlatform(
         override var windowFrame: WindowFrame? = null
         override var dataRootOverride: String? = null
         override var settingsSidebarWidth: Float = 0f
+        override var communitySessionJson: String? = null
+        override var communityPendingLoginJson: String? = null
     }
 
     private val directories = object : DirectoryBrowser {
@@ -500,5 +503,6 @@ internal class FakePlatform(
             override fun revealDirectory(path: String): Boolean = false
             override fun openUrl(url: String): Boolean = false
         },
+        community = CommunityGateway.Disabled,
     )
 }

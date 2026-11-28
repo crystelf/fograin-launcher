@@ -27,10 +27,13 @@ import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.ui.AppDestination
 import com.fograin.launcher.ui.GlobalSearchButtonTag
 import com.fograin.launcher.ui.NavBarTag
+import com.fograin.launcher.ui.NavSettingsTag
 import com.fograin.launcher.ui.NavRailTag
 import com.fograin.launcher.ui.accounts.AccountAddOfflineTag
 import com.fograin.launcher.ui.accounts.AccountOfflineNameTag
 import com.fograin.launcher.ui.accounts.AccountSheetTag
+import com.fograin.launcher.ui.community.CommunityHeaderLoginTag
+import com.fograin.launcher.ui.community.CommunityScreenTag
 import com.fograin.launcher.ui.components.PageHeaderBackTag
 import com.fograin.launcher.ui.content.ContentCheckUpdatesTag
 import com.fograin.launcher.ui.content.ContentDependencyAutoTag
@@ -61,6 +64,7 @@ import com.fograin.launcher.ui.home.HomeDownloadQueueTag
 import com.fograin.launcher.ui.home.HomeImportModpackTag
 import com.fograin.launcher.ui.home.HomeListTag
 import com.fograin.launcher.ui.home.HomeOverflowTag
+import com.fograin.launcher.ui.home.HomeSettingsTag
 import com.fograin.launcher.ui.home.HomeTaskQueueTag
 import com.fograin.launcher.ui.home.homeDownloadPauseTag
 import com.fograin.launcher.ui.home.homeDownloadResumeTag
@@ -125,6 +129,25 @@ class FograinAppUiTest {
     }
 
     @Test
+    fun communityIsTheFourthTabAndSettingsMovedToTheHomeHeader() =
+        runDesktopComposeUiTest(width = 420, height = 900) {
+            val appModel = model()
+            setContent { App(appModel) }
+            waitForIdle()
+
+            onNodeWithTag(navItemTag(AppDestination.COMMUNITY)).performClick()
+            waitForIdle()
+            onNodeWithTag(CommunityScreenTag).assertIsDisplayed()
+            onNodeWithTag(CommunityHeaderLoginTag).assertIsDisplayed()
+
+            onNodeWithTag(navItemTag(AppDestination.HOME)).performClick()
+            waitForIdle()
+            onNodeWithTag(HomeSettingsTag).performClick()
+            waitForIdle()
+            onNodeWithTag(SettingsWindowTag).assertIsDisplayed()
+        }
+
+    @Test
     fun narrowWindowKeepsBottomBar() = runDesktopComposeUiTest(width = 720, height = 900) {
         val appModel = model()
         setContent { App(appModel) }
@@ -172,7 +195,7 @@ class FograinAppUiTest {
         // Settings is pinned to the bottom of the rail.
         val homeTop = onNodeWithTag(navItemTag(AppDestination.HOME))
             .fetchSemanticsNode().boundsInRoot.top
-        val settingsTop = onNodeWithTag(navItemTag(AppDestination.SETTINGS))
+        val settingsTop = onNodeWithTag(NavSettingsTag)
             .fetchSemanticsNode().boundsInRoot.top
         assertTrue(homeTop > 40f, "content tabs should not hug the top edge")
         assertTrue(settingsTop > homeTop + 100f, "Settings belongs at the bottom")
@@ -705,7 +728,7 @@ class FograinAppUiTest {
             setContent { App(appModel) }
             waitForIdle()
 
-            onNodeWithTag(navItemTag(AppDestination.SETTINGS)).performClick()
+            appModel.openSettings()
             waitForIdle()
 
             onNodeWithTag(SettingsWindowTag).assertIsDisplayed()
@@ -751,7 +774,7 @@ class FograinAppUiTest {
             setContent { App(appModel) }
             waitForIdle()
 
-            onNodeWithTag(navItemTag(AppDestination.SETTINGS)).performClick()
+            appModel.openSettings()
             waitForIdle()
             onNodeWithTag(SettingsCompactListTag).assertIsDisplayed()
             onNodeWithTag(NavBarTag).assertDoesNotExist()
@@ -793,7 +816,7 @@ class FograinAppUiTest {
             setContent { App(appModel) }
             waitForIdle()
 
-            onNodeWithTag(navItemTag(AppDestination.SETTINGS)).performClick()
+            appModel.openSettings()
             waitForIdle()
             onNodeWithTag(
                 com.fograin.launcher.ui.settings.settingsNavTag(
@@ -822,7 +845,7 @@ class FograinAppUiTest {
             setContent { App(appModel) }
             waitForIdle()
 
-            onNodeWithTag(navItemTag(AppDestination.SETTINGS)).performClick()
+            appModel.openSettings()
             waitForIdle()
             onNodeWithTag(SettingsLanguageRowTag).performClick()
             waitForIdle()
@@ -853,7 +876,7 @@ class FograinAppUiTest {
                 setContent { App(appModel) }
                 waitForIdle()
 
-                onNodeWithTag(navItemTag(AppDestination.SETTINGS)).performClick()
+                appModel.openSettings()
                 waitForIdle()
 
                 val before = onNodeWithTag(SettingsSidebarTag)
@@ -882,7 +905,7 @@ class FograinAppUiTest {
                 val appModel = model()
                 setContent { App(appModel) }
                 waitForIdle()
-                onNodeWithTag(navItemTag(AppDestination.SETTINGS)).performClick()
+                appModel.openSettings()
                 waitForIdle()
 
                 // The splitter starts at x = 509; -500 puts the pointer at
@@ -916,7 +939,7 @@ class FograinAppUiTest {
                 val appModel = model()
                 setContent { App(appModel) }
                 waitForIdle()
-                onNodeWithTag(navItemTag(AppDestination.SETTINGS)).performClick()
+                appModel.openSettings()
                 waitForIdle()
 
                 // Push the divider past the right-hand 32 % floor. While the
@@ -977,7 +1000,7 @@ class FograinAppUiTest {
                 val appModel = model()
                 setContent { App(appModel) }
                 waitForIdle()
-                onNodeWithTag(navItemTag(AppDestination.SETTINGS)).performClick()
+                appModel.openSettings()
                 waitForIdle()
 
                 // The pane can travel to the whole window width; +1000 clamps
