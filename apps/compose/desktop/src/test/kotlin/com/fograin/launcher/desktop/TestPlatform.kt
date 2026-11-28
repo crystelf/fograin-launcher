@@ -1,5 +1,6 @@
 package com.fograin.launcher.desktop
 
+import com.fograin.launcher.community.CommunityGateway
 import com.fograin.launcher.platform.FileBrowser
 import com.fograin.launcher.platform.FilePick
 import com.fograin.launcher.platform.FileSavePick
@@ -38,5 +39,6 @@ internal fun testPlatform(): PlatformServices {
             ): Boolean = true
         },
         updates = UpdateService.Disabled,
+        community = CommunityGateway.Disabled,
     )
 }

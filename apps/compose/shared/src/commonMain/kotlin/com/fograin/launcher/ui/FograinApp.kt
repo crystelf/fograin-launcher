@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
@@ -67,16 +68,24 @@ import com.fograin.launcher.resources.action_ok
 import com.fograin.launcher.resources.global_search_open
 import com.fograin.launcher.resources.modpack_drop_body
 import com.fograin.launcher.resources.modpack_drop_title
+import com.fograin.launcher.resources.nav_settings
 import com.fograin.launcher.resources.update_open_failed
 import com.fograin.launcher.ui.accounts.AccountSheet
 import com.fograin.launcher.ui.components.AnimatedSheetHost
 import com.fograin.launcher.ui.components.FograinMotion
 import com.fograin.launcher.ui.components.FograinSnackbarHost
 import com.fograin.launcher.ui.components.LocalPageHeaderTopInset
+import com.fograin.launcher.ui.components.LocalPageSurfaceColor
 import com.fograin.launcher.ui.components.PageHeaderMetrics
 import com.fograin.launcher.ui.components.UpdatePrompt
 import com.fograin.launcher.ui.components.animatedContentPanelShape
 import com.fograin.launcher.ui.components.fograinPageTransition
+import com.fograin.launcher.ui.community.CommunityComposerSheet
+import com.fograin.launcher.ui.community.CommunityLoginDialog
+import com.fograin.launcher.ui.community.CommunityScreen
+import com.fograin.launcher.ui.community.CommunityVideoFullscreenHost
+import com.fograin.launcher.ui.community.CommunityVideoFullscreenOverlay
+import com.fograin.launcher.ui.community.LocalCommunityVideoFullscreenHost
 import com.fograin.launcher.ui.content.ContentProjectSheet
 import com.fograin.launcher.ui.downloads.DownloadQueueScreen
 import com.fograin.launcher.ui.downloads.DownloadsScreen
@@ -95,6 +104,7 @@ private val ExpandedWidth = 840.dp
 const val NavBarTag: String = "nav-bar"
 const val NavRailTag: String = "nav-rail"
 const val GlobalSearchButtonTag: String = "global-search-button"
+const val NavSettingsTag: String = "nav-settings"
 
 private data object GlobalSearchTarget
 
@@ -124,6 +134,10 @@ fun FograinApp(
             .build()
     }
     val snackbarHostState = remember { SnackbarHostState() }
+    // One window-level video player for the community feed. It lives here
+    // so fullscreen covers the navigation chrome and can animate back to
+    // the feed instead of opening a black dialog.
+    val videoFullscreen = remember { CommunityVideoFullscreenHost() }
     val services = remember { platformServices() }
     val backDispatcher = remember { services.backDispatcher }
     // The page header starts at the window edge on every platform. On macOS
@@ -136,10 +150,13 @@ fun FograinApp(
     )
 
     // One handler for Android's back gesture and the desktop Escape key. It
-    // peels sheets and dialogs before it leaves the current destination and is
-    // disabled while the settings destination owns the window.
-    backDispatcher.handleBack(enabled = !state.settingsWindow.open && model.canGoBack()) {
-        model.back()
+    // closes a fullscreen video first, peels sheets and dialogs next and only
+    // then leaves the current destination; settings owns the window instead.
+    backDispatcher.handleBack(
+        enabled = videoFullscreen.isOpen ||
+            (!state.settingsWindow.open && model.canGoBack()),
+    ) {
+        if (videoFullscreen.isOpen) videoFullscreen.requestClose() else model.back()
     }
 
     LaunchedEffect(state.notice?.id) {
@@ -199,11 +216,7 @@ fun FograinApp(
                             val selected = !state.downloadQueueOpen && item == state.destination
                             NavigationBarItem(
                                 modifier = Modifier.testTag(navItemTag(item)),
-                                selected = if (item == AppDestination.SETTINGS) {
-                                    state.settingsWindow.open
-                                } else {
-                                    selected
-                                },
+                                selected = selected,
                                 onClick = { model.navigate(item) },
                                 icon = {
                                     DestinationIcon(
@@ -268,7 +281,6 @@ fun FograinApp(
                                         RailSearchButton(onClick = model::openGlobalSearch)
                                         Spacer(Modifier.height(24.dp))
                                         AppDestination.entries
-                                            .filter { it != AppDestination.SETTINGS }
                                             .forEachIndexed { index, item ->
                                                 if (index > 0) Spacer(Modifier.height(18.dp))
                                                 val selected = !state.downloadQueueOpen &&
@@ -294,21 +306,17 @@ fun FograinApp(
                                             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
                                         )
                                         Spacer(Modifier.height(4.dp))
-                                        val settings = AppDestination.SETTINGS
-                                        val selected = !state.downloadQueueOpen &&
-                                            settings == state.destination
                                         NavigationRailItem(
-                                            modifier = Modifier.testTag(navItemTag(settings)),
-                                            selected = state.settingsWindow.open,
-                                            onClick = { model.navigate(settings) },
+                                            modifier = Modifier.testTag(NavSettingsTag),
+                                            selected = false,
+                                            onClick = model::openSettings,
                                             icon = {
-                                                DestinationIcon(
-                                                    destination = settings,
-                                                    selected = selected,
-                                                    activeDownloads = state.activeDownloadCount,
+                                                Icon(
+                                                    imageVector = Icons.Outlined.Settings,
+                                                    contentDescription = null,
                                                 )
                                             },
-                                            label = { Text(stringResource(settings.label)) },
+                                            label = { Text(stringResource(Res.string.nav_settings)) },
                                         )
                                         Spacer(Modifier.height(12.dp))
                                     }
@@ -327,43 +335,47 @@ fun FograinApp(
                             color = contentPanelColor,
                             contentColor = MaterialTheme.colorScheme.onSurface,
                         ) {
-                            AnimatedContent(
-                                targetState = state.downloadQueueOpen,
-                                modifier = Modifier.fillMaxSize(),
-                                transitionSpec = {
-                                    fograinPageTransition(forward = targetState)
-                                },
-                                label = "queue-page",
-                            ) { queueOpen ->
-                                if (queueOpen) {
-                                    DownloadQueueScreen(model = model, state = state)
-                                } else {
-                                    AnimatedContent(
-                                        targetState = state.destination,
-                                        modifier = Modifier.fillMaxSize(),
-                                        transitionSpec = {
-                                            fograinPageTransition(
-                                                forward = targetState.ordinal > initialState.ordinal,
-                                            )
-                                        },
-                                        label = "page-transition",
-                                    ) { destination ->
-                                        when (destination) {
-                                            AppDestination.HOME ->
-                                                HomeScreen(model = model, state = state)
+                            CompositionLocalProvider(
+                                LocalPageSurfaceColor provides contentPanelColor,
+                            ) {
+                                AnimatedContent(
+                                    targetState = state.downloadQueueOpen,
+                                    modifier = Modifier.fillMaxSize(),
+                                    transitionSpec = {
+                                        fograinPageTransition(forward = targetState)
+                                    },
+                                    label = "queue-page",
+                                ) { queueOpen ->
+                                    if (queueOpen) {
+                                        DownloadQueueScreen(model = model, state = state)
+                                    } else {
+                                        AnimatedContent(
+                                            targetState = state.destination,
+                                            modifier = Modifier.fillMaxSize(),
+                                            transitionSpec = {
+                                                fograinPageTransition(
+                                                    forward = targetState.ordinal > initialState.ordinal,
+                                                )
+                                            },
+                                            label = "page-transition",
+                                        ) { destination ->
+                                            when (destination) {
+                                                AppDestination.HOME ->
+                                                    HomeScreen(model = model, state = state)
 
-                                            AppDestination.LIBRARY ->
-                                                LibraryScreen(model = model, state = state)
+                                                AppDestination.LIBRARY ->
+                                                    LibraryScreen(model = model, state = state)
 
-                                            AppDestination.DOWNLOADS ->
-                                                DownloadsScreen(model = model, state = state)
+                                                AppDestination.DOWNLOADS ->
+                                                    DownloadsScreen(model = model, state = state)
 
-                                            // Settings is an in-window
-                                            // destination rendered by App;
-                                            // this branch only keeps the enum
-                                            // exhaustive without a second page.
-                                            AppDestination.SETTINGS ->
-                                                HomeScreen(model = model, state = state)
+                                                AppDestination.COMMUNITY ->
+                                                    CompositionLocalProvider(
+                                                        LocalCommunityVideoFullscreenHost provides videoFullscreen,
+                                                    ) {
+                                                        CommunityScreen(model = model, state = state)
+                                                    }
+                                            }
                                         }
                                     }
                                 }
@@ -434,6 +446,11 @@ fun FograinApp(
                 }
             }
         }
+
+        CommunityVideoFullscreenOverlay(
+            host = videoFullscreen,
+            modifier = Modifier.matchParentSize(),
+        )
     }
 
     state.alert?.let { alert ->
@@ -473,6 +490,9 @@ fun FograinApp(
     ) {
         AccountSheet(model = model, state = state)
     }
+
+    CommunityComposerSheet(model = model, state = state)
+    CommunityLoginDialog(model = model, state = state)
 }
 
 @Composable

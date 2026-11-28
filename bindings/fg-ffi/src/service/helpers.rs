@@ -198,6 +198,7 @@ pub(super) fn settings_json(config: &LauncherConfig) -> Value {
         "language": config.appearance.language.as_str(),
         "accent": config.appearance.accent,
         "initialPage": config.general.initial_page.as_str(),
+        "defaultDisplayAccount": config.general.default_display_account.as_str(),
         "download": {
             "source": config.download.source.as_str(),
             "versionSource": config.download.version_source.as_str(),
@@ -223,6 +224,18 @@ pub(super) fn parse_wire_theme(value: &str) -> Result<fg_core::ThemePreference> 
         other => Err(Error::with_detail(
             ErrorKind::InvalidInput,
             "error.theme.invalid",
+            other.to_string(),
+        )),
+    }
+}
+
+pub(super) fn parse_display_account(value: &str) -> Result<fg_core::DisplayAccount> {
+    match value {
+        "community" => Ok(fg_core::DisplayAccount::Community),
+        "launcher" => Ok(fg_core::DisplayAccount::Launcher),
+        other => Err(Error::with_detail(
+            ErrorKind::InvalidInput,
+            "error.settings.display_account",
             other.to_string(),
         )),
     }

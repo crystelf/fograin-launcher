@@ -21,6 +21,8 @@ import com.fograin.launcher.resources.settings_initial_downloads
 import com.fograin.launcher.resources.settings_initial_home
 import com.fograin.launcher.resources.settings_initial_library
 import com.fograin.launcher.resources.settings_language_en
+import com.fograin.launcher.resources.settings_display_account_community
+import com.fograin.launcher.resources.settings_display_account_launcher
 import com.fograin.launcher.resources.settings_language_ja
 import com.fograin.launcher.resources.settings_language_system
 import com.fograin.launcher.resources.settings_language_system_value
@@ -34,6 +36,7 @@ import com.fograin.launcher.resources.settings_nav_java
 import com.fograin.launcher.resources.settings_nav_network
 import com.fograin.launcher.resources.settings_nav_storage
 import com.fograin.launcher.settings.AppLanguage
+import com.fograin.launcher.settings.DefaultDisplayAccount
 import com.fograin.launcher.settings.InitialPage
 import org.jetbrains.compose.resources.stringResource
 
@@ -89,6 +92,14 @@ fun AppLanguage.pickerLabel(): String {
         nativeName()
     }
 }
+
+@Composable
+fun DefaultDisplayAccount.title(): String = stringResource(
+    when (this) {
+        DefaultDisplayAccount.COMMUNITY -> Res.string.settings_display_account_community
+        DefaultDisplayAccount.LAUNCHER -> Res.string.settings_display_account_launcher
+    },
+)
 
 /** Localizes a settings failure without leaking the technical key. */
 @Composable

@@ -17,6 +17,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import com.fograin.launcher.community.JvmCommunityGateway
 
 /**
  * Android entry point for the shared platform layer.
@@ -140,6 +141,74 @@ object AndroidPlatform {
 actual fun platformServices(): PlatformServices = androidServices
 
 private val androidServices: PlatformServices by lazy {
+    val preferences = object : LocalPreferences {
+        override fun supportsDynamicColor(): Boolean = supportsMaterialYou()
+
+        // Android windows are not resizable in the desktop sense.
+        override var windowFrame: WindowFrame?
+            get() = null
+            set(_) = Unit
+
+        override var dataRootOverride: String?
+            get() = AndroidPlatform.sharedPreferences()
+                ?.getString(KEY_DATA_ROOT, null)
+                ?.takeIf { it.isNotBlank() }
+            set(value) {
+                AndroidPlatform.sharedPreferences()?.edit()?.let { editor ->
+                    if (value.isNullOrBlank()) {
+                        editor.remove(KEY_DATA_ROOT)
+                    } else {
+                        editor.putString(KEY_DATA_ROOT, value)
+                    }
+                    editor.apply()
+                }
+            }
+
+        override var settingsSidebarWidth: Float
+            get() = AndroidPlatform.sharedPreferences()
+                ?.getFloat(KEY_SETTINGS_SIDEBAR_WIDTH, 0f) ?: 0f
+            set(value) {
+                AndroidPlatform.sharedPreferences()?.edit()
+                    ?.putFloat(KEY_SETTINGS_SIDEBAR_WIDTH, value)?.apply()
+            }
+
+        override var communitySessionJson: String?
+            get() = AndroidPlatform.sharedPreferences()
+                ?.getString(KEY_COMMUNITY_SESSION, null)
+                ?.takeIf { it.isNotBlank() }
+            set(value) {
+                AndroidPlatform.sharedPreferences()?.edit()?.let { editor ->
+                    if (value.isNullOrBlank()) editor.remove(KEY_COMMUNITY_SESSION)
+                    else editor.putString(KEY_COMMUNITY_SESSION, value)
+                    editor.apply()
+                }
+            }
+
+        override var communityPendingLoginJson: String?
+            get() = AndroidPlatform.sharedPreferences()
+                ?.getString(KEY_COMMUNITY_PENDING, null)
+                ?.takeIf { it.isNotBlank() }
+            set(value) {
+                AndroidPlatform.sharedPreferences()?.edit()?.let { editor ->
+                    if (value.isNullOrBlank()) editor.remove(KEY_COMMUNITY_PENDING)
+                    else editor.putString(KEY_COMMUNITY_PENDING, value)
+                    editor.apply()
+                }
+            }
+    }
+    val logger = object : AppLogger {
+        override fun debug(tag: String, message: String) {
+            android.util.Log.d(tag, message)
+        }
+
+        override fun warn(tag: String, message: String, error: Throwable?) {
+            android.util.Log.w(tag, message, error)
+        }
+
+        override fun error(tag: String, message: String, error: Throwable?) {
+            android.util.Log.e(tag, message, error)
+        }
+    }
     PlatformServices(
         platformName = "android",
         nativeLibrary = object : NativeLibrary {
@@ -177,52 +246,10 @@ private val androidServices: PlatformServices by lazy {
                 manager.setPrimaryClip(ClipData.newPlainText("Fograin", text))
             }
         },
-        preferences = object : LocalPreferences {
-            override fun supportsDynamicColor(): Boolean = supportsMaterialYou()
-
-            // Android windows are not resizable in the desktop sense.
-            override var windowFrame: WindowFrame?
-                get() = null
-                set(_) = Unit
-
-            override var dataRootOverride: String?
-                get() = AndroidPlatform.sharedPreferences()
-                    ?.getString(KEY_DATA_ROOT, null)
-                    ?.takeIf { it.isNotBlank() }
-                set(value) {
-                    AndroidPlatform.sharedPreferences()?.edit()?.let { editor ->
-                        if (value.isNullOrBlank()) {
-                            editor.remove(KEY_DATA_ROOT)
-                        } else {
-                            editor.putString(KEY_DATA_ROOT, value)
-                        }
-                        editor.apply()
-                    }
-                }
-
-            override var settingsSidebarWidth: Float
-                get() = AndroidPlatform.sharedPreferences()
-                    ?.getFloat(KEY_SETTINGS_SIDEBAR_WIDTH, 0f) ?: 0f
-                set(value) {
-                    AndroidPlatform.sharedPreferences()?.edit()
-                        ?.putFloat(KEY_SETTINGS_SIDEBAR_WIDTH, value)?.apply()
-                }
-        },
+        preferences = preferences,
         directories = AndroidDirectoryPicker,
         files = AndroidFilePicker,
-        logger = object : AppLogger {
-            override fun debug(tag: String, message: String) {
-                android.util.Log.d(tag, message)
-            }
-
-            override fun warn(tag: String, message: String, error: Throwable?) {
-                android.util.Log.w(tag, message, error)
-            }
-
-            override fun error(tag: String, message: String, error: Throwable?) {
-                android.util.Log.e(tag, message, error)
-            }
-        },
+        logger = logger,
         appearance = object : SystemAppearance {
             override val supportsDynamicColor: Boolean
                 get() = supportsMaterialYou()
@@ -260,11 +287,14 @@ private val androidServices: PlatformServices by lazy {
         },
         updates = JvmUpdateService,
         links = AndroidSystemLinks,
+        community = JvmCommunityGateway(preferences, logger),
     )
 }
 
 private const val KEY_DATA_ROOT = "storage.dataRoot"
 private const val KEY_SETTINGS_SIDEBAR_WIDTH = "settings.sidebarWidth"
+private const val KEY_COMMUNITY_SESSION = "community.session"
+private const val KEY_COMMUNITY_PENDING = "community.pendingLogin"
 
 private fun supportsMaterialYou(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 

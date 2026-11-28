@@ -3,6 +3,7 @@ package com.fograin.launcher.platform
 import androidx.compose.material3.ColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import com.fograin.launcher.community.JvmCommunityGateway
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 import java.lang.management.ManagementFactory
@@ -23,6 +24,70 @@ private val desktopServices: PlatformServices by lazy {
     // first Compose frame never waits on it; the theme observes the result
     // through DesktopAccent.colorState.
     DesktopAccent.prefetch()
+    val preferences = object : LocalPreferences {
+        private val node: Preferences by lazy {
+            Preferences.userRoot().node("com/fograin/launcher")
+        }
+
+        override fun supportsDynamicColor(): Boolean = DesktopAccent.color() != null
+
+        override var windowFrame: WindowFrame?
+            get() = node.getInt(KEY_WINDOW_WIDTH, 0).takeIf { it > 0 }?.let { width ->
+                WindowFrame(
+                    x = node.getInt(KEY_WINDOW_X, 0),
+                    y = node.getInt(KEY_WINDOW_Y, 0),
+                    width = width,
+                    height = node.getInt(KEY_WINDOW_HEIGHT, 0),
+                    maximized = node.getBoolean(KEY_WINDOW_MAXIMIZED, false),
+                )
+            }
+            set(value) {
+                if (value == null) {
+                    node.remove(KEY_WINDOW_WIDTH)
+                    node.remove(KEY_WINDOW_HEIGHT)
+                    node.remove(KEY_WINDOW_X)
+                    node.remove(KEY_WINDOW_Y)
+                    node.remove(KEY_WINDOW_MAXIMIZED)
+                    return
+                }
+                node.putInt(KEY_WINDOW_X, value.x)
+                node.putInt(KEY_WINDOW_Y, value.y)
+                node.putInt(KEY_WINDOW_WIDTH, value.width)
+                node.putInt(KEY_WINDOW_HEIGHT, value.height)
+                node.putBoolean(KEY_WINDOW_MAXIMIZED, value.maximized)
+            }
+
+        override var dataRootOverride: String?
+            get() = node.get(KEY_DATA_ROOT, null)?.takeIf { it.isNotBlank() }
+            set(value) {
+                if (value.isNullOrBlank()) {
+                    node.remove(KEY_DATA_ROOT)
+                } else {
+                    node.put(KEY_DATA_ROOT, value)
+                }
+            }
+
+        override var settingsSidebarWidth: Float
+            get() = node.getFloat(KEY_SETTINGS_SIDEBAR_WIDTH, 0f)
+            set(value) {
+                node.putFloat(KEY_SETTINGS_SIDEBAR_WIDTH, value)
+            }
+
+        override var communitySessionJson: String?
+            get() = node.get(KEY_COMMUNITY_SESSION, null)?.takeIf { it.isNotBlank() }
+            set(value) {
+                if (value.isNullOrBlank()) node.remove(KEY_COMMUNITY_SESSION)
+                else node.put(KEY_COMMUNITY_SESSION, value)
+            }
+
+        override var communityPendingLoginJson: String?
+            get() = node.get(KEY_COMMUNITY_PENDING, null)?.takeIf { it.isNotBlank() }
+            set(value) {
+                if (value.isNullOrBlank()) node.remove(KEY_COMMUNITY_PENDING)
+                else node.put(KEY_COMMUNITY_PENDING, value)
+            }
+    }
+    val logger = JvmLogger
     PlatformServices(
         platformName = desktopPlatformName(),
         nativeLibrary = object : NativeLibrary {
@@ -48,58 +113,10 @@ private val desktopServices: PlatformServices by lazy {
                 }
             }
         },
-        preferences = object : LocalPreferences {
-            private val node: Preferences by lazy {
-                Preferences.userRoot().node("com/fograin/launcher")
-            }
-
-            override fun supportsDynamicColor(): Boolean = DesktopAccent.color() != null
-
-            override var windowFrame: WindowFrame?
-                get() = node.getInt(KEY_WINDOW_WIDTH, 0).takeIf { it > 0 }?.let { width ->
-                    WindowFrame(
-                        x = node.getInt(KEY_WINDOW_X, 0),
-                        y = node.getInt(KEY_WINDOW_Y, 0),
-                        width = width,
-                        height = node.getInt(KEY_WINDOW_HEIGHT, 0),
-                        maximized = node.getBoolean(KEY_WINDOW_MAXIMIZED, false),
-                    )
-                }
-                set(value) {
-                    if (value == null) {
-                        node.remove(KEY_WINDOW_WIDTH)
-                        node.remove(KEY_WINDOW_HEIGHT)
-                        node.remove(KEY_WINDOW_X)
-                        node.remove(KEY_WINDOW_Y)
-                        node.remove(KEY_WINDOW_MAXIMIZED)
-                        return
-                    }
-                    node.putInt(KEY_WINDOW_X, value.x)
-                    node.putInt(KEY_WINDOW_Y, value.y)
-                    node.putInt(KEY_WINDOW_WIDTH, value.width)
-                    node.putInt(KEY_WINDOW_HEIGHT, value.height)
-                    node.putBoolean(KEY_WINDOW_MAXIMIZED, value.maximized)
-                }
-
-            override var dataRootOverride: String?
-                get() = node.get(KEY_DATA_ROOT, null)?.takeIf { it.isNotBlank() }
-                set(value) {
-                    if (value.isNullOrBlank()) {
-                        node.remove(KEY_DATA_ROOT)
-                    } else {
-                        node.put(KEY_DATA_ROOT, value)
-                    }
-                }
-
-            override var settingsSidebarWidth: Float
-                get() = node.getFloat(KEY_SETTINGS_SIDEBAR_WIDTH, 0f)
-                set(value) {
-                    node.putFloat(KEY_SETTINGS_SIDEBAR_WIDTH, value)
-                }
-        },
+        preferences = preferences,
         directories = DesktopDirectoryPicker,
         files = DesktopFilePicker,
-        logger = JvmLogger,
+        logger = logger,
         appearance = object : SystemAppearance {
             override val supportsDynamicColor: Boolean
                 get() = DesktopAccent.color() != null
@@ -123,6 +140,7 @@ private val desktopServices: PlatformServices by lazy {
         backDispatcher = DesktopBackDispatcher,
         links = DesktopSystemLinks,
         updates = JvmUpdateService,
+        community = JvmCommunityGateway(preferences, logger),
     )
 }
 
@@ -133,6 +151,8 @@ private const val KEY_WINDOW_Y = "window.y"
 private const val KEY_WINDOW_WIDTH = "window.width"
 private const val KEY_WINDOW_HEIGHT = "window.height"
 private const val KEY_WINDOW_MAXIMIZED = "window.maximized"
+private const val KEY_COMMUNITY_SESSION = "community.session"
+private const val KEY_COMMUNITY_PENDING = "community.pendingLogin"
 
 private fun desktopDeviceName(): String {
     val os = System.getProperty("os.name").orEmpty()

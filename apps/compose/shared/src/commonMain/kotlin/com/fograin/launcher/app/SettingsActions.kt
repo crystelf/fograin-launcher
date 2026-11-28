@@ -8,6 +8,7 @@ import com.fograin.launcher.platform.CoreNetworkSettings
 import com.fograin.launcher.platform.decode
 import com.fograin.launcher.settings.AccentPreference
 import com.fograin.launcher.settings.AppLanguage
+import com.fograin.launcher.settings.DefaultDisplayAccount
 import com.fograin.launcher.settings.InitialPage
 import com.fograin.launcher.settings.ThemeMode
 import kotlinx.coroutines.CancellationException
@@ -199,6 +200,7 @@ class SettingsActions(private val model: AppModel) {
                 language = AppLanguage.fromWire(settings.language),
                 accent = AccentPreference.fromWire(settings.accent),
                 initialPage = InitialPage.fromWire(settings.initialPage),
+                defaultDisplayAccount = DefaultDisplayAccount.fromWire(settings.defaultDisplayAccount),
                 settingsWindow = state.settingsWindow.copy(
                     download = settings.download,
                     network = settings.network,
@@ -235,6 +237,12 @@ class SettingsActions(private val model: AppModel) {
         persist(buildJsonObject { put("initialPage", page.wireValue) })
     }
 
+    fun setDefaultDisplayAccount(account: DefaultDisplayAccount) {
+        if (account == model.state.value.defaultDisplayAccount) return
+        model.setState { it.copy(defaultDisplayAccount = account) }
+        persist(buildJsonObject { put("defaultDisplayAccount", account.wireValue) })
+    }
+
     /**
      * Writes one appearance field. The optimistic value stays when the write
      * fails and [SettingsUiState.error] explains why; a later successful save
@@ -254,6 +262,9 @@ class SettingsActions(private val model: AppModel) {
                             language = AppLanguage.fromWire(update.snapshot.language),
                             accent = AccentPreference.fromWire(update.snapshot.accent),
                             initialPage = InitialPage.fromWire(update.snapshot.initialPage),
+                            defaultDisplayAccount = DefaultDisplayAccount.fromWire(
+                                update.snapshot.defaultDisplayAccount,
+                            ),
                             settingsWindow = it.settingsWindow.copy(error = null),
                         )
                     }

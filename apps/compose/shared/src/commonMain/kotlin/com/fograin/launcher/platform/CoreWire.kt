@@ -45,6 +45,8 @@ data class CoreSettings(
     val accent: String = "auto",
     /** `home`, `library` or `downloads`. */
     val initialPage: String = "home",
+    /** `community` or `launcher`; controls the home identity. */
+    val defaultDisplayAccount: String = "community",
     val dataRoot: String = "",
     val configPath: String = "",
     val configError: CoreErrorPayload? = null,
@@ -59,6 +61,7 @@ data class CoreSettings(
             language = "system",
             accent = "auto",
             initialPage = "home",
+            defaultDisplayAccount = "community",
             dataRoot = dataRoot,
             configPath = if (dataRoot.isBlank()) "" else "$dataRoot/launcher.toml",
         )
@@ -137,6 +140,7 @@ data class CoreLauncherSettings(
     val language: String = "system",
     val accent: String = "auto",
     val initialPage: String = "home",
+    val defaultDisplayAccount: String = "community",
     val download: CoreDownloadSettings = CoreDownloadSettings(),
     val network: CoreNetworkSettings = CoreNetworkSettings(),
 )

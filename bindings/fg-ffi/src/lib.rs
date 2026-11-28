@@ -111,6 +111,7 @@ struct SettingsSnapshot {
     language: LanguagePreference,
     accent: String,
     initial_page: InitialPage,
+    default_display_account: fg_core::DisplayAccount,
     data_root: String,
     config_path: String,
     /// Present when `launcher.toml` exists but could not be parsed; the
@@ -138,6 +139,7 @@ impl SettingsSnapshot {
             language: config.appearance.language,
             accent: config.appearance.accent,
             initial_page: config.general.initial_page,
+            default_display_account: config.general.default_display_account,
             data_root: root.display().to_string(),
             config_path: config::config_path(root).display().to_string(),
             config_error,
@@ -536,6 +538,10 @@ mod tests {
         assert_eq!(snapshot.language, LanguagePreference::System);
         assert_eq!(snapshot.accent, "auto");
         assert_eq!(snapshot.initial_page, InitialPage::Home);
+        assert_eq!(
+            snapshot.default_display_account,
+            fg_core::DisplayAccount::Community
+        );
         assert_eq!(snapshot.abi_version, ABI_VERSION);
         assert_eq!(snapshot.platform, Platform::detect().id());
         assert_eq!(snapshot.data_root, root.display().to_string());
@@ -553,6 +559,7 @@ mod tests {
         assert_eq!(json["language"], json!("system"));
         assert_eq!(json["accent"], json!("auto"));
         assert_eq!(json["initialPage"], json!("home"));
+        assert_eq!(json["defaultDisplayAccount"], json!("community"));
         assert_eq!(json["platform"], json!(Platform::detect().id()));
         assert!(json["appVersion"].is_string());
         assert!(json["dataRoot"].is_string());

@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -95,6 +96,7 @@ import org.jetbrains.compose.resources.stringResource
 
 /** Test tag for the top-bar account entry. */
 const val AccountAvatarTag: String = "account-avatar"
+const val HomeSettingsTag: String = "home-settings"
 const val HomeListTag: String = "home-list"
 const val HomeTaskQueueTag: String = "home-task-queue"
 const val HomeOverflowTag: String = "home-overflow"
@@ -115,7 +117,7 @@ fun homeDownloadStopTag(taskId: String): String = "home-download-stop-$taskId"
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(model: AppModel, state: AppUiState) {
-    val account = state.account
+    val profile = state.homeProfile
     val nowMillis = remember { Clock.System.now().toEpochMilliseconds() }
     var menuOpen by remember { mutableStateOf(false) }
 
@@ -124,12 +126,23 @@ fun HomeScreen(model: AppModel, state: AppUiState) {
             title = stringResource(
                 Res.string.home_greeting_format,
                 currentGreeting(),
-                account.displayName,
+                profile.name,
             ),
             actions = {
+                IconButton(
+                    onClick = model::openSettings,
+                    modifier = Modifier.testTag(HomeSettingsTag),
+                ) {
+                    Icon(
+                        Icons.Outlined.Settings,
+                        contentDescription = stringResource(Res.string.settings_title),
+                    )
+                }
                 AccountAvatarButton(
-                    label = stringResource(Res.string.home_account_format, account.displayName),
+                    label = stringResource(Res.string.home_account_format, profile.name),
                     onClick = model.account::open,
+                    avatarUrl = profile.avatarUrl,
+                    isCommunity = profile.isCommunity,
                     modifier = Modifier.testTag(AccountAvatarTag),
                 )
                 Box {

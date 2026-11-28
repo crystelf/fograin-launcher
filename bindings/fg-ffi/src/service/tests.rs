@@ -187,6 +187,7 @@ fn launcher_settings_round_trip() {
         assert_eq!(defaults["language"], json!("system"));
         assert_eq!(defaults["accent"], json!("auto"));
         assert_eq!(defaults["initialPage"], json!("home"));
+        assert_eq!(defaults["defaultDisplayAccount"], json!("community"));
         assert_eq!(defaults["download"]["source"], json!("auto"));
         assert_eq!(defaults["network"]["proxy"], json!("auto"));
 
@@ -198,6 +199,7 @@ fn launcher_settings_round_trip() {
                     "language": "zh-Hant",
                     "accent": "#3f8f6b",
                     "initialPage": "library",
+                    "defaultDisplayAccount": "launcher",
                     "download": { "source": "mirror", "concurrency": 24, "segments": 2 },
                     "network": { "proxy": "socks5://127.0.0.1:1080", "timeoutSecs": 20 }
                 }),
@@ -208,18 +210,30 @@ fn launcher_settings_round_trip() {
         assert_eq!(updated["settings"]["language"], json!("zh-Hant"));
         assert_eq!(updated["settings"]["accent"], json!("#3F8F6B"));
         assert_eq!(updated["settings"]["initialPage"], json!("library"));
+        assert_eq!(
+            updated["settings"]["defaultDisplayAccount"],
+            json!("launcher")
+        );
         assert_eq!(updated["settings"]["download"]["source"], json!("mirror"));
         assert_eq!(updated["settings"]["download"]["concurrency"], json!(24));
         assert_eq!(updated["settings"]["network"]["timeoutSecs"], json!(20));
         assert_eq!(updated["snapshot"]["language"], json!("zh-Hant"));
         assert_eq!(updated["snapshot"]["accent"], json!("#3F8F6B"));
         assert_eq!(updated["snapshot"]["initialPage"], json!("library"));
+        assert_eq!(
+            updated["snapshot"]["defaultDisplayAccount"],
+            json!("launcher")
+        );
 
         let text =
             std::fs::read_to_string(fg_core::config::config_path(dir.path())).expect("config");
         assert!(text.contains("language = \"zh-Hant\""), "{text}");
         assert!(text.contains("accent = \"#3F8F6B\""), "{text}");
         assert!(text.contains("initial_page = \"library\""), "{text}");
+        assert!(
+            text.contains("default_display_account = \"launcher\""),
+            "{text}"
+        );
     });
 }
 

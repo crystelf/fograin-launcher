@@ -188,12 +188,35 @@ impl Default for AppearanceConfig {
     }
 }
 
+/// Which identity the home header prefers (`[general] default_display_account`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DisplayAccount {
+    /// Prefer the Crystelf Lab identity once signed in.
+    #[default]
+    Community,
+    /// Always show the launcher's Minecraft account.
+    Launcher,
+}
+
+impl DisplayAccount {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Community => "community",
+            Self::Launcher => "launcher",
+        }
+    }
+}
+
 /// `[general]` — shell behaviour shared by every platform.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GeneralConfig {
     /// Destination shown after a cold start.
     pub initial_page: InitialPage,
+    /// Identity preference for the home header.
+    pub default_display_account: DisplayAccount,
 }
 
 /// `[game]` — defaults inherited by every instance (§5.2, §8.3).
@@ -579,6 +602,7 @@ mod tests {
         config.appearance.language = LanguagePreference::TraditionalChinese;
         config.appearance.accent = "#3f8f6b".to_string();
         config.general.initial_page = InitialPage::Downloads;
+        config.general.default_display_account = DisplayAccount::Launcher;
 
         write_config(&root, &config).expect("write config");
         let loaded = read_config(&root).expect("read config");
@@ -588,12 +612,20 @@ mod tests {
         );
         assert_eq!(loaded.appearance.accent, "#3F8F6B");
         assert_eq!(loaded.general.initial_page, InitialPage::Downloads);
+        assert_eq!(
+            loaded.general.default_display_account,
+            DisplayAccount::Launcher
+        );
 
         let text = fs::read_to_string(config_path(&root)).expect("read toml");
         assert!(text.contains("language = \"zh-Hant\""), "{text}");
         assert!(text.contains("accent = \"#3F8F6B\""), "{text}");
         assert!(text.contains("[general]"), "{text}");
         assert!(text.contains("initial_page = \"downloads\""), "{text}");
+        assert!(
+            text.contains("default_display_account = \"launcher\""),
+            "{text}"
+        );
 
         fs::remove_dir_all(root).expect("cleanup");
     }
