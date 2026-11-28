@@ -17,6 +17,9 @@ import kotlinx.coroutines.withContext
  */
 internal object AndroidFilePicker : FileBrowser {
     private const val MAX_BYTES = 2L * 1024 * 1024 * 1024
+    private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "webp", "gif", "bmp", "avif")
+    private val VIDEO_EXTENSIONS = setOf("mp4", "mov", "webm", "mkv", "m4v")
+    private val ARCHIVE_EXTENSIONS = setOf("zip", "mrpack", "jar", "mcpack")
 
     override val isAvailable: Boolean
         get() = AndroidPlatform.filePickerLauncher != null
@@ -28,15 +31,10 @@ internal object AndroidFilePicker : FileBrowser {
             AndroidPlatform.setPendingFilePick { picked ->
                 if (continuation.isActive) continuation.resume(picked)
             }
-            // SAF ignores unknown MIME types; zip covers `.mrpack` on most
-            // providers while the octet-stream fallback catches the rest.
-            launch(
-                arrayOf(
-                    "application/zip",
-                    "application/java-archive",
-                    "application/octet-stream",
-                ),
-            )
+            // SAF filters by MIME, not by extension. Map the requested
+            // extensions so the same picker serves modpacks and community
+            // image/video attachments.
+            launch(mimeTypesFor(extensions))
         }
         if (uri == null) {
             AndroidPlatform.setPendingFilePick {}
@@ -95,9 +93,15 @@ internal object AndroidFilePicker : FileBrowser {
         val context = AndroidPlatform.contextOrNull()
             ?: return FilePick.Unavailable("no-context")
         val resolver = context.contentResolver
-        val name = displayName(uri).ifBlank { "import-${System.currentTimeMillis()}.zip" }
-        val directory = File(context.cacheDir, "imports").apply { mkdirs() }
-        val target = File(directory, "import-${System.currentTimeMillis()}-$name")
+        val rawName = displayName(uri).ifBlank { "upload-${System.currentTimeMillis()}" }
+        val name = rawName.replace('/', '_').replace('\\', '_')
+        // One directory per pick keeps the original display name (which the
+        // community uploader uses as the Misskey file name) without collisions.
+        val directory = File(
+            context.cacheDir,
+            "imports/${System.currentTimeMillis()}-${System.nanoTime()}",
+        ).apply { mkdirs() }
+        val target = File(directory, name)
         return try {
             val input = resolver.openInputStream(uri)
                 ?: return FilePick.Unavailable("unreadable-document")
@@ -122,6 +126,20 @@ internal object AndroidFilePicker : FileBrowser {
             target.delete()
             FilePick.Unavailable(error.message ?: "copy-failed")
         }
+    }
+
+    private fun mimeTypesFor(extensions: List<String>): Array<String> {
+        val normalized = extensions.map { it.lowercase() }.toSet()
+        val types = linkedSetOf<String>()
+        if (normalized.any { it in IMAGE_EXTENSIONS }) types += "image/*"
+        if (normalized.any { it in VIDEO_EXTENSIONS }) types += "video/*"
+        if (normalized.any { it in ARCHIVE_EXTENSIONS }) {
+            types += "application/zip"
+            types += "application/java-archive"
+            types += "application/octet-stream"
+        }
+        if (types.isEmpty()) types += "*/*"
+        return types.toTypedArray()
     }
 
     private fun displayName(uri: Uri): String {

@@ -48,6 +48,17 @@ internal object AndroidSystemLinks : SystemLinks {
         context.startActivity(intent)
         true
     }.getOrDefault(false)
+
+    override fun share(text: String): Boolean = runCatching {
+        val context = AndroidPlatform.contextOrNull() ?: return false
+        val send = Intent(Intent.ACTION_SEND)
+            .setType("text/plain")
+            .putExtra(Intent.EXTRA_TEXT, text)
+        val chooser = Intent.createChooser(send, null)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(chooser)
+        true
+    }.getOrDefault(false)
 }
 
 actual fun resizeHorizontalPointerIcon(): PointerIcon = PointerIcon.Default

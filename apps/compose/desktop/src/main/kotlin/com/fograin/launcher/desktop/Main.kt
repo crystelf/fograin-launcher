@@ -685,6 +685,7 @@ private data class MenuStrings(
     val home: String,
     val library: String,
     val downloads: String,
+    val community: String,
     val settingsTitle: String,
     val windowMinimize: String,
     val windowMaximize: String,
@@ -699,7 +700,7 @@ private fun menuStrings(language: AppLanguage): MenuStrings =
             newInstance = "新增實例", importMc = "匯入 .minecraft 目錄…",
             settings = "設定…", quit = "結束", globalSearch = "全域搜尋",
             toggleTheme = "切換主題", home = "首頁", library = "實例",
-            downloads = "下載", settingsTitle = "設定",
+            downloads = "下載", community = "社群", settingsTitle = "設定",
             windowMinimize = "最小化", windowMaximize = "最大化",
             windowRestore = "還原", windowClose = "關閉視窗",
         )
@@ -709,7 +710,7 @@ private fun menuStrings(language: AppLanguage): MenuStrings =
             newInstance = "新しいインスタンス", importMc = ".minecraft フォルダーをインポート…",
             settings = "設定…", quit = "終了", globalSearch = "全体検索",
             toggleTheme = "テーマを切り替え", home = "ホーム", library = "インスタンス",
-            downloads = "ダウンロード", settingsTitle = "設定",
+            downloads = "ダウンロード", community = "コミュニティ", settingsTitle = "設定",
             windowMinimize = "最小化", windowMaximize = "最大化",
             windowRestore = "元に戻す", windowClose = "ウィンドウを閉じる",
         )
@@ -719,7 +720,7 @@ private fun menuStrings(language: AppLanguage): MenuStrings =
             newInstance = "New instance", importMc = "Import .minecraft folder…",
             settings = "Settings…", quit = "Quit", globalSearch = "Global search",
             toggleTheme = "Toggle theme", home = "Home", library = "Instances",
-            downloads = "Downloads", settingsTitle = "Settings",
+            downloads = "Downloads", community = "Community", settingsTitle = "Settings",
             windowMinimize = "Minimize", windowMaximize = "Maximize",
             windowRestore = "Restore", windowClose = "Close window",
         )
@@ -729,7 +730,7 @@ private fun menuStrings(language: AppLanguage): MenuStrings =
             newInstance = "新建实例", importMc = "导入 .minecraft 目录…",
             settings = "设置…", quit = "退出", globalSearch = "全局搜索",
             toggleTheme = "切换主题", home = "主页", library = "实例",
-            downloads = "下载", settingsTitle = "设置",
+            downloads = "下载", community = "社区", settingsTitle = "设置",
             windowMinimize = "最小化", windowMaximize = "最大化",
             windowRestore = "还原", windowClose = "关闭窗口",
         )
@@ -756,7 +757,7 @@ private fun menuLabel(destination: AppDestination, labels: MenuStrings): String 
         AppDestination.HOME -> labels.home
         AppDestination.LIBRARY -> labels.library
         AppDestination.DOWNLOADS -> labels.downloads
-        AppDestination.SETTINGS -> labels.settingsTitle
+        AppDestination.COMMUNITY -> labels.community
     }
 
 /**

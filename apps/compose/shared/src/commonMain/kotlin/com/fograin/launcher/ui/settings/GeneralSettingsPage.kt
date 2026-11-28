@@ -23,7 +23,11 @@ import com.fograin.launcher.resources.settings_auto_complete
 import com.fograin.launcher.resources.settings_auto_complete_desc
 import com.fograin.launcher.resources.settings_fullscreen
 import com.fograin.launcher.resources.settings_fullscreen_desc
+import com.fograin.launcher.resources.settings_display_account
+import com.fograin.launcher.resources.settings_display_account_desc
+import com.fograin.launcher.resources.settings_display_account_unlogged
 import com.fograin.launcher.resources.settings_general_subtitle
+import com.fograin.launcher.resources.settings_group_account
 import com.fograin.launcher.resources.settings_group_game
 import com.fograin.launcher.resources.settings_group_java
 import com.fograin.launcher.resources.settings_group_startup
@@ -47,6 +51,7 @@ import com.fograin.launcher.resources.settings_resolution_value
 import com.fograin.launcher.resources.settings_show_log
 import com.fograin.launcher.resources.settings_show_log_desc
 import com.fograin.launcher.resources.summary_memory_auto
+import com.fograin.launcher.settings.DefaultDisplayAccount
 import com.fograin.launcher.settings.InitialPage
 import com.fograin.launcher.ui.deviceMemoryText
 import kotlin.math.max
@@ -55,6 +60,7 @@ import kotlin.math.roundToInt
 import org.jetbrains.compose.resources.stringResource
 
 const val SettingsInitialPageRowTag = "settings-initial-page-row"
+const val SettingsDisplayAccountTag = "settings-display-account-row"
 const val SettingsMemoryAutoTag = "settings-memory-auto"
 const val SettingsMemorySliderTag = "settings-memory-slider"
 const val SettingsJvmArgsTag = "settings-jvm-args"
@@ -114,6 +120,28 @@ internal fun GeneralSettingsPage(
                     page.title() to { model.settings.setInitialPage(page) }
                 },
                 testTag = SettingsInitialPageRowTag,
+            )
+            SettingsDivider()
+        }
+
+        item { SettingsGroupHeader(stringResource(Res.string.settings_group_account)) }
+        item {
+            val communityUnlogged = !state.community.isLoggedIn &&
+                state.defaultDisplayAccount == DefaultDisplayAccount.COMMUNITY
+            SettingsChoiceRow(
+                title = stringResource(Res.string.settings_display_account),
+                subtitle = buildString {
+                    append(stringResource(Res.string.settings_display_account_desc))
+                    if (communityUnlogged) {
+                        append(' ')
+                        append(stringResource(Res.string.settings_display_account_unlogged))
+                    }
+                },
+                value = state.defaultDisplayAccount.title(),
+                options = DefaultDisplayAccount.entries.map { option ->
+                    option.title() to { model.settings.setDefaultDisplayAccount(option) }
+                },
+                testTag = SettingsDisplayAccountTag,
             )
             SettingsDivider()
         }

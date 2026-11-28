@@ -15,8 +15,8 @@ pub mod process;
 pub mod util;
 
 pub use config::{
-    DownloadConfig, DownloadSource, GameConfig, GeneralConfig, InitialPage, JavaConfig,
-    LanguagePreference, LauncherConfig, NetworkConfig, ResolvedTheme, ThemePreference,
+    DisplayAccount, DownloadConfig, DownloadSource, GameConfig, GeneralConfig, InitialPage,
+    JavaConfig, LanguagePreference, LauncherConfig, NetworkConfig, ResolvedTheme, ThemePreference,
     normalize_accent,
 };
 pub use error::{Error, ErrorKind, Result};

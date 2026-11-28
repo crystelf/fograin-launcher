@@ -26,6 +26,7 @@ import com.fograin.launcher.platform.platformServices
 import com.fograin.launcher.platform.resultRows
 import com.fograin.launcher.settings.AccentPreference
 import com.fograin.launcher.settings.AppLanguage
+import com.fograin.launcher.settings.DefaultDisplayAccount
 import com.fograin.launcher.settings.InitialPage
 import com.fograin.launcher.settings.ThemeMode
 import com.fograin.launcher.ui.AppDestination
@@ -82,6 +83,7 @@ class AppModel internal constructor(
     val instanceSettings = InstanceSettingsActions(this)
     val java = JavaActions(this)
     val account = AccountActions(this)
+    val community = CommunityActions(this)
     val content = ContentManagerActions(this)
     val contentBrowser = ContentBrowserActions(this)
     val diag = DiagActions(this)
@@ -116,6 +118,7 @@ class AppModel internal constructor(
                 language = AppLanguage.fromWire(snapshot.language),
                 accent = AccentPreference.fromWire(snapshot.accent),
                 initialPage = initialPage,
+                defaultDisplayAccount = DefaultDisplayAccount.fromWire(snapshot.defaultDisplayAccount),
                 destination = when (initialPage) {
                     InitialPage.HOME -> AppDestination.HOME
                     InitialPage.LIBRARY -> AppDestination.LIBRARY
@@ -133,6 +136,7 @@ class AppModel internal constructor(
         // Warm the download/network settings so opening Settings does not pop
         // a loading spinner in the middle of the entrance animation.
         scope.launch { settings.load() }
+        scope.launch { community.restore() }
         startEventPump()
 
         core.initError?.let { showNotice(it, Notice.Tone.WARNING) }
@@ -388,11 +392,8 @@ class AppModel internal constructor(
     // ------------------------------------------------------------------
 
     fun navigate(destination: AppDestination) {
-        // Settings is an in-window destination rendered by App, not a fifth
-        // shell page. Route the rail/menu/shortcut entry point there.
-        if (destination == AppDestination.SETTINGS) {
-            openSettings()
-            return
+        if (destination != AppDestination.COMMUNITY) {
+            community.discardDraftAttachments()
         }
         _state.update {
             it.copy(
@@ -400,6 +401,20 @@ class AppModel internal constructor(
                 // The queue behaves like any other in-shell page: picking a
                 // destination leaves it before the page transition runs.
                 downloadQueueOpen = false,
+                // Community detail/composer belong to the destination; leaving
+                // it returns the next visit to the feed.
+                community = if (destination == AppDestination.COMMUNITY) {
+                    it.community
+                } else {
+                    it.community.copy(
+                        selectedNote = null,
+                        replies = emptyList(),
+                        detailLoading = false,
+                        detailError = null,
+                        profile = CommunityProfileUiState(),
+                        composer = CommunityComposerUiState(),
+                    )
+                },
                 // Library sub-pages are not tabs of their own: leaving the
                 // destination returns the next visit to the instance list.
                 libraryStage = if (destination == AppDestination.LIBRARY) {
@@ -421,7 +436,11 @@ class AppModel internal constructor(
         ALERT,
         MODPACK_IMPORT,
         SETTINGS,
+        COMMUNITY_LOGIN,
         ACCOUNT,
+        COMMUNITY_COMPOSER,
+        COMMUNITY_NOTE,
+        COMMUNITY_PROFILE,
         QUEUE,
         CONTENT_PROJECT,
         SEARCH,
@@ -442,7 +461,11 @@ class AppModel internal constructor(
             current.alert != null -> BackStep.ALERT
             current.modpack.pack != null -> BackStep.MODPACK_IMPORT
             current.settingsWindow.open -> BackStep.SETTINGS
+            current.community.login.open -> BackStep.COMMUNITY_LOGIN
             current.account.open -> BackStep.ACCOUNT
+            current.community.composer.open -> BackStep.COMMUNITY_COMPOSER
+            current.community.selectedNote != null -> BackStep.COMMUNITY_NOTE
+            current.community.profile.user != null -> BackStep.COMMUNITY_PROFILE
             current.downloadQueueOpen -> BackStep.QUEUE
             current.contentBrowser.selectedProject != null -> BackStep.CONTENT_PROJECT
             current.globalSearchOpen -> BackStep.SEARCH
@@ -471,7 +494,11 @@ class AppModel internal constructor(
             BackStep.ALERT -> dismissAlert()
             BackStep.MODPACK_IMPORT -> modpack.dismiss()
             BackStep.SETTINGS -> settings.back()
+            BackStep.COMMUNITY_LOGIN -> community.cancelLogin()
             BackStep.ACCOUNT -> account.back()
+            BackStep.COMMUNITY_COMPOSER -> community.closeComposer()
+            BackStep.COMMUNITY_NOTE -> community.closeNote()
+            BackStep.COMMUNITY_PROFILE -> community.closeUserProfile()
             BackStep.QUEUE -> downloads.closeQueue()
             BackStep.CONTENT_PROJECT -> contentBrowser.closeProject()
             BackStep.SEARCH -> closeGlobalSearch()

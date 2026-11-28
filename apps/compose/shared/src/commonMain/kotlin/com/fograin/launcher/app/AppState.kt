@@ -7,6 +7,16 @@ import com.fograin.launcher.model.GameLoaderKind
 import com.fograin.launcher.model.Instance
 import com.fograin.launcher.model.LibraryScope
 import com.fograin.launcher.model.LibrarySort
+import com.fograin.launcher.community.CommunityAccount
+import com.fograin.launcher.community.CommunityFailure
+import com.fograin.launcher.community.CommunityMeta
+import com.fograin.launcher.community.CommunityNote
+import com.fograin.launcher.community.CommunityReactionAcceptance
+import com.fograin.launcher.community.CommunityStats
+import com.fograin.launcher.community.CommunityTab
+import com.fograin.launcher.community.CommunityUser
+import com.fograin.launcher.community.CommunityVisibility
+import com.fograin.launcher.community.LocalAttachment
 import com.fograin.launcher.model.TaskState
 import com.fograin.launcher.platform.CoreAccount
 import com.fograin.launcher.platform.CoreAppSnapshot
@@ -38,6 +48,7 @@ import com.fograin.launcher.platform.CoreWorldBackup
 import com.fograin.launcher.platform.CoreYggdrasilProfile
 import com.fograin.launcher.settings.AccentPreference
 import com.fograin.launcher.settings.AppLanguage
+import com.fograin.launcher.settings.DefaultDisplayAccount
 import com.fograin.launcher.settings.InitialPage
 import com.fograin.launcher.settings.ThemeMode
 import com.fograin.launcher.ui.AppDestination
@@ -503,6 +514,154 @@ data class UpdateUiState(
         get() = available?.takeIf { !dismissed }
 }
 
+/** Session validation state; the cached account survives offline periods. */
+enum class CommunitySessionState {
+    LOGGED_OUT,
+    VALIDATING,
+    LOGGED_IN,
+    EXPIRED,
+    OFFLINE,
+}
+
+/** One feed tab, cached independently so switching tabs stays instant. */
+data class CommunityFeed(
+    val notes: List<CommunityNote> = emptyList(),
+    val isLoading: Boolean = false,
+    val isLoadingMore: Boolean = false,
+    val endReached: Boolean = false,
+    val error: CommunityFailure? = null,
+    val lastLoadedAt: Long = 0,
+)
+
+/** MiAuth dialog state. The UUID/token never reach the public UI state. */
+data class CommunityLoginUiState(
+    val open: Boolean = false,
+    val waiting: Boolean = false,
+    val copied: Boolean = false,
+    val error: CommunityFailure? = null,
+    val expiresAtEpochMillis: Long = 0,
+)
+
+/** Composer state, including mention suggestions and local attachments. */
+data class CommunityComposerUiState(
+    val open: Boolean = false,
+    val text: String = "",
+    val selection: Int = 0,
+    val preview: Boolean = false,
+    val visibility: CommunityVisibility = CommunityVisibility.PUBLIC,
+    val cwEnabled: Boolean = false,
+    val cw: String = "",
+    val attachments: List<LocalAttachment> = emptyList(),
+    val sensitiveAttachments: Boolean = false,
+    val replyTo: CommunityNote? = null,
+    /** A note being quoted; publishing sends its id as `renoteId`. */
+    val quotedNote: CommunityNote? = null,
+    val hashtagsEnabled: Boolean = false,
+    val hashtags: String = "",
+    val pollEnabled: Boolean = false,
+    val pollChoices: List<String> = listOf("", ""),
+    val pollMultiple: Boolean = false,
+    /** Null means the poll never expires. */
+    val pollExpiresInHours: Int? = 24,
+    val reactionAcceptance: CommunityReactionAcceptance = CommunityReactionAcceptance.ALL,
+    val scheduledAtEpochMillis: Long? = null,
+    val isPosting: Boolean = false,
+    val uploadProgress: String? = null,
+    val error: CommunityFailure? = null,
+    val mentionQuery: String? = null,
+    val mentionSuggestions: List<CommunityUser> = emptyList(),
+    val mentionsLoading: Boolean = false,
+    val mentionPickerOpen: Boolean = false,
+    val mentionPickerQuery: String = "",
+    val mentionPickerResults: List<CommunityUser> = emptyList(),
+    val mentionPickerLoading: Boolean = false,
+) {
+    val trimmedText: String get() = text.trim()
+
+    /** Hashtags are normalized and appended to the note body like Misskey. */
+    val normalizedHashtags: String
+        get() = if (!hashtagsEnabled) {
+            ""
+        } else {
+            hashtags
+                .split(' ', '\n', '\t', '　', '，', '、', ',')
+                .map { it.trim().removePrefix("#") }
+                .filter { it.isNotBlank() }
+                .joinToString(" ") { "#$it" }
+        }
+
+    val publishText: String
+        get() {
+            val tags = normalizedHashtags
+            return when {
+                tags.isEmpty() -> trimmedText
+                trimmedText.isEmpty() -> tags
+                else -> "$trimmedText\n\n$tags"
+            }
+        }
+
+    val pollChoicesValid: Boolean
+        get() {
+            if (!pollEnabled) return false
+            val choices = pollChoices.map { it.trim() }.filter { it.isNotEmpty() }
+            return choices.size >= 2 && choices.distinct().size == choices.size
+        }
+
+    val hasPayload: Boolean
+        get() = publishText.isNotEmpty() ||
+            attachments.isNotEmpty() ||
+            pollChoicesValid
+}
+
+/** Detailed Misskey user page shown after tapping an avatar or display name. */
+data class CommunityProfileUiState(
+    val user: CommunityUser? = null,
+    val notes: List<CommunityNote> = emptyList(),
+    val isLoading: Boolean = false,
+    val error: CommunityFailure? = null,
+    val followBusy: Boolean = false,
+)
+
+/** Everything the community destination renders. */
+data class CommunityUiState(
+    val account: CommunityAccount? = null,
+    val sessionState: CommunitySessionState = CommunitySessionState.LOGGED_OUT,
+    val meta: CommunityMeta? = null,
+    val stats: CommunityStats? = null,
+    val tab: CommunityTab = CommunityTab.LOCAL,
+    val feeds: Map<CommunityTab, CommunityFeed> = emptyMap(),
+    val selectedNote: CommunityNote? = null,
+    val replies: List<CommunityNote> = emptyList(),
+    val detailLoading: Boolean = false,
+    val detailError: CommunityFailure? = null,
+    val composer: CommunityComposerUiState = CommunityComposerUiState(),
+    val login: CommunityLoginUiState = CommunityLoginUiState(),
+    val reactingNoteIds: Set<String> = emptySet(),
+    val votingPollNoteIds: Set<String> = emptySet(),
+    val deletingNoteIds: Set<String> = emptySet(),
+    /** Most recently used reactions, shown first in the picker. */
+    val recentReactions: List<String> = emptyList(),
+    val profile: CommunityProfileUiState = CommunityProfileUiState(),
+    val savingMediaIds: Set<String> = emptySet(),
+) {
+    val isLoggedIn: Boolean
+        get() = account != null && sessionState != CommunitySessionState.LOGGED_OUT &&
+            sessionState != CommunitySessionState.EXPIRED
+
+    val feed: CommunityFeed
+        get() = feeds[tab] ?: CommunityFeed()
+
+    val canPost: Boolean
+        get() = isLoggedIn && meta?.features?.miauth != false
+}
+
+/** The identity shown by the home header. */
+data class HomeProfile(
+    val name: String,
+    val avatarUrl: String?,
+    val isCommunity: Boolean,
+)
+
 /** Everything the Compose shell renders. */
 data class AppUiState(
     val settings: CoreSettings,
@@ -513,6 +672,7 @@ data class AppUiState(
     val accent: AccentPreference = AccentPreference.Auto,
     /** Destination opened after a cold start. */
     val initialPage: InitialPage = InitialPage.HOME,
+    val defaultDisplayAccount: DefaultDisplayAccount = DefaultDisplayAccount.COMMUNITY,
     val destination: AppDestination = AppDestination.HOME,
     val settingsWindow: SettingsUiState = SettingsUiState(),
     val instances: List<Instance> = emptyList(),
@@ -541,6 +701,7 @@ data class AppUiState(
     val download: DownloadUiState = DownloadUiState(),
     val java: JavaUiState = JavaUiState(),
     val account: AccountUiState = AccountUiState(),
+    val community: CommunityUiState = CommunityUiState(),
     val content: ContentManagerUiState = ContentManagerUiState(),
     val contentBrowser: ContentBrowserUiState = ContentBrowserUiState(),
     val diag: DiagUiState = DiagUiState(),
@@ -561,6 +722,28 @@ data class AppUiState(
 ) {
     val currentInstance: Instance?
         get() = instances.firstOrNull { it.id == currentInstanceId } ?: instances.firstOrNull()
+
+    /**
+     * Effective home identity. Community wins only when the user selected it
+     * and a session exists; any expired/logged-out state falls back to the
+     * launcher's selected Minecraft account.
+     */
+    val homeProfile: HomeProfile
+        get() {
+            val user = community.account?.user
+            val useCommunity = user != null &&
+                defaultDisplayAccount == DefaultDisplayAccount.COMMUNITY &&
+                community.sessionState != CommunitySessionState.EXPIRED
+            return if (useCommunity) {
+                HomeProfile(
+                    name = user.name?.takeIf { it.isNotBlank() } ?: user.username,
+                    avatarUrl = user.avatarUrl.takeIf { it.isNotBlank() },
+                    isCommunity = true,
+                )
+            } else {
+                HomeProfile(name = account.displayName, avatarUrl = null, isCommunity = false)
+            }
+        }
 
     val libraryDetailInstance: Instance?
         get() = libraryDetailId?.let { id -> instances.firstOrNull { it.id == id } }

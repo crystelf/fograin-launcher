@@ -43,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -54,6 +55,7 @@ import com.fograin.launcher.app.AppModel
 import com.fograin.launcher.app.AppUiState
 import com.fograin.launcher.platform.CoreAccount
 import com.fograin.launcher.resources.*
+import com.fograin.launcher.resources.community_account_section
 import com.fograin.launcher.ui.components.SteveAvatar
 import org.jetbrains.compose.resources.stringResource
 
@@ -217,6 +219,21 @@ private fun AccountListStage(
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 
+    Text(
+        text = stringResource(Res.string.community_account_section),
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 2.dp),
+    )
+    CommunityAccountCard(model = model, state = state)
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+    Text(
+        text = stringResource(Res.string.account_game_section),
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 2.dp),
+    )
     if (account.accounts.isEmpty() && !account.isLoading) {
         Text(
             text = stringResource(Res.string.account_empty),
@@ -264,18 +281,17 @@ private fun AccountRow(model: AppModel, account: CoreAccount, onDelete: () -> Un
             .fillMaxWidth()
             .testTag(accountRowTag(account.id)),
         shape = MaterialTheme.shapes.medium,
-        color = if (selected) {
-            MaterialTheme.colorScheme.secondaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerHigh
-        },
+        // The identity list uses one visual language: no row is highlighted
+        // with a filled background. Selection is communicated by the avatar
+        // ring and the check glyph.
+        color = Color.Transparent,
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            SteveAvatar(size = 36.dp, selected = selected)
+            SteveAvatar(size = 36.dp)
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = account.name,

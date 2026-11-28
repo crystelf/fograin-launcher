@@ -2,6 +2,7 @@ package com.fograin.launcher.platform
 
 import androidx.compose.material3.ColorScheme
 import androidx.compose.runtime.Composable
+import com.fograin.launcher.community.CommunityGateway
 
 /**
  * Process-wide values the platform shell installs before the first core call.
@@ -81,6 +82,15 @@ interface LocalPreferences {
 
     /** Width of the settings category sidebar in dp; `0` uses the default. */
     var settingsSidebarWidth: Float
+
+    /**
+     * Serialized Crystelf Lab session, including its token. Platform storage
+     * is app-private; it never enters `launcher.toml` or diagnostics.
+     */
+    var communitySessionJson: String?
+
+    /** Serialized MiAuth session waiting for browser approval. */
+    var communityPendingLoginJson: String?
 }
 
 /** A directory row returned by [DirectoryBrowser]. Paths stay absolute strings. */
@@ -218,6 +228,12 @@ interface SystemLinks {
     fun revealDirectory(path: String): Boolean
 
     fun openUrl(url: String): Boolean
+
+    /**
+     * Opens the host share sheet when one exists. Returns false on desktop and
+     * in tests so the community layer can fall back to copying the link.
+     */
+    fun share(text: String): Boolean = false
 }
 
 /** Everything the shared UI needs from the host, provided once per process. */
@@ -239,6 +255,8 @@ data class PlatformServices(
      * no-op so tests and headless tools never touch the network.
      */
     val updates: UpdateService = UpdateService.Disabled,
+    /** Crystelf Lab community API/session gateway; disabled in tests. */
+    val community: CommunityGateway = CommunityGateway.Disabled,
 )
 
 /**

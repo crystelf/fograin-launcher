@@ -53,6 +53,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
@@ -94,6 +95,21 @@ const val PageHeaderBackTag: String = "page-header-back"
  * page becomes a full-width phone layout.
  */
 val LocalPageHeaderTopInset = staticCompositionLocalOf { 0.dp }
+
+/**
+ * Colour of the shell's content panel behind an in-destination page.
+ *
+ * Pages that paint their own full-bleed content (the community profile, note
+ * detail) need this to stay opaque while the page transition runs over another
+ * page. Unspecified means the page should use the theme surface.
+ */
+val LocalPageSurfaceColor = staticCompositionLocalOf { Color.Unspecified }
+
+/** Resolves the shell panel colour, falling back to the theme surface. */
+@Composable
+fun pageSurfaceColor(): Color =
+    LocalPageSurfaceColor.current.takeIf { it != Color.Unspecified }
+        ?: MaterialTheme.colorScheme.surface
 
 object PageHeaderMetrics {
     /** Desktop title-bar row; also the draggable strip on macOS and Windows. */

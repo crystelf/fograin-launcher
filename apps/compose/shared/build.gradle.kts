@@ -52,6 +52,11 @@ kotlin {
         implementation(libs.kotlinx.serialization.json)
         implementation(libs.kotlinx.datetime)
         implementation(libs.coil.compose)
+        // Community video: native platform players (AVPlayer on macOS, Media
+        // Foundation on Windows, GStreamer on Linux, Media3 on Android) driven
+        // from Compose. Replaces the JavaFX MediaView, which could not render
+        // a reliable first frame or replay without flashing white.
+        implementation(libs.composemediaplayer)
     }
 
     sourceSets.commonTest.dependencies {
@@ -69,6 +74,7 @@ kotlin {
     // Coil's OkHttp network fetcher is JVM-only; `jvmMain` covers Android and desktop.
     sourceSets.getByName("jvmMain").dependencies {
         implementation(libs.coil.network.okhttp)
+        implementation(libs.okhttp)
     }
 
     sourceSets.getByName("desktopMain").dependencies {

@@ -34,6 +34,10 @@ impl Service {
                 "initialPage" => {
                     config.general.initial_page = parse_initial_page(&as_string(value))?;
                 }
+                "defaultDisplayAccount" => {
+                    config.general.default_display_account =
+                        parse_display_account(&as_string(value))?;
+                }
                 "download" => apply_download_settings(&mut config.download, value)?,
                 "network" => apply_network_settings(&mut config.network, value)?,
                 other => {
